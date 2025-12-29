@@ -63,3 +63,8 @@ export async function executeSql(
   return await invoke("execute_sql", { connectionId, sql });
 }
 
+// List databases command
+export async function listDatabases(connectionId: string): Promise<string[]> {
+  return await invoke("list_databases", { connectionId });
+}
+

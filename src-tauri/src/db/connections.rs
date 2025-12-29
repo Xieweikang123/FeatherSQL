@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use std::fs;
 use std::path::PathBuf;
+use sqlx::Row;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {
@@ -28,6 +29,15 @@ pub enum ConnectionConfig {
     },
     #[serde(rename = "postgres")]
     Postgres {
+        host: String,
+        port: u16,
+        user: String,
+        password: String,
+        database: Option<String>,
+        ssl: bool,
+    },
+    #[serde(rename = "mssql")]
+    Mssql {
         host: String,
         port: u16,
         user: String,
@@ -219,6 +229,15 @@ pub async fn update_connection(
                     let ssl = new_config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
                     ConnectionConfig::Postgres { host, port, user, password, database, ssl }
                 }
+                "mssql" => {
+                    let host = new_config.get("host").and_then(|v| v.as_str()).unwrap_or("localhost").to_string();
+                    let port = new_config.get("port").and_then(|v| v.as_u64()).unwrap_or(1433) as u16;
+                    let user = new_config.get("user").and_then(|v| v.as_str()).unwrap_or("sa").to_string();
+                    let password = new_config.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let database = new_config.get("database").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let ssl = new_config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
+                    ConnectionConfig::Mssql { host, port, user, password, database, ssl }
+                }
                 _ => return Err("Unsupported database type".to_string()),
             };
             conn.config = connection_config;
@@ -280,6 +299,21 @@ fn get_connection_string_for_test(config: &ConnectionConfig) -> Result<String, S
             Ok(format!(
                 "postgres://{}:{}@{}:{}{}{}",
                 user, password, host, port, db_part, ssl_param
+            ))
+        }
+        ConnectionConfig::Mssql {
+            host,
+            port,
+            user,
+            password,
+            database,
+            ssl: _,
+        } => {
+            // Note: tiberius doesn't use connection strings, but we'll format it for reference
+            let db_part = database.as_ref().map(|d| format!(";database={}", d)).unwrap_or_default();
+            Ok(format!(
+                "mssql://{}:{}@{}:{}{}",
+                user, password, host, port, db_part
             ))
         }
     }
@@ -367,14 +401,47 @@ pub async fn test_connection(
                 ssl,
             }
         }
+        "mssql" => {
+            let host = config
+                .get("host")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing host for MSSQL connection")?
+                .to_string();
+            let port = config
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .ok_or("Missing port for MSSQL connection")? as u16;
+            let user = config
+                .get("user")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing user for MSSQL connection")?
+                .to_string();
+            let password = config
+                .get("password")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing password for MSSQL connection")?
+                .to_string();
+            let database = config
+                .get("database")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let ssl = config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
+            ConnectionConfig::Mssql {
+                host,
+                port,
+                user,
+                password,
+                database,
+                ssl,
+            }
+        }
         _ => return Err(format!("Unsupported database type: {}", db_type)),
     };
-
-    let connection_string = get_connection_string_for_test(&connection_config)?;
 
     // Test the connection
     match db_type.as_str() {
         "sqlite" => {
+            let connection_string = get_connection_string_for_test(&connection_config)?;
             // For SQLite, we just check if the file exists (already done above)
             // Try to open the database to verify it's valid
             match sqlx::sqlite::SqlitePoolOptions::new()
@@ -387,6 +454,7 @@ pub async fn test_connection(
             }
         }
         "mysql" => {
+            let connection_string = get_connection_string_for_test(&connection_config)?;
             match sqlx::mysql::MySqlPoolOptions::new()
                 .max_connections(1)
                 .connect(&connection_string)
@@ -409,6 +477,7 @@ pub async fn test_connection(
             }
         }
         "postgres" => {
+            let connection_string = get_connection_string_for_test(&connection_config)?;
             match sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
                 .connect(&connection_string)
@@ -430,7 +499,117 @@ pub async fn test_connection(
                 Err(e) => Err(format!("PostgreSQL 连接失败: {}", e)),
             }
         }
+        "mssql" => {
+            // MSSQL support is not fully implemented yet
+            // TODO: Fix tiberius 0.12 API usage
+            Err("MSSQL 连接测试暂未实现".to_string())
+        }
         _ => Err("Unsupported database type".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn list_databases(
+    connection_id: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<String>, String> {
+    let connections = load_connections(&app);
+    let connection = connections
+        .into_iter()
+        .find(|c| c.id == connection_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    // For SQLite, return empty list as it's a file-based database
+    if connection.db_type == "sqlite" {
+        return Ok(vec![]);
+    }
+
+    // Create connection string without database name for MySQL/PostgreSQL
+    let connection_string = match &connection.config {
+        ConnectionConfig::Mysql {
+            host,
+            port,
+            user,
+            password,
+            ssl,
+            ..
+        } => {
+            let ssl_param = if *ssl { "?ssl-mode=REQUIRED" } else { "?ssl-mode=DISABLED" };
+            format!(
+                "mysql://{}:{}@{}:{}{}",
+                user, password, host, port, ssl_param
+            )
+        }
+        ConnectionConfig::Postgres {
+            host,
+            port,
+            user,
+            password,
+            ssl,
+            ..
+        } => {
+            let ssl_param = if *ssl { "?sslmode=require" } else { "?sslmode=disable" };
+            format!(
+                "postgres://{}:{}@{}:{}{}",
+                user, password, host, port, ssl_param
+            )
+        }
+        _ => return Ok(vec![]),
+    };
+
+    // Connect and query databases
+    match connection.db_type.as_str() {
+        "mysql" => {
+            match sqlx::mysql::MySqlPoolOptions::new()
+                .max_connections(1)
+                .connect(&connection_string)
+                .await
+            {
+                Ok(pool) => {
+                    let result = sqlx::query("SHOW DATABASES")
+                        .fetch_all(&pool)
+                        .await
+                        .map_err(|e| format!("Failed to list databases: {}", e))?;
+                    
+                    let databases: Vec<String> = result
+                        .into_iter()
+                        .map(|row| {
+                            row.get::<String, _>(0)
+                        })
+                        .collect();
+                    
+                    drop(pool);
+                    Ok(databases)
+                }
+                Err(e) => Err(format!("Failed to connect: {}", e)),
+            }
+        }
+        "postgres" => {
+            match sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&connection_string)
+                .await
+            {
+                Ok(pool) => {
+                    let result = sqlx::query("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname")
+                        .fetch_all(&pool)
+                        .await
+                        .map_err(|e| format!("Failed to list databases: {}", e))?;
+                    
+                    let databases: Vec<String> = result
+                        .into_iter()
+                        .map(|row| {
+                            row.get::<String, _>(0)
+                        })
+                        .collect();
+                    
+                    drop(pool);
+                    Ok(databases)
+                }
+                Err(e) => Err(format!("Failed to connect: {}", e)),
+            }
+        }
+        _ => Ok(vec![]),
     }
 }
 

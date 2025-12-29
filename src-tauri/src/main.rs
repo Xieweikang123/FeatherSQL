@@ -4,7 +4,7 @@
 mod db;
 mod error;
 
-use crate::db::connections::{create_connection, get_connections, update_connection, delete_connection, test_connection};
+use crate::db::connections::{create_connection, get_connections, update_connection, delete_connection, test_connection, list_databases};
 use crate::db::execute::execute_sql;
 
 fn main() {
@@ -20,6 +20,7 @@ fn main() {
             delete_connection,
             test_connection,
             execute_sql,
+            list_databases,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -17,7 +17,7 @@ export default function ConnectionForm({
 }: ConnectionFormProps) {
   const { addLog } = useConnectionStore();
   const [name, setName] = useState("");
-  const [dbType, setDbType] = useState<"sqlite" | "mysql" | "postgres">("sqlite");
+  const [dbType, setDbType] = useState<"sqlite" | "mysql" | "postgres" | "mssql">("sqlite");
   const [config, setConfig] = useState<ConnectionConfig>({});
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -26,7 +26,7 @@ export default function ConnectionForm({
   useEffect(() => {
     if (connection) {
       setName(connection.name);
-      setDbType(connection.type as "sqlite" | "mysql" | "postgres");
+      setDbType(connection.type as "sqlite" | "mysql" | "postgres" | "mssql");
       setConfig(connection.config || {});
     } else {
       setName("");
@@ -63,10 +63,10 @@ export default function ConnectionForm({
         setTesting(false);
         return;
       }
-      if (dbType === "mysql" || dbType === "postgres") {
+      if (dbType === "mysql" || dbType === "postgres" || dbType === "mssql") {
         // Use actual values from input fields (with defaults)
         const host = (config.host && config.host.trim()) || "localhost";
-        const port = config.port || (dbType === "mysql" ? 3306 : 5432);
+        const port = config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433);
         const user = (config.user && config.user.trim()) || "";
         
         if (!host || !port || !user) {
@@ -80,7 +80,7 @@ export default function ConnectionForm({
       const testConfig: ConnectionConfig = {
         ...config,
         host: config.host || "localhost",
-        port: config.port || (dbType === "mysql" ? 3306 : 5432),
+        port: config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433),
       };
 
       const result = await testConnection(dbType, testConfig);
@@ -105,9 +105,9 @@ export default function ConnectionForm({
         ...config,
       };
       
-      if (dbType === "mysql" || dbType === "postgres") {
+      if (dbType === "mysql" || dbType === "postgres" || dbType === "mssql") {
         submitConfig.host = config.host || "localhost";
-        submitConfig.port = config.port || (dbType === "mysql" ? 3306 : 5432);
+        submitConfig.port = config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433);
       }
 
       if (connection) {
@@ -151,15 +151,15 @@ export default function ConnectionForm({
             <select
               value={dbType}
               onChange={(e) => {
-                const newDbType = e.target.value as "sqlite" | "mysql" | "postgres";
+                const newDbType = e.target.value as "sqlite" | "mysql" | "postgres" | "mssql";
                 setDbType(newDbType);
                 if (newDbType === "sqlite") {
                   setConfig({});
                 } else {
-                  // Set default values for MySQL/PostgreSQL
+                  // Set default values for MySQL/PostgreSQL/MSSQL
                   setConfig({
                     host: "localhost",
-                    port: newDbType === "mysql" ? 3306 : 5432,
+                    port: newDbType === "mysql" ? 3306 : newDbType === "postgres" ? 5432 : 1433,
                     user: "",
                     password: "",
                     database: "",
@@ -172,6 +172,7 @@ export default function ConnectionForm({
               <option value="sqlite">SQLite</option>
               <option value="mysql">MySQL</option>
               <option value="postgres">PostgreSQL</option>
+              <option value="mssql">MSSQL</option>
             </select>
           </div>
 
@@ -198,7 +199,7 @@ export default function ConnectionForm({
             </div>
           )}
 
-          {(dbType === "mysql" || dbType === "postgres") && (
+          {(dbType === "mysql" || dbType === "postgres" || dbType === "mssql") && (
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -215,7 +216,7 @@ export default function ConnectionForm({
                   <label className="block text-sm font-medium mb-1">端口</label>
                   <input
                     type="number"
-                    value={config.port || (dbType === "mysql" ? 3306 : 5432)}
+                    value={config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433)}
                     onChange={(e) => {
                       const portValue = e.target.value;
                       const port = portValue === "" ? undefined : parseInt(portValue);

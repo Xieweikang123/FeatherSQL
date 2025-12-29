@@ -42,6 +42,21 @@ fn get_connection_string(connection: &Connection) -> Result<String, String> {
                 user, password, host, port, db_part, ssl_param
             ))
         }
+        ConnectionConfig::Mssql {
+            host,
+            port,
+            user,
+            password,
+            database,
+            ssl: _,
+        } => {
+            // Note: tiberius doesn't use connection strings, but we'll format it for reference
+            let db_part = database.as_ref().map(|d| format!(";database={}", d)).unwrap_or_default();
+            Ok(format!(
+                "mssql://{}:{}@{}:{}{}",
+                user, password, host, port, db_part
+            ))
+        }
     }
 }
 
