@@ -68,3 +68,31 @@ export async function listDatabases(connectionId: string): Promise<string[]> {
   return await invoke("list_databases", { connectionId });
 }
 
+// List tables command
+export async function listTables(connectionId: string, database?: string): Promise<string[]> {
+  return await invoke("list_tables", { connectionId, database });
+}
+
+// SQL History commands
+export interface SqlHistory {
+  id: string;
+  connection_id: string;
+  connection_name: string;
+  sql: string;
+  executed_at: string;
+  success: boolean;
+  error_message?: string;
+  rows_affected?: number;
+}
+
+export async function getSqlHistory(
+  connectionId?: string,
+  limit?: number
+): Promise<SqlHistory[]> {
+  return await invoke("get_sql_history", { connectionId, limit });
+}
+
+export async function deleteSqlHistory(id?: string): Promise<void> {
+  return await invoke("delete_sql_history", { id });
+}
+

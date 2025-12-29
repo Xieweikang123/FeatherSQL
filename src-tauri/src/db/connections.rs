@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Manager, State};
 use std::fs;
 use std::path::PathBuf;
 use sqlx::Row;
+use tiberius::{Config, AuthMethod, Client};
+use tokio::net::TcpStream;
+use tokio_util::compat::TokioAsyncWriteCompatExt;
+use futures_util::TryStreamExt;
+use crate::db::pool_manager::{PoolManager, DatabasePool};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {
@@ -163,6 +168,40 @@ pub async fn create_connection(
                 ssl,
             }
         }
+        "mssql" => {
+            let host = config
+                .get("host")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing host for MSSQL connection")?
+                .to_string();
+            let port = config
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .ok_or("Missing port for MSSQL connection")? as u16;
+            let user = config
+                .get("user")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing user for MSSQL connection")?
+                .to_string();
+            let password = config
+                .get("password")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing password for MSSQL connection")?
+                .to_string();
+            let database = config
+                .get("database")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let ssl = config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
+            ConnectionConfig::Mssql {
+                host,
+                port,
+                user,
+                password,
+                database,
+                ssl,
+            }
+        }
         _ => return Err(format!("Unsupported database type: {}", db_type)),
     };
 
@@ -193,6 +232,7 @@ pub async fn update_connection(
     name: Option<String>,
     config: Option<serde_json::Value>,
     app: tauri::AppHandle,
+    pool_manager: State<'_, PoolManager>,
 ) -> Result<(), String> {
     let mut connections = load_connections(&app);
     
@@ -241,6 +281,8 @@ pub async fn update_connection(
                 _ => return Err("Unsupported database type".to_string()),
             };
             conn.config = connection_config;
+            // Clear pool cache when config changes
+            pool_manager.remove_pool(&id).await;
         }
     } else {
         return Err("Connection not found".to_string());
@@ -254,10 +296,14 @@ pub async fn update_connection(
 pub async fn delete_connection(
     id: String,
     app: tauri::AppHandle,
+    pool_manager: State<'_, PoolManager>,
 ) -> Result<(), String> {
     let mut connections = load_connections(&app);
     connections.retain(|c| c.id != id);
     save_connections(&app, &connections)?;
+    
+    // Clear pool cache when connection is deleted
+    pool_manager.remove_pool(&id).await;
 
     Ok(())
 }
@@ -500,9 +546,52 @@ pub async fn test_connection(
             }
         }
         "mssql" => {
-            // MSSQL support is not fully implemented yet
-            // TODO: Fix tiberius 0.12 API usage
-            Err("MSSQL 连接测试暂未实现".to_string())
+            match &connection_config {
+                ConnectionConfig::Mssql {
+                    host,
+                    port,
+                    user,
+                    password,
+                    database,
+                    ssl: _,
+                } => {
+                    // Create tiberius config
+                    let mut config = Config::new();
+                    config.host(host);
+                    config.port(*port);
+                    config.authentication(AuthMethod::sql_server(user, password));
+                    config.trust_cert(); // Trust server certificate for testing
+                    if let Some(db) = database {
+                        config.database(db);
+                    }
+                    
+                    // Connect to SQL Server
+                    let tcp = TcpStream::connect(config.get_addr())
+                        .await
+                        .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
+                    
+                    tcp.set_nodelay(true)
+                        .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
+                    
+                    // Create client (tiberius handles encryption internally if needed)
+                    let mut client = Client::connect(config, tcp.compat_write())
+                        .await
+                        .map_err(|e| format!("MSSQL 连接失败: {}", e))?;
+                    
+                    // Execute a simple query to verify the connection
+                    let mut stream = client.query("SELECT 1", &[]).await
+                        .map_err(|e| format!("MSSQL 查询失败: {}", e))?;
+                    
+                    // Consume the stream to verify the query executed
+                    while let Some(_row) = stream.try_next().await
+                        .map_err(|e| format!("MSSQL 读取结果失败: {}", e))? {
+                        // Just consume rows to verify connection works
+                    }
+                    
+                    Ok("MSSQL 连接成功".to_string())
+                }
+                _ => Err("无效的 MSSQL 配置".to_string()),
+            }
         }
         _ => Err("Unsupported database type".to_string()),
     }
@@ -512,6 +601,7 @@ pub async fn test_connection(
 pub async fn list_databases(
     connection_id: String,
     app: tauri::AppHandle,
+    pool_manager: State<'_, PoolManager>,
 ) -> Result<Vec<String>, String> {
     let connections = load_connections(&app);
     let connection = connections
@@ -524,92 +614,111 @@ pub async fn list_databases(
         return Ok(vec![]);
     }
 
-    // Create connection string without database name for MySQL/PostgreSQL
-    let connection_string = match &connection.config {
-        ConnectionConfig::Mysql {
-            host,
-            port,
-            user,
-            password,
-            ssl,
-            ..
-        } => {
-            let ssl_param = if *ssl { "?ssl-mode=REQUIRED" } else { "?ssl-mode=DISABLED" };
-            format!(
-                "mysql://{}:{}@{}:{}{}",
-                user, password, host, port, ssl_param
-            )
-        }
-        ConnectionConfig::Postgres {
-            host,
-            port,
-            user,
-            password,
-            ssl,
-            ..
-        } => {
-            let ssl_param = if *ssl { "?sslmode=require" } else { "?sslmode=disable" };
-            format!(
-                "postgres://{}:{}@{}:{}{}",
-                user, password, host, port, ssl_param
-            )
-        }
-        _ => return Ok(vec![]),
-    };
+    // Get or create pool (without database name)
+    let pool = pool_manager.get_pool_without_db(&connection).await?;
 
-    // Connect and query databases
-    match connection.db_type.as_str() {
-        "mysql" => {
-            match sqlx::mysql::MySqlPoolOptions::new()
-                .max_connections(1)
-                .connect(&connection_string)
+    // Query databases
+    match pool {
+        DatabasePool::Mysql(p) => {
+            let result = sqlx::query("SHOW DATABASES")
+                .fetch_all(&p)
                 .await
-            {
-                Ok(pool) => {
-                    let result = sqlx::query("SHOW DATABASES")
-                        .fetch_all(&pool)
-                        .await
-                        .map_err(|e| format!("Failed to list databases: {}", e))?;
-                    
-                    let databases: Vec<String> = result
-                        .into_iter()
-                        .map(|row| {
-                            row.get::<String, _>(0)
-                        })
-                        .collect();
-                    
-                    drop(pool);
-                    Ok(databases)
-                }
-                Err(e) => Err(format!("Failed to connect: {}", e)),
-            }
+                .map_err(|e| format!("Failed to list databases: {}", e))?;
+            
+            let databases: Vec<String> = result
+                .into_iter()
+                .map(|row| row.get::<String, _>(0))
+                .collect();
+            
+            Ok(databases)
         }
-        "postgres" => {
-            match sqlx::postgres::PgPoolOptions::new()
-                .max_connections(1)
-                .connect(&connection_string)
+        DatabasePool::Postgres(p) => {
+            let result = sqlx::query("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname")
+                .fetch_all(&p)
                 .await
-            {
-                Ok(pool) => {
-                    let result = sqlx::query("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname")
-                        .fetch_all(&pool)
-                        .await
-                        .map_err(|e| format!("Failed to list databases: {}", e))?;
-                    
-                    let databases: Vec<String> = result
-                        .into_iter()
-                        .map(|row| {
-                            row.get::<String, _>(0)
-                        })
-                        .collect();
-                    
-                    drop(pool);
-                    Ok(databases)
-                }
-                Err(e) => Err(format!("Failed to connect: {}", e)),
-            }
+                .map_err(|e| format!("Failed to list databases: {}", e))?;
+            
+            let databases: Vec<String> = result
+                .into_iter()
+                .map(|row| row.get::<String, _>(0))
+                .collect();
+            
+            Ok(databases)
         }
         _ => Ok(vec![]),
+    }
+}
+
+#[tauri::command]
+pub async fn list_tables(
+    connection_id: String,
+    database: Option<String>,
+    app: tauri::AppHandle,
+    pool_manager: State<'_, PoolManager>,
+) -> Result<Vec<String>, String> {
+    let connections = load_connections(&app);
+    let connection = connections
+        .into_iter()
+        .find(|c| c.id == connection_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    // Get or create pool (with database if specified)
+    let pool = pool_manager.get_or_create_pool(&connection, database.as_deref()).await?;
+
+    // Query tables
+    match pool {
+        DatabasePool::Sqlite(p) => {
+            let result = sqlx::query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+                .fetch_all(&p)
+                .await
+                .map_err(|e| format!("Failed to list tables: {}", e))?;
+            
+            let tables: Vec<String> = result
+                .into_iter()
+                .map(|row| row.get::<String, _>(0))
+                .collect();
+            
+            Ok(tables)
+        }
+        DatabasePool::Mysql(p) => {
+            // Use SHOW TABLES query
+            let query = if let Some(db) = database.as_ref() {
+                format!("SHOW TABLES FROM `{}`", db.replace("`", "``"))
+            } else {
+                "SHOW TABLES".to_string()
+            };
+            
+            let result = sqlx::query(&query)
+                .fetch_all(&p)
+                .await
+                .map_err(|e| format!("Failed to list tables: {}", e))?;
+            
+            let tables: Vec<String> = result
+                .into_iter()
+                .map(|row| row.get::<String, _>(0))
+                .collect();
+            
+            Ok(tables)
+        }
+        DatabasePool::Postgres(p) => {
+            // Query tables from information_schema
+            let result = sqlx::query(
+                "SELECT table_name FROM information_schema.tables 
+                 WHERE table_schema = 'public' 
+                 AND table_type = 'BASE TABLE'
+                 ORDER BY table_name"
+            )
+                .fetch_all(&p)
+                .await
+                .map_err(|e| format!("Failed to list tables: {}", e))?;
+            
+            let tables: Vec<String> = result
+                .into_iter()
+                .map(|row| row.get::<String, _>(0))
+                .collect();
+            
+            Ok(tables)
+        }
     }
 }
 

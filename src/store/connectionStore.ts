@@ -7,6 +7,7 @@ interface ConnectionState {
   queryResult: QueryResult | null;
   error: string | null;
   logs: string[];
+  sqlToLoad: string | null;
   
   setConnections: (connections: Connection[]) => void;
   setCurrentConnection: (id: string | null) => void;
@@ -14,6 +15,8 @@ interface ConnectionState {
   setError: (error: string | null) => void;
   addLog: (message: string) => void;
   clearLogs: () => void;
+  loadSql: (sql: string) => void;
+  clearSqlToLoad: () => void;
 }
 
 export const useConnectionStore = create<ConnectionState>((set) => ({
@@ -22,6 +25,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   queryResult: null,
   error: null,
   logs: [],
+  sqlToLoad: null,
 
   setConnections: (connections) => set({ connections }),
   setCurrentConnection: (id) => set({ currentConnectionId: id }),
@@ -32,5 +36,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       logs: [...state.logs, `${new Date().toLocaleTimeString()}: ${message}`],
     })),
   clearLogs: () => set({ logs: [] }),
+  loadSql: (sql) => set({ sqlToLoad: sql }),
+  clearSqlToLoad: () => set({ sqlToLoad: null }),
 }));
 

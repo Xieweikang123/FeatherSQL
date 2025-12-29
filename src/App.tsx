@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import ConnectionManager from "./components/ConnectionManager";
 import SqlEditor from "./components/SqlEditor";
 import ResultTable from "./components/ResultTable";
+import SqlHistory from "./components/SqlHistory";
 import { useConnectionStore } from "./store/connectionStore";
 import { getConnections } from "./lib/commands";
 
@@ -9,6 +10,7 @@ function App() {
   const { setConnections, currentConnectionId, queryResult, error, logs, clearLogs } =
     useConnectionStore();
   const [logsExpanded, setLogsExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   useEffect(() => {
     // Load connections on mount
@@ -26,15 +28,27 @@ function App() {
       {/* Top bar */}
       <header className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
         <h1 className="text-xl font-bold">FeatherSQL</h1>
-        <div className="flex items-center gap-2">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              currentConnectionId ? "bg-green-500" : "bg-gray-500"
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setHistoryExpanded(!historyExpanded)}
+            className={`px-3 py-1 text-sm rounded ${
+              historyExpanded
+                ? "bg-blue-600 hover:bg-blue-700"
+                : "bg-gray-700 hover:bg-gray-600"
             }`}
-          />
-          <span className="text-sm text-gray-400">
-            {currentConnectionId ? "已连接" : "未连接"}
-          </span>
+          >
+            {historyExpanded ? "隐藏历史" : "显示历史"}
+          </button>
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                currentConnectionId ? "bg-green-500" : "bg-gray-500"
+              }`}
+            />
+            <span className="text-sm text-gray-400">
+              {currentConnectionId ? "已连接" : "未连接"}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -67,6 +81,13 @@ function App() {
             )}
           </div>
         </main>
+
+        {/* Right sidebar - History */}
+        {historyExpanded && (
+          <aside className="w-80 bg-gray-800 border-l border-gray-700 flex flex-col">
+            <SqlHistory />
+          </aside>
+        )}
       </div>
 
       {/* Logs panel */}

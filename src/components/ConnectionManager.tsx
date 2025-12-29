@@ -4,6 +4,7 @@ import {
   getConnections,
   deleteConnection,
   listDatabases,
+  listTables,
   type Connection,
 } from "../lib/commands";
 import ConnectionForm from "./ConnectionForm";
@@ -21,6 +22,9 @@ export default function ConnectionManager() {
   const [databases, setDatabases] = useState<string[]>([]);
   const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set());
+  const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set());
+  const [tables, setTables] = useState<Map<string, string[]>>(new Map());
+  const [loadingTables, setLoadingTables] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadConnections();
@@ -40,13 +44,19 @@ export default function ConnectionManager() {
     setCurrentConnection(connection.id);
     addLog(`切换到连接: ${connection.name}`);
     
-    // Reset databases when switching connections
+    // Reset databases and tables when switching connections
     setDatabases([]);
+    setTables(new Map());
+    setExpandedDatabases(new Set());
     
     // Load databases for MySQL/PostgreSQL connections if expanded
     if (expandedConnections.has(connection.id) && 
         (connection.type === "mysql" || connection.type === "postgres")) {
       loadDatabases(connection.id);
+    }
+    // For SQLite, load tables directly
+    if (connection.type === "sqlite" && expandedConnections.has(connection.id)) {
+      loadTables(connection.id, "");
     }
   };
 
@@ -64,6 +74,50 @@ export default function ConnectionManager() {
     }
   };
 
+  const loadTables = async (connectionId: string, database: string) => {
+    const key = `${connectionId}:${database}`;
+    setLoadingTables(prev => new Set(prev).add(key));
+    try {
+      const tableList = await listTables(connectionId, database);
+      setTables(prev => {
+        const newMap = new Map(prev);
+        newMap.set(key, tableList);
+        return newMap;
+      });
+      addLog(`已加载数据库 "${database}" 的 ${tableList.length} 个表`);
+    } catch (error) {
+      addLog(`加载表列表失败: ${error}`);
+      setTables(prev => {
+        const newMap = new Map(prev);
+        newMap.set(key, []);
+        return newMap;
+      });
+    } finally {
+      setLoadingTables(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(key);
+        return newSet;
+      });
+    }
+  };
+
+  const toggleTableList = (e: React.MouseEvent, connectionId: string, database: string) => {
+    e.stopPropagation();
+    const key = `${connectionId}:${database}`;
+    const newExpanded = new Set(expandedDatabases);
+    
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key);
+    } else {
+      newExpanded.add(key);
+      // Load tables if not already loaded
+      if (!tables.has(key)) {
+        loadTables(connectionId, database);
+      }
+    }
+    setExpandedDatabases(newExpanded);
+  };
+
   const toggleDatabaseList = (e: React.MouseEvent, connection: Connection) => {
     e.stopPropagation();
     const connectionId = connection.id;
@@ -76,11 +130,17 @@ export default function ConnectionManager() {
     const newExpanded = new Set(expandedConnections);
     if (newExpanded.has(connectionId)) {
       newExpanded.delete(connectionId);
+      // Clear tables when collapsing
+      setTables(new Map());
+      setExpandedDatabases(new Set());
     } else {
       newExpanded.add(connectionId);
       // Load databases if not already loaded
-      if ((connection.type === "mysql" || connection.type === "postgres")) {
+      if (connection.type === "mysql" || connection.type === "postgres") {
         loadDatabases(connectionId);
+      } else if (connection.type === "sqlite") {
+        // For SQLite, load tables directly
+        loadTables(connectionId, "");
       }
     }
     setExpandedConnections(newExpanded);
@@ -161,15 +221,13 @@ export default function ConnectionManager() {
                         </div>
                       </div>
                       <div className="flex gap-1 ml-2">
-                        {showDatabases && (
-                          <button
-                            onClick={(e) => toggleDatabaseList(e, connection)}
-                            className="p-1 hover:bg-gray-600 rounded text-xs"
-                            title={isExpanded ? "收起数据库列表" : "展开数据库列表"}
-                          >
-                            {isExpanded ? "▼" : "▶"}
-                          </button>
-                        )}
+                        <button
+                          onClick={(e) => toggleDatabaseList(e, connection)}
+                          className="p-1 hover:bg-gray-600 rounded text-xs"
+                          title={isExpanded ? "收起" : "展开"}
+                        >
+                          {isExpanded ? "▼" : "▶"}
+                        </button>
                         <button
                           onClick={(e) => handleEdit(e, connection)}
                           className="p-1 hover:bg-gray-600 rounded text-xs"
@@ -187,24 +245,107 @@ export default function ConnectionManager() {
                       </div>
                     </div>
                   </div>
-                  {isExpanded && showDatabases && isCurrentConnection && (
+                  {isExpanded && isCurrentConnection && (
                     <div className="bg-gray-800/50 pl-6 pr-3 pb-2">
-                      {loadingDatabases ? (
-                        <div className="text-xs text-gray-500 py-2">加载中...</div>
-                      ) : databases.length === 0 ? (
-                        <div className="text-xs text-gray-500 py-2">暂无数据库</div>
-                      ) : (
-                        <div className="space-y-1">
-                          {databases.map((db) => (
-                            <div
-                              key={db}
-                              className="text-xs text-gray-400 py-1 px-2 hover:bg-gray-700 rounded cursor-pointer"
-                              title={db}
-                            >
-                              📁 {db}
+                      {showDatabases ? (
+                        // MySQL/PostgreSQL: Show databases
+                        <>
+                          {loadingDatabases ? (
+                            <div className="text-xs text-gray-500 py-2">加载中...</div>
+                          ) : databases.length === 0 ? (
+                            <div className="text-xs text-gray-500 py-2">暂无数据库</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {databases.map((db) => {
+                                const dbKey = `${connection.id}:${db}`;
+                                const isDbExpanded = expandedDatabases.has(dbKey);
+                                const dbTables = tables.get(dbKey) || [];
+                                const isLoadingTables = loadingTables.has(dbKey);
+                                
+                                return (
+                                  <div key={db}>
+                                    <div
+                                      className="text-xs text-gray-400 py-1 px-2 hover:bg-gray-700 rounded cursor-pointer flex items-center gap-1"
+                                      onClick={(e) => toggleTableList(e, connection.id, db)}
+                                      title={db}
+                                    >
+                                      <span>{isDbExpanded ? "▼" : "▶"}</span>
+                                      <span>📁 {db}</span>
+                                    </div>
+                                    {isDbExpanded && (
+                                      <div className="pl-4 mt-1">
+                                        {isLoadingTables ? (
+                                          <div className="text-xs text-gray-500 py-1">加载中...</div>
+                                        ) : dbTables.length === 0 ? (
+                                          <div className="text-xs text-gray-500 py-1">暂无表</div>
+                                        ) : (
+                                          <div className="space-y-0.5">
+                                            {dbTables.map((table) => (
+                                              <div
+                                                key={table}
+                                                className="text-xs text-gray-500 py-0.5 px-2 hover:bg-gray-700 rounded"
+                                                title={table}
+                                              >
+                                                📄 {table}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
-                          ))}
-                        </div>
+                          )}
+                        </>
+                      ) : (
+                        // SQLite: Show tables directly
+                        <>
+                          {(() => {
+                            const key = `${connection.id}:`;
+                            // For SQLite, auto-expand when connection is expanded
+                            const shouldShowTables = isExpanded;
+                            const connectionTables = tables.get(key) || [];
+                            const isLoadingTables = loadingTables.has(key);
+                            
+                            // Auto-load tables if connection is expanded and tables not loaded
+                            if (shouldShowTables && !tables.has(key) && !isLoadingTables) {
+                              loadTables(connection.id, "");
+                            }
+                            
+                            if (!shouldShowTables) {
+                              return null;
+                            }
+                            
+                            return (
+                              <div>
+                                <div className="text-xs text-gray-400 py-1 px-2">
+                                  <span>📁 表</span>
+                                </div>
+                                <div className="pl-4 mt-1">
+                                  {isLoadingTables ? (
+                                    <div className="text-xs text-gray-500 py-1">加载中...</div>
+                                  ) : connectionTables.length === 0 ? (
+                                    <div className="text-xs text-gray-500 py-1">暂无表</div>
+                                  ) : (
+                                    <div className="space-y-0.5">
+                                      {connectionTables.map((table) => (
+                                        <div
+                                          key={table}
+                                          className="text-xs text-gray-500 py-0.5 px-2 hover:bg-gray-700 rounded"
+                                          title={table}
+                                        >
+                                          📄 {table}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
                       )}
                     </div>
                   )}

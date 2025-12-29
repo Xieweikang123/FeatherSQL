@@ -1,12 +1,22 @@
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import Editor from "@monaco-editor/react";
 import { useConnectionStore } from "../store/connectionStore";
 import { executeSql } from "../lib/commands";
 
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
-  const { currentConnectionId, setQueryResult, setError, addLog } =
+  const monacoEditorRef = useRef<any>(null);
+  const { currentConnectionId, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
     useConnectionStore();
+
+  // Load SQL from history
+  useEffect(() => {
+    if (sqlToLoad && monacoEditorRef.current) {
+      monacoEditorRef.current.setValue(sqlToLoad);
+      editorRef.current = sqlToLoad;
+      clearSqlToLoad();
+    }
+  }, [sqlToLoad, clearSqlToLoad]);
 
   const handleExecute = async () => {
     if (!currentConnectionId) {
@@ -28,10 +38,12 @@ export default function SqlEditor() {
       const result = await executeSql(currentConnectionId, sql);
       setQueryResult(result);
       addLog(`查询成功，返回 ${result.rows.length} 行`);
+      // History is automatically saved by the backend
     } catch (error) {
       const errorMsg = String(error);
       setError(errorMsg);
       addLog(`执行失败: ${errorMsg}`);
+      // History is automatically saved by the backend
     }
   };
 
@@ -40,10 +52,17 @@ export default function SqlEditor() {
   };
 
   const handleEditorMount = (editor: any, monaco: any) => {
+    monacoEditorRef.current = editor;
     // Add keyboard shortcut: Ctrl+Enter to execute
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       handleExecute();
     });
+    // Load SQL if there's one to load
+    if (sqlToLoad) {
+      editor.setValue(sqlToLoad);
+      editorRef.current = sqlToLoad;
+      clearSqlToLoad();
+    }
   };
 
   return (
