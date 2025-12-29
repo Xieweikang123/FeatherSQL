@@ -44,6 +44,10 @@ export async function updateConnection(
   return await invoke("update_connection", { id, name, config });
 }
 
+export async function disconnectConnection(id: string): Promise<void> {
+  return await invoke("disconnect_connection", { id });
+}
+
 export async function deleteConnection(id: string): Promise<void> {
   return await invoke("delete_connection", { id });
 }

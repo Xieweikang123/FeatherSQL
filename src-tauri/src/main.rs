@@ -4,7 +4,7 @@
 mod db;
 mod error;
 
-use crate::db::connections::{create_connection, get_connections, update_connection, delete_connection, test_connection, list_databases, list_tables};
+use crate::db::connections::{create_connection, get_connections, update_connection, delete_connection, disconnect_connection, test_connection, list_databases, list_tables};
 use crate::db::execute::execute_sql;
 use crate::db::pool_manager::PoolManager;
 use crate::db::history::{add_sql_history, get_sql_history, delete_sql_history};
@@ -24,6 +24,7 @@ fn main() {
             get_connections,
             update_connection,
             delete_connection,
+            disconnect_connection,
             test_connection,
             execute_sql,
             list_databases,

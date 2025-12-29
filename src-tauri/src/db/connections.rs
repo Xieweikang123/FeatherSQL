@@ -3,7 +3,7 @@ use tauri::{Manager, State};
 use std::fs;
 use std::path::PathBuf;
 use sqlx::Row;
-use tiberius::{Config, AuthMethod, Client};
+use tiberius::{Config, AuthMethod, Client, QueryItem};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use futures_util::TryStreamExt;
@@ -289,6 +289,16 @@ pub async fn update_connection(
     }
     
     save_connections(&app, &connections)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn disconnect_connection(
+    id: String,
+    pool_manager: State<'_, PoolManager>,
+) -> Result<(), String> {
+    // Remove pool cache to disconnect
+    pool_manager.remove_pool(&id).await;
     Ok(())
 }
 
@@ -614,6 +624,61 @@ pub async fn list_databases(
         return Ok(vec![]);
     }
 
+    // Handle MSSQL separately since it uses tiberius instead of sqlx
+    if connection.db_type == "mssql" {
+        match &connection.config {
+            ConnectionConfig::Mssql {
+                host,
+                port,
+                user,
+                password,
+                database: _,
+                ssl: _,
+            } => {
+                // Create tiberius config (connect without specific database)
+                let mut config = Config::new();
+                config.host(host);
+                config.port(*port);
+                config.authentication(AuthMethod::sql_server(user, password));
+                config.trust_cert();
+                // Don't set database - connect to master to list all databases
+                
+                // Connect to SQL Server
+                let tcp = TcpStream::connect(config.get_addr())
+                    .await
+                    .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
+                
+                tcp.set_nodelay(true)
+                    .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
+                
+                // Create client
+                let mut client = Client::connect(config, tcp.compat_write())
+                    .await
+                    .map_err(|e| format!("MSSQL 连接失败: {}", e))?;
+                
+                // Query databases (exclude system databases with database_id <= 4)
+                let mut stream = client.query(
+                    "SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name",
+                    &[]
+                ).await
+                    .map_err(|e| format!("查询数据库列表失败: {}", e))?;
+                
+                let mut databases = Vec::new();
+                while let Some(item) = stream.try_next().await
+                    .map_err(|e| format!("读取结果失败: {}", e))? {
+                    if let QueryItem::Row(row) = item {
+                        if let Some(name) = row.try_get::<&str, _>(0).ok().flatten() {
+                            databases.push(name.to_string());
+                        }
+                    }
+                }
+                
+                return Ok(databases);
+            }
+            _ => return Err("无效的 MSSQL 配置".to_string()),
+        }
+    }
+
     // Get or create pool (without database name)
     let pool = pool_manager.get_pool_without_db(&connection).await?;
 
@@ -661,6 +726,73 @@ pub async fn list_tables(
         .into_iter()
         .find(|c| c.id == connection_id)
         .ok_or_else(|| "Connection not found".to_string())?;
+
+    // Handle MSSQL separately since it uses tiberius instead of sqlx
+    if connection.db_type == "mssql" {
+        match &connection.config {
+            ConnectionConfig::Mssql {
+                host,
+                port,
+                user,
+                password,
+                database: config_db,
+                ssl: _,
+            } => {
+                // Create tiberius config
+                let mut config = Config::new();
+                config.host(host);
+                config.port(*port);
+                config.authentication(AuthMethod::sql_server(user, password));
+                config.trust_cert();
+                
+                // Use specified database or config database, default to master
+                let db_name = database.as_deref().or(config_db.as_deref());
+                if let Some(db) = db_name {
+                    config.database(db);
+                }
+                
+                // Connect to SQL Server
+                let tcp = TcpStream::connect(config.get_addr())
+                    .await
+                    .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
+                
+                tcp.set_nodelay(true)
+                    .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
+                
+                // Create client
+                let mut client = Client::connect(config, tcp.compat_write())
+                    .await
+                    .map_err(|e| format!("MSSQL 连接失败: {}", e))?;
+                
+                // Query tables from information_schema
+                let query = if let Some(db) = db_name {
+                    format!(
+                        "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_CATALOG = '{}' ORDER BY TABLE_NAME",
+                        db.replace("'", "''")
+                    )
+                } else {
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME".to_string()
+                };
+                
+                let mut stream = client.query(&query, &[])
+                    .await
+                    .map_err(|e| format!("查询表列表失败: {}", e))?;
+                
+                let mut tables = Vec::new();
+                while let Some(item) = stream.try_next().await
+                    .map_err(|e| format!("读取结果失败: {}", e))? {
+                    if let QueryItem::Row(row) = item {
+                        if let Some(name) = row.try_get::<&str, _>(0).ok().flatten() {
+                            tables.push(name.to_string());
+                        }
+                    }
+                }
+                
+                return Ok(tables);
+            }
+            _ => return Err("无效的 MSSQL 配置".to_string()),
+        }
+    }
 
     // Get or create pool (with database if specified)
     let pool = pool_manager.get_or_create_pool(&connection, database.as_deref()).await?;

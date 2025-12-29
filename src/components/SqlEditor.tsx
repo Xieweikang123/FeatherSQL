@@ -6,8 +6,11 @@ import { executeSql } from "../lib/commands";
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
   const monacoEditorRef = useRef<any>(null);
-  const { currentConnectionId, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
+  const { connections, currentConnectionId, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
     useConnectionStore();
+  
+  // Get current connection info
+  const currentConnection = connections.find(c => c.id === currentConnectionId);
 
   // Load SQL from history
   useEffect(() => {
@@ -68,7 +71,22 @@ export default function SqlEditor() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="text-sm text-gray-400">SQL 编辑器</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-400">SQL 编辑器</span>
+          {currentConnection && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">|</span>
+              <span className="text-gray-300 font-medium">{currentConnection.name}</span>
+              <span className="text-gray-500">({currentConnection.type.toUpperCase()})</span>
+              {currentConnection.config.database && (
+                <>
+                  <span className="text-gray-500">|</span>
+                  <span className="text-gray-400">数据库: {currentConnection.config.database}</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
         <button
           onClick={handleExecute}
           disabled={!currentConnectionId}
