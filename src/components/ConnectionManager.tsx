@@ -17,6 +17,7 @@ export default function ConnectionManager() {
     currentConnectionId,
     setConnections,
     setCurrentConnection,
+    setCurrentDatabase,
     setQueryResult,
     setError,
     addLog,
@@ -73,8 +74,9 @@ export default function ConnectionManager() {
 
       // 连接成功，设置当前连接
       setCurrentConnection(connection.id);
+      setCurrentDatabase(null);
       addLog(`已连接到: ${connection.name}`);
-      
+
       // Reset databases and tables when switching connections
       setDatabases([]);
       setTables(new Map());
@@ -148,11 +150,13 @@ export default function ConnectionManager() {
     e.stopPropagation();
     const key = `${connectionId}:${database}`;
     const newExpanded = new Set(expandedDatabases);
-    
+
     if (newExpanded.has(key)) {
       newExpanded.delete(key);
     } else {
       newExpanded.add(key);
+      // Set current database when expanding
+      setCurrentDatabase(database);
       // Load tables if not already loaded
       if (!tables.has(key)) {
         loadTables(connectionId, database);
@@ -247,17 +251,22 @@ export default function ConnectionManager() {
     database?: string
   ) => {
     e.stopPropagation();
-    
+
     if (!currentConnectionId || currentConnectionId !== connectionId) {
       addLog("请先选择该连接");
       return;
     }
 
     const connection = connections.find((c) => c.id === connectionId);
-    
+
     if (!connection) {
       addLog("连接不存在");
       return;
+    }
+
+    // Set current database when clicking a table
+    if (database) {
+      setCurrentDatabase(database);
     }
 
     // Escape table name if needed (for MySQL/PostgreSQL with special characters)

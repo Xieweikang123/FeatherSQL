@@ -6,7 +6,7 @@ import { executeSql } from "../lib/commands";
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
   const monacoEditorRef = useRef<any>(null);
-  const { connections, currentConnectionId, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
+  const { connections, currentConnectionId, currentDatabase, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
     useConnectionStore();
   
   // Get current connection info
@@ -78,10 +78,10 @@ export default function SqlEditor() {
               <span className="text-gray-500">|</span>
               <span className="text-gray-300 font-medium">{currentConnection.name}</span>
               <span className="text-gray-500">({currentConnection.type.toUpperCase()})</span>
-              {currentConnection.config.database && (
+              {currentDatabase && (
                 <>
                   <span className="text-gray-500">|</span>
-                  <span className="text-gray-400">数据库: {currentConnection.config.database}</span>
+                  <span className="text-blue-400 font-medium">数据库: {currentDatabase}</span>
                 </>
               )}
             </div>
