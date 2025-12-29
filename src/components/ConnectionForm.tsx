@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { createConnection, updateConnection, testConnection, type Connection, type ConnectionConfig } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 interface ConnectionFormProps {
   connection: Connection | null;
@@ -34,6 +35,9 @@ export default function ConnectionForm({
     }
   }, [connection]);
 
+  // Handle ESC key to close the modal
+  useEscapeKey(onClose, loading || testing);
+
   const handleFileSelect = async () => {
     try {
       const selected = await open({
@@ -59,14 +63,27 @@ export default function ConnectionForm({
         setTesting(false);
         return;
       }
-      if ((dbType === "mysql" || dbType === "postgres") && 
-          (!config.host || !config.port || !config.user)) {
-        setTestResult("请填写完整的连接信息（主机、端口、用户名）");
-        setTesting(false);
-        return;
+      if (dbType === "mysql" || dbType === "postgres") {
+        // Use actual values from input fields (with defaults)
+        const host = (config.host && config.host.trim()) || "localhost";
+        const port = config.port || (dbType === "mysql" ? 3306 : 5432);
+        const user = (config.user && config.user.trim()) || "";
+        
+        if (!host || !port || !user) {
+          setTestResult("请填写完整的连接信息（主机、端口、用户名）");
+          setTesting(false);
+          return;
+        }
       }
 
-      const result = await testConnection(dbType, config);
+      // Prepare config with defaults for testing
+      const testConfig: ConnectionConfig = {
+        ...config,
+        host: config.host || "localhost",
+        port: config.port || (dbType === "mysql" ? 3306 : 5432),
+      };
+
+      const result = await testConnection(dbType, testConfig);
       setTestResult(result);
       addLog(`测试连接: ${result}`);
     } catch (error) {
@@ -83,13 +100,23 @@ export default function ConnectionForm({
     setLoading(true);
 
     try {
+      // Prepare config with defaults for saving
+      const submitConfig: ConnectionConfig = {
+        ...config,
+      };
+      
+      if (dbType === "mysql" || dbType === "postgres") {
+        submitConfig.host = config.host || "localhost";
+        submitConfig.port = config.port || (dbType === "mysql" ? 3306 : 5432);
+      }
+
       if (connection) {
         // Update existing connection
-        await updateConnection(connection.id, name, config);
+        await updateConnection(connection.id, name, submitConfig);
         addLog(`连接 "${name}" 已更新`);
       } else {
         // Create new connection
-        await createConnection(name, dbType, config);
+        await createConnection(name, dbType, submitConfig);
         addLog(`连接 "${name}" 已创建`);
       }
       onSuccess();
@@ -124,8 +151,21 @@ export default function ConnectionForm({
             <select
               value={dbType}
               onChange={(e) => {
-                setDbType(e.target.value as "sqlite" | "mysql" | "postgres");
-                setConfig({});
+                const newDbType = e.target.value as "sqlite" | "mysql" | "postgres";
+                setDbType(newDbType);
+                if (newDbType === "sqlite") {
+                  setConfig({});
+                } else {
+                  // Set default values for MySQL/PostgreSQL
+                  setConfig({
+                    host: "localhost",
+                    port: newDbType === "mysql" ? 3306 : 5432,
+                    user: "",
+                    password: "",
+                    database: "",
+                    ssl: false,
+                  });
+                }
               }}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
             >
@@ -176,7 +216,11 @@ export default function ConnectionForm({
                   <input
                     type="number"
                     value={config.port || (dbType === "mysql" ? 3306 : 5432)}
-                    onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const portValue = e.target.value;
+                      const port = portValue === "" ? undefined : parseInt(portValue);
+                      setConfig({ ...config, port: isNaN(port as number) ? undefined : port });
+                    }}
                     required
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
                   />
