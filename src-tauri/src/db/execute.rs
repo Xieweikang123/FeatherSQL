@@ -20,10 +20,11 @@ fn get_connection_string(connection: &Connection) -> Result<String, String> {
             database,
             ssl,
         } => {
+            let db_part = database.as_ref().map(|d| format!("/{}", d)).unwrap_or_default();
             let ssl_param = if *ssl { "?ssl-mode=REQUIRED" } else { "" };
             Ok(format!(
-                "mysql://{}:{}@{}:{}/{}{}",
-                user, password, host, port, database, ssl_param
+                "mysql://{}:{}@{}:{}{}{}",
+                user, password, host, port, db_part, ssl_param
             ))
         }
         ConnectionConfig::Postgres {
@@ -34,10 +35,11 @@ fn get_connection_string(connection: &Connection) -> Result<String, String> {
             database,
             ssl,
         } => {
+            let db_part = database.as_ref().map(|d| format!("/{}", d)).unwrap_or_default();
             let ssl_param = if *ssl { "?sslmode=require" } else { "?sslmode=disable" };
             Ok(format!(
-                "postgres://{}:{}@{}:{}/{}{}",
-                user, password, host, port, database, ssl_param
+                "postgres://{}:{}@{}:{}{}{}",
+                user, password, host, port, db_part, ssl_param
             ))
         }
     }

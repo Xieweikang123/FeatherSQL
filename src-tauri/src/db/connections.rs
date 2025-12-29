@@ -23,7 +23,7 @@ pub enum ConnectionConfig {
         port: u16,
         user: String,
         password: String,
-        database: String,
+        database: Option<String>,
         ssl: bool,
     },
     #[serde(rename = "postgres")]
@@ -32,7 +32,7 @@ pub enum ConnectionConfig {
         port: u16,
         user: String,
         password: String,
-        database: String,
+        database: Option<String>,
         ssl: bool,
     },
 }
@@ -108,8 +108,7 @@ pub async fn create_connection(
             let database = config
                 .get("database")
                 .and_then(|v| v.as_str())
-                .ok_or("Missing database for MySQL connection")?
-                .to_string();
+                .map(|s| s.to_string());
             let ssl = config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
             ConnectionConfig::Mysql {
                 host,
@@ -143,8 +142,7 @@ pub async fn create_connection(
             let database = config
                 .get("database")
                 .and_then(|v| v.as_str())
-                .ok_or("Missing database for PostgreSQL connection")?
-                .to_string();
+                .map(|s| s.to_string());
             let ssl = config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
             ConnectionConfig::Postgres {
                 host,
@@ -208,7 +206,7 @@ pub async fn update_connection(
                     let port = new_config.get("port").and_then(|v| v.as_u64()).unwrap_or(3306) as u16;
                     let user = new_config.get("user").and_then(|v| v.as_str()).unwrap_or("root").to_string();
                     let password = new_config.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let database = new_config.get("database").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let database = new_config.get("database").and_then(|v| v.as_str()).map(|s| s.to_string());
                     let ssl = new_config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
                     ConnectionConfig::Mysql { host, port, user, password, database, ssl }
                 }
@@ -217,7 +215,7 @@ pub async fn update_connection(
                     let port = new_config.get("port").and_then(|v| v.as_u64()).unwrap_or(5432) as u16;
                     let user = new_config.get("user").and_then(|v| v.as_str()).unwrap_or("postgres").to_string();
                     let password = new_config.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let database = new_config.get("database").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let database = new_config.get("database").and_then(|v| v.as_str()).map(|s| s.to_string());
                     let ssl = new_config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
                     ConnectionConfig::Postgres { host, port, user, password, database, ssl }
                 }
@@ -243,5 +241,196 @@ pub async fn delete_connection(
     save_connections(&app, &connections)?;
 
     Ok(())
+}
+
+fn get_connection_string_for_test(config: &ConnectionConfig) -> Result<String, String> {
+    match config {
+        ConnectionConfig::Sqlite { filepath } => {
+            if !std::path::Path::new(filepath).exists() {
+                return Err(format!("SQLite 文件不存在: {}", filepath));
+            }
+            // sqlx requires sqlite:// prefix
+            Ok(format!("sqlite://{}", filepath))
+        }
+        ConnectionConfig::Mysql {
+            host,
+            port,
+            user,
+            password,
+            database,
+            ssl,
+        } => {
+            let db_part = database.as_ref().map(|d| format!("/{}", d)).unwrap_or_default();
+            let ssl_param = if *ssl { "?ssl-mode=REQUIRED" } else { "?ssl-mode=DISABLED" };
+            Ok(format!(
+                "mysql://{}:{}@{}:{}{}{}",
+                user, password, host, port, db_part, ssl_param
+            ))
+        }
+        ConnectionConfig::Postgres {
+            host,
+            port,
+            user,
+            password,
+            database,
+            ssl,
+        } => {
+            let db_part = database.as_ref().map(|d| format!("/{}", d)).unwrap_or_default();
+            let ssl_param = if *ssl { "?sslmode=require" } else { "?sslmode=disable" };
+            Ok(format!(
+                "postgres://{}:{}@{}:{}{}{}",
+                user, password, host, port, db_part, ssl_param
+            ))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn test_connection(
+    db_type: String,
+    config: serde_json::Value,
+) -> Result<String, String> {
+    let connection_config = match db_type.as_str() {
+        "sqlite" => {
+            let filepath = config
+                .get("filepath")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing filepath for SQLite connection")?
+                .to_string();
+            ConnectionConfig::Sqlite { filepath }
+        }
+        "mysql" => {
+            let host = config
+                .get("host")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing host for MySQL connection")?
+                .to_string();
+            let port = config
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .ok_or("Missing port for MySQL connection")? as u16;
+            let user = config
+                .get("user")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing user for MySQL connection")?
+                .to_string();
+            let password = config
+                .get("password")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing password for MySQL connection")?
+                .to_string();
+            let database = config
+                .get("database")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let ssl = config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
+            ConnectionConfig::Mysql {
+                host,
+                port,
+                user,
+                password,
+                database,
+                ssl,
+            }
+        }
+        "postgres" => {
+            let host = config
+                .get("host")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing host for PostgreSQL connection")?
+                .to_string();
+            let port = config
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .ok_or("Missing port for PostgreSQL connection")? as u16;
+            let user = config
+                .get("user")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing user for PostgreSQL connection")?
+                .to_string();
+            let password = config
+                .get("password")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing password for PostgreSQL connection")?
+                .to_string();
+            let database = config
+                .get("database")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let ssl = config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
+            ConnectionConfig::Postgres {
+                host,
+                port,
+                user,
+                password,
+                database,
+                ssl,
+            }
+        }
+        _ => return Err(format!("Unsupported database type: {}", db_type)),
+    };
+
+    let connection_string = get_connection_string_for_test(&connection_config)?;
+
+    // Test the connection
+    match db_type.as_str() {
+        "sqlite" => {
+            // For SQLite, we just check if the file exists (already done above)
+            // Try to open the database to verify it's valid
+            match sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect(&connection_string)
+                .await
+            {
+                Ok(_) => Ok("SQLite 连接成功".to_string()),
+                Err(e) => Err(format!("SQLite 连接失败: {}", e)),
+            }
+        }
+        "mysql" => {
+            match sqlx::mysql::MySqlPoolOptions::new()
+                .max_connections(1)
+                .connect(&connection_string)
+                .await
+            {
+                Ok(pool) => {
+                    // Try a simple query to verify the connection
+                    match sqlx::query("SELECT 1").execute(&pool).await {
+                        Ok(_) => {
+                            drop(pool);
+                            Ok("MySQL 连接成功".to_string())
+                        }
+                        Err(e) => {
+                            drop(pool);
+                            Err(format!("MySQL 连接测试失败: {}", e))
+                        }
+                    }
+                }
+                Err(e) => Err(format!("MySQL 连接失败: {}", e)),
+            }
+        }
+        "postgres" => {
+            match sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&connection_string)
+                .await
+            {
+                Ok(pool) => {
+                    // Try a simple query to verify the connection
+                    match sqlx::query("SELECT 1").execute(&pool).await {
+                        Ok(_) => {
+                            drop(pool);
+                            Ok("PostgreSQL 连接成功".to_string())
+                        }
+                        Err(e) => {
+                            drop(pool);
+                            Err(format!("PostgreSQL 连接测试失败: {}", e))
+                        }
+                    }
+                }
+                Err(e) => Err(format!("PostgreSQL 连接失败: {}", e)),
+            }
+        }
+        _ => Err("Unsupported database type".to_string()),
+    }
 }
 

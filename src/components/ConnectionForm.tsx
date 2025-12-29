@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { createConnection, updateConnection, type Connection, type ConnectionConfig } from "../lib/commands";
+import { createConnection, updateConnection, testConnection, type Connection, type ConnectionConfig } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -19,6 +19,8 @@ export default function ConnectionForm({
   const [dbType, setDbType] = useState<"sqlite" | "mysql" | "postgres">("sqlite");
   const [config, setConfig] = useState<ConnectionConfig>({});
   const [loading, setLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (connection) {
@@ -43,6 +45,36 @@ export default function ConnectionForm({
       }
     } catch (error) {
       addLog(`选择文件失败: ${error}`);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+
+    try {
+      // Validate required fields based on dbType
+      if (dbType === "sqlite" && !config.filepath) {
+        setTestResult("请先选择数据库文件");
+        setTesting(false);
+        return;
+      }
+      if ((dbType === "mysql" || dbType === "postgres") && 
+          (!config.host || !config.port || !config.user)) {
+        setTestResult("请填写完整的连接信息（主机、端口、用户名）");
+        setTesting(false);
+        return;
+      }
+
+      const result = await testConnection(dbType, config);
+      setTestResult(result);
+      addLog(`测试连接: ${result}`);
+    } catch (error) {
+      const errorMsg = String(error);
+      setTestResult(`连接失败: ${errorMsg}`);
+      addLog(`测试连接失败: ${errorMsg}`);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -177,14 +209,17 @@ export default function ConnectionForm({
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">数据库名</label>
+                <label className="block text-sm font-medium mb-1">数据库名（可选）</label>
                 <input
                   type="text"
                   value={config.database || ""}
                   onChange={(e) => setConfig({ ...config, database: e.target.value })}
-                  required
+                  placeholder="留空则连接到服务器"
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
                 />
+                <p className="text-xs text-gray-400 mt-1">
+                  留空时连接到服务器，不指定具体数据库
+                </p>
               </div>
 
               <div>
@@ -201,21 +236,41 @@ export default function ConnectionForm({
             </>
           )}
 
-          <div className="flex gap-2 justify-end pt-4">
+          {testResult && (
+            <div className={`p-3 rounded text-sm ${
+              testResult.includes("成功") 
+                ? "bg-green-900/50 text-green-300 border border-green-700" 
+                : "bg-red-900/50 text-red-300 border border-red-700"
+            }`}>
+              {testResult}
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-between pt-4">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded"
+              onClick={handleTestConnection}
+              disabled={testing || loading}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              取消
+              {testing ? "测试中..." : "测试连接"}
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50"
-            >
-              {loading ? "保存中..." : "保存"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={loading || testing}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? "保存中..." : "保存"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

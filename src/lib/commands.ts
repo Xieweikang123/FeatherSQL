@@ -48,6 +48,13 @@ export async function deleteConnection(id: string): Promise<void> {
   return await invoke("delete_connection", { id });
 }
 
+export async function testConnection(
+  dbType: string,
+  config: ConnectionConfig
+): Promise<string> {
+  return await invoke("test_connection", { dbType, config });
+}
+
 // SQL execution command
 export async function executeSql(
   connectionId: string,
