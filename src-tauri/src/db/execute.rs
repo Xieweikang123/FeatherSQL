@@ -1,28 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
-use crate::db::connections::{Connection, ConnectionConfig};
-
-use std::fs;
-use std::path::PathBuf;
-
-fn get_store_path(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .expect("Failed to get app data directory")
-        .join("connections.json")
-}
-
-fn load_connections(app: &tauri::AppHandle) -> Vec<Connection> {
-    let path = get_store_path(app);
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(connections) = serde_json::from_str::<Vec<Connection>>(&content) {
-                return connections;
-            }
-        }
-    }
-    vec![]
-}
+use crate::db::connections::{Connection, ConnectionConfig, load_connections};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QueryResult {

@@ -2,23 +2,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
-mod storage;
+mod error;
 
-use db::{connections, execute};
+use crate::db::connections::{create_connection, get_connections, update_connection, delete_connection};
+use crate::db::execute::execute_sql;
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|_app| {
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            // Connection management commands
-            connections::create_connection,
-            connections::get_connections,
-            connections::update_connection,
-            connections::delete_connection,
-            // SQL execution commands
-            execute::execute_sql,
+            create_connection,
+            get_connections,
+            update_connection,
+            delete_connection,
+            execute_sql,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

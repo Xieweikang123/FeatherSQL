@@ -37,14 +37,14 @@ pub enum ConnectionConfig {
     },
 }
 
-fn get_store_path(app: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn get_store_path(app: &tauri::AppHandle) -> PathBuf {
     app.path()
         .app_data_dir()
         .expect("Failed to get app data directory")
         .join("connections.json")
 }
 
-fn load_connections(app: &tauri::AppHandle) -> Vec<Connection> {
+pub(crate) fn load_connections(app: &tauri::AppHandle) -> Vec<Connection> {
     let path = get_store_path(app);
     if path.exists() {
         if let Ok(content) = fs::read_to_string(&path) {
@@ -56,7 +56,7 @@ fn load_connections(app: &tauri::AppHandle) -> Vec<Connection> {
     vec![]
 }
 
-fn save_connections(app: &tauri::AppHandle, connections: &[Connection]) -> Result<(), String> {
+pub(crate) fn save_connections(app: &tauri::AppHandle, connections: &[Connection]) -> Result<(), String> {
     let path = get_store_path(app);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;

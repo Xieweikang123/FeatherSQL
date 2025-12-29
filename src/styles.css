@@ -1,0 +1,258 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  min-height: 80px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: transparent;
+}
+
+/* 自定义宽滚动条样式 - 类似缩略图效果（仅针对搜索结果列表） */
+/* 重要：不要使用 scrollbar-width 和 scrollbar-color，它们会与 -webkit-scrollbar 冲突 */
+.results-list-scroll {
+  overflow-y: scroll !important; /* 强制显示滚动轨道 */
+}
+
+/* 使用更具体的选择器，确保优先级 */
+div.results-list-scroll::-webkit-scrollbar {
+  width: 12px !important; /* 更窄的滚动条，线性风 */
+  height: 12px !important;
+  display: block !important;
+  -webkit-appearance: none !important;
+  background-color: transparent !important;
+}
+
+/* 隐藏滚动条按钮（箭头） */
+div.results-list-scroll::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+div.results-list-scroll::-webkit-scrollbar-track {
+  background: #f8f9fb !important; /* 更浅的轨道背景，线性干净 */
+  border-left: 1px solid #eceff3 !important;
+}
+
+div.results-list-scroll::-webkit-scrollbar-thumb {
+  background-color: #b6beca !important; /* 中性灰，弱对比 */
+  border-radius: 8px !important; /* 轻圆角 */
+  border: 3px solid #f8f9fb !important; /* 更细的间隙 */
+  background-clip: content-box !important;
+  min-height: 32px !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+  box-shadow: none !important;
+}
+
+div.results-list-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #9fa8b7 !important;
+  border: 3px solid #f1f3f6 !important;
+  box-shadow: none !important;
+}
+
+div.results-list-scroll::-webkit-scrollbar-thumb:active {
+  background-color: #8893a3 !important;
+  border: 3px solid #e8ecf2 !important;
+  box-shadow: none !important;
+}
+
+/* 全局滚动条样式 - 宽滚动条，类似缩略图效果（可选，如果需要全局应用） */
+/* 注意：如果只需要搜索结果列表的滚动条，可以删除或注释掉这部分 */
+/*
+*::-webkit-scrollbar {
+  width: 24px !important;
+  height: 24px !important;
+  -webkit-appearance: none !important;
+  background-color: transparent !important;
+}
+
+*::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: #f5f5f5 !important;
+  border-left: 1px solid #e0e0e0 !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #b0b0b0 !important;
+  border-radius: 12px !important;
+  border: 5px solid #f5f5f5 !important;
+  background-clip: content-box !important;
+  min-height: 40px !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #999999 !important;
+  border: 5px solid #f5f5f5 !important;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: #808080 !important;
+  border: 5px solid #f5f5f5 !important;
+}
+*/
+
+/* 插件卡片动画 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(25px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 应用启动动画 - 火箭发射特效 */
+@keyframes launchApp {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+    filter: brightness(1) blur(0px);
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(-8px) scale(0.95) rotate(-2deg);
+    filter: brightness(1.1) blur(0.5px);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-40px) scale(1.1) rotate(1deg);
+    filter: brightness(1.3) blur(1px);
+  }
+  60% {
+    opacity: 0.9;
+    transform: translateY(-100px) scale(1.2) rotate(-0.5deg);
+    filter: brightness(1.5) blur(2px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-200px) scale(1.3) rotate(0deg);
+    filter: brightness(2) blur(4px);
+  }
+}
+
+/* 火箭火焰喷射动画 */
+@keyframes rocketFlame {
+  0% {
+    opacity: 0.95;
+    transform: translateY(0) scaleY(1) scaleX(0.9);
+    filter: blur(1px);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(5px) scaleY(1.3) scaleX(1.05);
+    filter: blur(1.5px);
+  }
+  40% {
+    opacity: 0.95;
+    transform: translateY(10px) scaleY(1.6) scaleX(1.15);
+    filter: blur(2px);
+  }
+  60% {
+    opacity: 0.85;
+    transform: translateY(15px) scaleY(1.9) scaleX(1.25);
+    filter: blur(3px);
+  }
+  80% {
+    opacity: 0.6;
+    transform: translateY(20px) scaleY(2.2) scaleX(1.35);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(28px) scaleY(2.5) scaleX(1.5);
+    filter: blur(6px);
+  }
+}
+
+/* 火焰闪烁动画 - 只影响缩放，不影响位置 */
+@keyframes flameFlicker {
+  0%, 100% {
+    transform: scaleX(1);
+  }
+  25% {
+    transform: scaleX(1.1);
+  }
+  50% {
+    transform: scaleX(0.95);
+  }
+  75% {
+    transform: scaleX(1.05);
+  }
+}
+
+/* 火箭发射时的火焰效果 */
+.rocket-launching::after {
+  content: '';
+  position: absolute;
+  bottom: -16px;
+  left: calc(50% - 14px);
+  width: 28px;
+  height: 24px;
+  background: linear-gradient(
+    to top,
+    #ff4500 0%,
+    #ff6b00 15%,
+    #ff8c00 35%,
+    #ffa500 55%,
+    #ffd700 75%,
+    #ffff00 90%,
+    rgba(255, 255, 255, 0.8) 100%
+  );
+  /* 使用clip-path创建正三角形/火焰形状：顶部宽，底部尖 */
+  clip-path: polygon(
+    0% 0%,             /* 顶部左侧（宽） */
+    50% 100%,          /* 底部尖点 */
+    100% 0%            /* 顶部右侧（宽） */
+  );
+  animation: rocketFlame 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards,
+             flameFlicker 0.1s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+  box-shadow: 
+    0 0 10px #ff4500,
+    0 0 15px #ff6b00,
+    0 0 20px #ff8c00,
+    0 0 25px #ffa500,
+    inset 0 -6px 12px rgba(255, 69, 0, 0.6);
+}
+
+/* 搜索结果高亮文本样式 */
+.highlight-match {
+  color: #ea580c; /* orange-600 */
+  background-color: transparent;
+}
+
+/* 选中状态下的高亮文本 */
+.bg-gradient-to-r .highlight-match {
+  color: #fef3c7; /* amber-100，在蓝色背景上更清晰 */
+  background-color: rgba(255, 255, 255, 0.15);
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
