@@ -5,9 +5,39 @@ use std::path::PathBuf;
 use sqlx::Row;
 use tiberius::{Config, AuthMethod, Client, QueryItem};
 use tokio::net::TcpStream;
-use tokio_util::compat::TokioAsyncWriteCompatExt;
+use tokio_util::compat::{TokioAsyncWriteCompatExt, Compat};
 use futures_util::TryStreamExt;
 use crate::db::pool_manager::{PoolManager, DatabasePool};
+
+// Helper function to create MSSQL client connection
+async fn create_mssql_client(
+    host: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    database: Option<&str>,
+) -> Result<Client<Compat<TcpStream>>, String> {
+    let mut config = Config::new();
+    config.host(host);
+    config.port(port);
+    config.authentication(AuthMethod::sql_server(user, password));
+    config.trust_cert();
+    
+    if let Some(db) = database {
+        config.database(db);
+    }
+    
+    let tcp = TcpStream::connect(config.get_addr())
+        .await
+        .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
+    
+    tcp.set_nodelay(true)
+        .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
+    
+    Client::connect(config, tcp.compat_write())
+        .await
+        .map_err(|e| format!("MSSQL 连接失败: {}", e))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {
@@ -635,29 +665,11 @@ pub async fn list_databases(
                 database: _,
                 ssl: _,
             } => {
-                // Create tiberius config (connect without specific database)
-                let mut config = Config::new();
-                config.host(host);
-                config.port(*port);
-                config.authentication(AuthMethod::sql_server(user, password));
-                config.trust_cert();
-                // Don't set database - connect to master to list all databases
-                
-                // Connect to SQL Server
-                let tcp = TcpStream::connect(config.get_addr())
-                    .await
-                    .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
-                
-                tcp.set_nodelay(true)
-                    .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
-                
-                // Create client
-                let mut client = Client::connect(config, tcp.compat_write())
-                    .await
-                    .map_err(|e| format!("MSSQL 连接失败: {}", e))?;
+                // Connect without specific database to list all databases
+                let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, *port, user, password, None).await?;
                 
                 // Query databases (exclude system databases with database_id <= 4)
-                let mut stream = client.query(
+                let mut stream: tiberius::QueryStream<'_> = client.query(
                     "SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name",
                     &[]
                 ).await
@@ -738,33 +750,13 @@ pub async fn list_tables(
                 database: config_db,
                 ssl: _,
             } => {
-                // Create tiberius config
-                let mut config = Config::new();
-                config.host(host);
-                config.port(*port);
-                config.authentication(AuthMethod::sql_server(user, password));
-                config.trust_cert();
-                
-                // Use specified database or config database, default to master
+                // Use specified database or config database
                 let db_name = database.as_deref().or(config_db.as_deref());
-                if let Some(db) = db_name {
-                    config.database(db);
-                }
                 
-                // Connect to SQL Server
-                let tcp = TcpStream::connect(config.get_addr())
-                    .await
-                    .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
+                // Create client connection
+                let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, *port, user, password, db_name).await?;
                 
-                tcp.set_nodelay(true)
-                    .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
-                
-                // Create client
-                let mut client = Client::connect(config, tcp.compat_write())
-                    .await
-                    .map_err(|e| format!("MSSQL 连接失败: {}", e))?;
-                
-                // Query tables from information_schema
+                // Query tables from information_schema (optimized query)
                 let query = if let Some(db) = db_name {
                     format!(
                         "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_CATALOG = '{}' ORDER BY TABLE_NAME",
@@ -774,7 +766,7 @@ pub async fn list_tables(
                     "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME".to_string()
                 };
                 
-                let mut stream = client.query(&query, &[])
+                let mut stream: tiberius::QueryStream<'_> = client.query(&query, &[])
                     .await
                     .map_err(|e| format!("查询表列表失败: {}", e))?;
                 

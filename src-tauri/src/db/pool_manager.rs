@@ -35,13 +35,13 @@ impl PoolManager {
         };
 
         // Try to get existing pool
+        // Note: sqlx pools manage their own health, so we don't need to check every time
         {
             let pools = self.pools.read().await;
             if let Some(pool) = pools.get(&key) {
-                // Check if pool is still valid
-                if Self::check_pool_health(pool).await {
-                    return Ok(pool.clone());
-                }
+                // Only check health if pool seems stale (sqlx handles this internally)
+                // For performance, we skip the health check and let sqlx handle reconnection
+                return Ok(pool.clone());
             }
         }
 

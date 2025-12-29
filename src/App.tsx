@@ -78,14 +78,14 @@ function App() {
       const deltaY = e.clientY - dragStartY.current;
       const newHeight = dragStartHeight.current + deltaY;
       const containerHeight = mainContentRef.current.clientHeight;
-      
+
       // Constrain height between 20% and 80% of container
       const minHeight = containerHeight * 0.2;
       const maxHeight = containerHeight * 0.8;
       const constrainedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
-      
+
       setEditorHeight(constrainedHeight);
-      
+
       // Save ratio in real-time during drag
       const ratio = constrainedHeight / containerHeight;
       setEditorHeightRatio(ratio);
@@ -93,10 +93,12 @@ function App() {
 
     const handleMouseUp = () => {
       setIsDragging(false);
-      // Save the ratio to localStorage when dragging ends
-      // Use the ratio that was already calculated in handleMouseMove
-      if (editorHeightRatio !== null) {
-        localStorage.setItem(EDITOR_HEIGHT_RATIO_KEY, editorHeightRatio.toString());
+      // Calculate and save the ratio directly using current editorHeight
+      if (mainContentRef.current && editorHeight !== null) {
+        const containerHeight = mainContentRef.current.clientHeight;
+        const ratio = editorHeight / containerHeight;
+        localStorage.setItem(EDITOR_HEIGHT_RATIO_KEY, ratio.toString());
+        setEditorHeightRatio(ratio);
       }
     };
 
@@ -113,7 +115,7 @@ function App() {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-  }, [isDragging]);
+  }, [isDragging, editorHeight]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white">
