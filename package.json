@@ -4,10 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "npx tauri dev",
+    "dev:frontend": "vite",
+    "build": "npx tauri build",
+    "build:frontend": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "npx tauri"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -38,4 +40,3 @@
     "autoprefixer": "^10.4.16"
   }
 }
-
