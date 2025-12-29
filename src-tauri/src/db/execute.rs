@@ -15,6 +15,7 @@ pub struct QueryResult {
 pub async fn execute_sql(
     connection_id: String,
     sql: String,
+    database: Option<String>,
     app: tauri::AppHandle,
     pool_manager: State<'_, PoolManager>,
 ) -> Result<QueryResult, String> {
@@ -27,8 +28,8 @@ pub async fn execute_sql(
 
     let connection_name = connection.name.clone();
 
-    // Get or create pool
-    let pool = pool_manager.get_or_create_pool(connection, None).await?;
+    // Get or create pool (with database if specified)
+    let pool = pool_manager.get_or_create_pool(connection, database.as_deref()).await?;
 
     // Execute SQL based on database type
     let result = match pool {

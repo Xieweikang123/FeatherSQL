@@ -5,6 +5,7 @@ import {
   deleteConnection,
   listDatabases,
   listTables,
+  executeSql,
   type Connection,
 } from "../lib/commands";
 import ConnectionForm from "./ConnectionForm";
@@ -15,7 +16,10 @@ export default function ConnectionManager() {
     currentConnectionId,
     setConnections,
     setCurrentConnection,
+    setQueryResult,
+    setError,
     addLog,
+    loadSql,
   } = useConnectionStore();
   const [showForm, setShowForm] = useState(false);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
@@ -173,6 +177,65 @@ export default function ConnectionManager() {
     setShowForm(true);
   };
 
+  const handleTableClick = async (
+    e: React.MouseEvent,
+    connectionId: string,
+    tableName: string,
+    database?: string
+  ) => {
+    e.stopPropagation();
+    
+    if (!currentConnectionId || currentConnectionId !== connectionId) {
+      addLog("请先选择该连接");
+      return;
+    }
+
+    const connection = connections.find((c) => c.id === connectionId);
+    
+    if (!connection) {
+      addLog("连接不存在");
+      return;
+    }
+
+    // Escape table name if needed (for MySQL/PostgreSQL with special characters)
+    let escapedTableName = tableName;
+    if (connection.type === "mysql") {
+      // Use backticks for MySQL
+      escapedTableName = `\`${tableName.replace(/`/g, "``")}\``;
+      // If database is specified, use database.table format to ensure correct database context
+      if (database) {
+        const escapedDb = `\`${database.replace(/`/g, "``")}\``;
+        escapedTableName = `${escapedDb}.${escapedTableName}`;
+      }
+    } else if (connection.type === "postgres") {
+      // Use double quotes for PostgreSQL
+      escapedTableName = `"${tableName.replace(/"/g, '""')}"`;
+      // If database is specified, use database.table format
+      if (database) {
+        const escapedDb = `"${database.replace(/"/g, '""')}"`;
+        escapedTableName = `${escapedDb}.${escapedTableName}`;
+      }
+    }
+
+    const sql = `SELECT * FROM ${escapedTableName} LIMIT 100`;
+
+    // Load SQL into editor
+    loadSql(sql);
+    addLog(`查询表: ${tableName}${database ? ` (数据库: ${database})` : ""}`);
+
+    // Execute query
+    setError(null);
+    try {
+      const result = await executeSql(connectionId, sql, database);
+      setQueryResult(result);
+      addLog(`查询成功，返回 ${result.rows.length} 行`);
+    } catch (error) {
+      const errorMsg = String(error);
+      setError(errorMsg);
+      addLog(`查询失败: ${errorMsg}`);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-gray-700">
@@ -283,8 +346,9 @@ export default function ConnectionManager() {
                                             {dbTables.map((table) => (
                                               <div
                                                 key={table}
-                                                className="text-xs text-gray-500 py-0.5 px-2 hover:bg-gray-700 rounded"
-                                                title={table}
+                                                onClick={(e) => handleTableClick(e, connection.id, table, db)}
+                                                className="text-xs text-gray-500 py-0.5 px-2 hover:bg-gray-700 rounded cursor-pointer"
+                                                title={`点击查询表: ${table}`}
                                               >
                                                 📄 {table}
                                               </div>
@@ -333,8 +397,9 @@ export default function ConnectionManager() {
                                       {connectionTables.map((table) => (
                                         <div
                                           key={table}
-                                          className="text-xs text-gray-500 py-0.5 px-2 hover:bg-gray-700 rounded"
-                                          title={table}
+                                          onClick={(e) => handleTableClick(e, connection.id, table)}
+                                          className="text-xs text-gray-500 py-0.5 px-2 hover:bg-gray-700 rounded cursor-pointer"
+                                          title={`点击查询表: ${table}`}
                                         >
                                           📄 {table}
                                         </div>

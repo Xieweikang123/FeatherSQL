@@ -58,9 +58,10 @@ export async function testConnection(
 // SQL execution command
 export async function executeSql(
   connectionId: string,
-  sql: string
+  sql: string,
+  database?: string
 ): Promise<QueryResult> {
-  return await invoke("execute_sql", { connectionId, sql });
+  return await invoke("execute_sql", { connectionId, sql, database });
 }
 
 // List databases command

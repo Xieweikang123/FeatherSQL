@@ -26,94 +26,128 @@ html, body {
   background-color: transparent;
 }
 
-/* 自定义宽滚动条样式 - 类似缩略图效果（仅针对搜索结果列表） */
-/* 重要：不要使用 scrollbar-width 和 scrollbar-color，它们会与 -webkit-scrollbar 冲突 */
-.results-list-scroll {
-  overflow-y: scroll !important; /* 强制显示滚动轨道 */
+/* ============================================
+   全局滚动条样式优化 - 深色主题
+   ============================================ */
+
+/* Firefox 滚动条样式 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4b5563 #1f2937; /* thumb track */
 }
 
-/* 使用更具体的选择器，确保优先级 */
-div.results-list-scroll::-webkit-scrollbar {
-  width: 12px !important; /* 更窄的滚动条，线性风 */
+/* WebKit 滚动条样式（Chrome, Edge, Safari, Tauri WebView） */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  -webkit-appearance: none;
+}
+
+*::-webkit-scrollbar-track {
+  background: #1f2937; /* gray-800 */
+  border-left: 1px solid #111827; /* gray-900 */
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #4b5563; /* gray-600 */
+  border-radius: 5px;
+  border: 2px solid #1f2937; /* 与轨道背景一致，形成内边距效果 */
+  background-clip: content-box;
+  min-height: 30px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280; /* gray-500 */
+  border-color: #374151; /* gray-700 */
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: #9ca3af; /* gray-400 */
+  border-color: #4b5563; /* gray-600 */
+}
+
+/* 隐藏滚动条按钮（箭头） */
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* 针对特定容器的滚动条优化 */
+/* 连接管理器、历史记录等侧边栏 */
+aside *::-webkit-scrollbar-thumb {
+  background-color: #4b5563;
+}
+
+aside *::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280;
+}
+
+/* 结果表格区域 - 稍微更明显的滚动条 */
+.overflow-auto::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb {
+  background-color: #4b5563;
+  border: 2px solid #1f2937;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280;
+  border-color: #374151;
+}
+
+/* 日志面板 - 更细的滚动条 */
+.text-xs::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+/* 保留原有的 results-list-scroll 类（如果其他地方使用） */
+.results-list-scroll {
+  overflow-y: scroll !important;
+}
+
+.results-list-scroll::-webkit-scrollbar {
+  width: 12px !important;
   height: 12px !important;
   display: block !important;
   -webkit-appearance: none !important;
   background-color: transparent !important;
 }
 
-/* 隐藏滚动条按钮（箭头） */
-div.results-list-scroll::-webkit-scrollbar-button {
+.results-list-scroll::-webkit-scrollbar-button {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
 }
 
-div.results-list-scroll::-webkit-scrollbar-track {
-  background: #f8f9fb !important; /* 更浅的轨道背景，线性干净 */
-  border-left: 1px solid #eceff3 !important;
+.results-list-scroll::-webkit-scrollbar-track {
+  background: #1f2937 !important;
+  border-left: 1px solid #111827 !important;
 }
 
-div.results-list-scroll::-webkit-scrollbar-thumb {
-  background-color: #b6beca !important; /* 中性灰，弱对比 */
-  border-radius: 8px !important; /* 轻圆角 */
-  border: 3px solid #f8f9fb !important; /* 更细的间隙 */
+.results-list-scroll::-webkit-scrollbar-thumb {
+  background-color: #4b5563 !important;
+  border-radius: 6px !important;
+  border: 2px solid #1f2937 !important;
   background-clip: content-box !important;
   min-height: 32px !important;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
-  box-shadow: none !important;
+  transition: background-color 0.2s ease !important;
 }
 
-div.results-list-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #9fa8b7 !important;
-  border: 3px solid #f1f3f6 !important;
-  box-shadow: none !important;
+.results-list-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280 !important;
+  border-color: #374151 !important;
 }
 
-div.results-list-scroll::-webkit-scrollbar-thumb:active {
-  background-color: #8893a3 !important;
-  border: 3px solid #e8ecf2 !important;
-  box-shadow: none !important;
+.results-list-scroll::-webkit-scrollbar-thumb:active {
+  background-color: #9ca3af !important;
+  border-color: #4b5563 !important;
 }
-
-/* 全局滚动条样式 - 宽滚动条，类似缩略图效果（可选，如果需要全局应用） */
-/* 注意：如果只需要搜索结果列表的滚动条，可以删除或注释掉这部分 */
-/*
-*::-webkit-scrollbar {
-  width: 24px !important;
-  height: 24px !important;
-  -webkit-appearance: none !important;
-  background-color: transparent !important;
-}
-
-*::-webkit-scrollbar-button {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-}
-
-*::-webkit-scrollbar-track {
-  background: #f5f5f5 !important;
-  border-left: 1px solid #e0e0e0 !important;
-}
-
-*::-webkit-scrollbar-thumb {
-  background-color: #b0b0b0 !important;
-  border-radius: 12px !important;
-  border: 5px solid #f5f5f5 !important;
-  background-clip: content-box !important;
-  min-height: 40px !important;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background-color: #999999 !important;
-  border: 5px solid #f5f5f5 !important;
-}
-
-*::-webkit-scrollbar-thumb:active {
-  background-color: #808080 !important;
-  border: 5px solid #f5f5f5 !important;
-}
-*/
 
 /* 插件卡片动画 */
 @keyframes fadeInUp {
