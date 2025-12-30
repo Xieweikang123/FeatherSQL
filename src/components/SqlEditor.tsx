@@ -6,7 +6,7 @@ import { executeSql } from "../lib/commands";
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
   const monacoEditorRef = useRef<any>(null);
-  const { connections, currentConnectionId, currentDatabase, selectedTable, setSelectedTable, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
+  const { connections, currentConnectionId, currentDatabase, selectedTable, setSelectedTable, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad, setSavedSql, setIsQuerying } =
     useConnectionStore();
   
   // Get current connection info
@@ -50,6 +50,7 @@ export default function SqlEditor() {
     }
 
     setError(null);
+    setIsQuerying(true);
     addLog(`执行 SQL: ${sql.substring(0, 50)}...`);
 
     try {
@@ -62,11 +63,16 @@ export default function SqlEditor() {
       setError(errorMsg);
       addLog(`执行失败: ${errorMsg}`);
       // History is automatically saved by the backend
+    } finally {
+      setIsQuerying(false);
     }
   };
 
   const handleEditorChange = (value: string | undefined) => {
-    editorRef.current = value || "";
+    const sql = value || "";
+    editorRef.current = sql;
+    // Save SQL to store for workspace state persistence
+    setSavedSql(sql);
   };
 
   const handleEditorMount = (editor: any, monaco: any) => {
@@ -85,34 +91,34 @@ export default function SqlEditor() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between px-5 py-3 bg-gray-900/95 border-b border-gray-800/80 backdrop-blur-sm shadow-sm">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
           {selectedTable && (
             <button
               onClick={() => setSelectedTable(null)}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700/60 rounded transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800/80 rounded-lg transition-all duration-200 border border-gray-700/50 hover:border-gray-600/50 hover:scale-105 active:scale-95"
               title="返回表视图"
             >
               <span>←</span>
               <span>返回</span>
             </button>
           )}
-          <span className="text-sm text-gray-400">SQL 编辑器</span>
+          <span className="text-sm text-gray-300 font-semibold">SQL 编辑器</span>
           {currentConnection && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-gray-500">|</span>
-              <span className="text-gray-300 font-medium">{currentConnection.name}</span>
-              <span className="text-gray-500">({currentConnection.type.toUpperCase()})</span>
+            <div className="flex items-center gap-2 text-xs flex-wrap">
+              <span className="text-gray-600">|</span>
+              <span className="text-gray-200 font-medium px-2 py-0.5 bg-gray-800/60 rounded">{currentConnection.name}</span>
+              <span className="text-gray-500 uppercase tracking-wide">({currentConnection.type})</span>
               {currentDatabase && (
                 <>
-                  <span className="text-gray-500">|</span>
-                  <span className="text-blue-400 font-medium">数据库: {currentDatabase}</span>
+                  <span className="text-gray-600">|</span>
+                  <span className="text-blue-400 font-medium px-2 py-0.5 bg-blue-500/10 rounded">数据库: {currentDatabase}</span>
                 </>
               )}
               {selectedTable && (
                 <>
-                  <span className="text-gray-500">|</span>
-                  <span className="text-green-400 font-medium">表: {selectedTable}</span>
+                  <span className="text-gray-600">|</span>
+                  <span className="text-green-400 font-medium px-2 py-0.5 bg-green-500/10 rounded">表: {selectedTable}</span>
                 </>
               )}
             </div>
@@ -121,7 +127,7 @@ export default function SqlEditor() {
         <button
           onClick={handleExecute}
           disabled={!currentConnectionId}
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium"
+          className="px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-700 disabled:to-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold transition-all duration-200 shadow-md shadow-blue-600/30 hover:shadow-lg hover:shadow-blue-600/40 hover:scale-105 active:scale-95"
         >
           执行 (Ctrl+Enter)
         </button>

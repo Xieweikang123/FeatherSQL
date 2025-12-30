@@ -13,6 +13,7 @@ export default function TableView() {
     setError,
     addLog,
     loadSql,
+    setIsQuerying,
   } = useConnectionStore();
   
   const [tables, setTables] = useState<string[]>([]);
@@ -21,12 +22,32 @@ export default function TableView() {
   const [searchQuery, setSearchQuery] = useState<string>("");
 
   const currentConnection = connections.find(c => c.id === currentConnectionId);
+  const connectionType = currentConnection?.type;
 
   useEffect(() => {
+    const loadTables = async () => {
+      if (!currentConnectionId) return;
+      
+      setLoading(true);
+      try {
+        // For SQLite, pass empty string; for others, pass currentDatabase or undefined
+        const dbParam = connectionType === "sqlite" ? "" : (currentDatabase || undefined);
+        const tableList = await listTables(currentConnectionId, dbParam);
+        setTables(tableList);
+        const dbName = connectionType === "sqlite" ? "SQLite" : currentDatabase;
+        addLog(`已加载数据库 "${dbName}" 的 ${tableList.length} 个表`);
+      } catch (error) {
+        addLog(`加载表列表失败: ${error}`);
+        setTables([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (currentConnectionId) {
       // For SQLite, currentDatabase can be empty string
       // For other DBs, currentDatabase must be set
-      if (currentConnection?.type === "sqlite" || currentDatabase) {
+      if (connectionType === "sqlite" || currentDatabase) {
         loadTables();
       } else {
         setTables([]);
@@ -34,26 +55,7 @@ export default function TableView() {
     } else {
       setTables([]);
     }
-  }, [currentConnectionId, currentDatabase, currentConnection]);
-
-  const loadTables = async () => {
-    if (!currentConnectionId) return;
-    
-    setLoading(true);
-    try {
-      // For SQLite, pass empty string; for others, pass currentDatabase or undefined
-      const dbParam = currentConnection?.type === "sqlite" ? "" : (currentDatabase || undefined);
-      const tableList = await listTables(currentConnectionId, dbParam);
-      setTables(tableList);
-      const dbName = currentConnection?.type === "sqlite" ? "SQLite" : currentDatabase;
-      addLog(`已加载数据库 "${dbName}" 的 ${tableList.length} 个表`);
-    } catch (error) {
-      addLog(`加载表列表失败: ${error}`);
-      setTables([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [currentConnectionId, currentDatabase, connectionType]);
 
   const handleTableClick = async (tableName: string) => {
     if (!currentConnectionId || !currentConnection) {
@@ -75,6 +77,7 @@ export default function TableView() {
 
     // Execute query
     setError(null);
+    setIsQuerying(true);
     try {
       const dbParam = currentConnection.type === "sqlite" ? "" : (currentDatabase || undefined);
       const result = await executeSql(currentConnectionId, sql, dbParam);
@@ -84,19 +87,21 @@ export default function TableView() {
       const errorMsg = String(error);
       setError(errorMsg);
       addLog(`查询失败: ${errorMsg}`);
+    } finally {
+      setIsQuerying(false);
     }
   };
 
   if (!currentConnectionId) {
     return (
       <div className="flex flex-col h-full">
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-gray-800/80 bg-gray-900/50">
           <h2 className="text-sm font-semibold text-gray-300">数据表</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-gray-500 text-sm">
-            <div className="mb-2">📁</div>
-            <div>请先选择一个连接</div>
+          <div className="text-center text-gray-400 text-sm">
+            <div className="mb-3 text-4xl opacity-50">📁</div>
+            <div className="font-medium">请先选择一个连接</div>
           </div>
         </div>
       </div>
@@ -106,13 +111,13 @@ export default function TableView() {
   if (currentConnection?.type !== "sqlite" && !currentDatabase) {
     return (
       <div className="flex flex-col h-full">
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-gray-800/80 bg-gray-900/50">
           <h2 className="text-sm font-semibold text-gray-300">数据表</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-gray-500 text-sm">
-            <div className="mb-2">📁</div>
-            <div>请先选择一个数据库</div>
+          <div className="text-center text-gray-400 text-sm">
+            <div className="mb-3 text-4xl opacity-50">📁</div>
+            <div className="font-medium">请先选择一个数据库</div>
           </div>
         </div>
       </div>
@@ -126,18 +131,18 @@ export default function TableView() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 border-b border-gray-700 space-y-3">
+      <div className="p-4 border-b border-gray-800/80 space-y-3 bg-gray-900/50 backdrop-blur-sm">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-300">
+          <h2 className="text-sm font-semibold text-gray-200">
             数据表 {currentConnection?.type === "sqlite" ? (
-              <span className="text-blue-400">(SQLite)</span>
+              <span className="text-blue-400 font-normal">(SQLite)</span>
             ) : currentDatabase ? (
-              <span className="text-blue-400">({currentDatabase})</span>
+              <span className="text-blue-400 font-normal">({currentDatabase})</span>
             ) : null}
           </h2>
           <button
             onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
-            className="flex-shrink-0 w-7 h-7 flex items-center justify-center hover:bg-gray-700/60 rounded transition-colors text-gray-400 hover:text-gray-300"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center hover:bg-gray-800/80 rounded-lg transition-all duration-200 text-gray-400 hover:text-gray-200 hover:scale-110 active:scale-95 border border-gray-700/50"
             title={viewMode === 'list' ? '切换到网格视图' : '切换到列表视图'}
           >
             <span className="text-sm">{viewMode === 'list' ? '⊞' : '☰'}</span>
@@ -151,13 +156,13 @@ export default function TableView() {
             placeholder="搜索表..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3 py-2 pl-8 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3.5 py-2.5 pl-9 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-200"
           />
-          <span className="absolute left-2.5 top-2.5 text-gray-400 text-sm">🔍</span>
+          <span className="absolute left-3 top-3 text-gray-400 text-sm">🔍</span>
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-2 text-gray-400 hover:text-white text-sm"
+              className="absolute right-2.5 top-2.5 text-gray-400 hover:text-white text-sm w-5 h-5 flex items-center justify-center hover:bg-gray-700/60 rounded transition-colors duration-200"
             >
               ✕
             </button>
@@ -168,27 +173,36 @@ export default function TableView() {
       {/* Table list */}
       <div className="flex-1 overflow-auto p-4">
         {loading ? (
-          <div className="text-center text-gray-500 text-sm py-8">加载中...</div>
+          <div className="text-center text-gray-400 text-sm py-12 flex flex-col items-center gap-3">
+            <svg className="animate-spin h-6 w-6 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>加载中...</span>
+          </div>
         ) : filteredTables.length === 0 ? (
-          <div className="text-center text-gray-500 text-sm py-8">
-            {tables.length === 0 ? "暂无表" : "无匹配的表"}
+          <div className="text-center text-gray-400 text-sm py-12">
+            <div className="text-4xl mb-3 opacity-40">📋</div>
+            <div className="font-medium">
+              {tables.length === 0 ? "暂无表" : "无匹配的表"}
+            </div>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {filteredTables.map((table) => (
               <div
                 key={table}
                 onClick={() => handleTableClick(table)}
-                className="group relative bg-gray-700/40 hover:bg-gray-700/80 border border-gray-600/50 hover:border-blue-500/50 rounded-lg p-3 cursor-pointer transition-all duration-200 hover:shadow-md hover:shadow-blue-500/20"
+                className="group relative bg-gray-800/60 hover:bg-gray-800/90 border border-gray-700/50 hover:border-blue-500/60 rounded-lg p-4 cursor-pointer transition-all duration-200 hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98]"
                 title={`点击查询表: ${table}`}
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">📄</span>
-                  <span className="text-sm text-gray-300 font-medium truncate flex-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl transition-transform duration-200 group-hover:scale-110">📄</span>
+                  <span className="text-sm text-gray-200 font-semibold truncate flex-1">
                     {table}
                   </span>
                 </div>
-                <div className="absolute inset-0 bg-blue-500/0 group-hover:bg-blue-500/5 rounded-lg transition-colors pointer-events-none"></div>
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-blue-500/0 group-hover:from-blue-500/5 group-hover:to-blue-500/10 rounded-lg transition-all duration-200 pointer-events-none"></div>
               </div>
             ))}
           </div>
@@ -198,11 +212,11 @@ export default function TableView() {
               <div
                 key={table}
                 onClick={() => handleTableClick(table)}
-                className="text-sm text-gray-400 py-2 px-3 hover:bg-gray-700/60 rounded cursor-pointer transition-colors truncate flex items-center gap-2"
+                className="text-sm text-gray-300 py-2.5 px-3.5 hover:bg-gray-800/80 rounded-lg cursor-pointer transition-all duration-200 truncate flex items-center gap-2.5 hover:scale-[1.01] border border-transparent hover:border-gray-700/50"
                 title={`点击查询表: ${table}`}
               >
-                <span>📄</span>
-                <span>{table}</span>
+                <span className="text-base">📄</span>
+                <span className="font-medium">{table}</span>
               </div>
             ))}
           </div>
