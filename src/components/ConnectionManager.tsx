@@ -32,6 +32,7 @@ export default function ConnectionManager() {
   const [tables, setTables] = useState<Map<string, string[]>>(new Map());
   const [loadingTables, setLoadingTables] = useState<Set<string>>(new Set());
   const [connectingConnections, setConnectingConnections] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   useEffect(() => {
     loadConnections();
@@ -82,13 +83,14 @@ export default function ConnectionManager() {
       setTables(new Map());
       setExpandedDatabases(new Set());
       
-      // Load databases for MySQL/PostgreSQL/MSSQL connections if expanded
-      if (expandedConnections.has(connection.id) && 
-          (connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql")) {
+      // 收起之前的连接，然后展开新连接
+      setExpandedConnections(new Set([connection.id]));
+      
+      // 自动加载数据库列表（MySQL/PostgreSQL/MSSQL）或表列表（SQLite）
+      if (connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql") {
         loadDatabases(connection.id);
-      }
-      // For SQLite, load tables directly
-      if (connection.type === "sqlite" && expandedConnections.has(connection.id)) {
+      } else if (connection.type === "sqlite") {
+        // For SQLite, load tables directly
         loadTables(connection.id, "");
       }
     } catch (error) {
@@ -318,7 +320,7 @@ export default function ConnectionManager() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-gray-700">
+      <div className="p-4 border-b border-gray-700 space-y-3">
         <button
           onClick={() => {
             setEditingConnection(null);
@@ -331,6 +333,26 @@ export default function ConnectionManager() {
             <span>新建连接</span>
           </span>
         </button>
+
+        {/* Search box */}
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="搜索表..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-3 py-2 pl-8 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <span className="absolute left-2.5 top-2.5 text-gray-400 text-sm">🔍</span>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-2 text-gray-400 hover:text-white text-sm"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -495,18 +517,30 @@ export default function ConnectionManager() {
                                         ) : dbTables.length === 0 ? (
                                           <div className="text-xs text-gray-500 py-1 px-2">暂无表</div>
                                         ) : (
-                                          <div className="space-y-0.5">
-                                            {dbTables.map((table) => (
-                                              <div
-                                                key={table}
-                                                onClick={(e) => handleTableClick(e, connection.id, table, db)}
-                                                className="text-xs text-gray-500 py-1 px-2 hover:bg-gray-700/60 rounded cursor-pointer transition-colors truncate"
-                                                title={`点击查询表: ${table}`}
-                                              >
-                                                📄 {table}
+                                          (() => {
+                                            const filteredTables = dbTables.filter(table =>
+                                              table.toLowerCase().includes(searchQuery.toLowerCase())
+                                            );
+
+                                            if (filteredTables.length === 0) {
+                                              return <div className="text-xs text-gray-500 py-1 px-2">无匹配的表</div>;
+                                            }
+
+                                            return (
+                                              <div className="space-y-0.5">
+                                                {filteredTables.map((table) => (
+                                                  <div
+                                                    key={table}
+                                                    onClick={(e) => handleTableClick(e, connection.id, table, db)}
+                                                    className="text-xs text-gray-500 py-1 px-2 hover:bg-gray-700/60 rounded cursor-pointer transition-colors truncate"
+                                                    title={`点击查询表: ${table}`}
+                                                  >
+                                                    📄 {table}
+                                                  </div>
+                                                ))}
                                               </div>
-                                            ))}
-                                          </div>
+                                            );
+                                          })()
                                         )}
                                       </div>
                                     )}
@@ -546,18 +580,30 @@ export default function ConnectionManager() {
                                   ) : connectionTables.length === 0 ? (
                                     <div className="text-xs text-gray-500 py-1 px-2">暂无表</div>
                                   ) : (
-                                    <div className="space-y-0.5">
-                                      {connectionTables.map((table) => (
-                                        <div
-                                          key={table}
-                                          onClick={(e) => handleTableClick(e, connection.id, table)}
-                                          className="text-xs text-gray-500 py-1 px-2 hover:bg-gray-700/60 rounded cursor-pointer transition-colors truncate"
-                                          title={`点击查询表: ${table}`}
-                                        >
-                                          📄 {table}
+                                    (() => {
+                                      const filteredTables = connectionTables.filter(table =>
+                                        table.toLowerCase().includes(searchQuery.toLowerCase())
+                                      );
+
+                                      if (filteredTables.length === 0) {
+                                        return <div className="text-xs text-gray-500 py-1 px-2">无匹配的表</div>;
+                                      }
+
+                                      return (
+                                        <div className="space-y-0.5">
+                                          {filteredTables.map((table) => (
+                                            <div
+                                              key={table}
+                                              onClick={(e) => handleTableClick(e, connection.id, table)}
+                                              className="text-xs text-gray-500 py-1 px-2 hover:bg-gray-700/60 rounded cursor-pointer transition-colors truncate"
+                                              title={`点击查询表: ${table}`}
+                                            >
+                                              📄 {table}
+                                            </div>
+                                          ))}
                                         </div>
-                                      ))}
-                                    </div>
+                                      );
+                                    })()
                                   )}
                                 </div>
                               </div>
