@@ -6,7 +6,7 @@ import { executeSql } from "../lib/commands";
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
   const monacoEditorRef = useRef<any>(null);
-  const { connections, currentConnectionId, currentDatabase, selectedTable, setSelectedTable, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad, setSavedSql, setIsQuerying } =
+  const { connections, currentConnectionId, currentDatabase, selectedTable, setSelectedTable, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad, setSavedSql, setIsQuerying, saveWorkspaceState } =
     useConnectionStore();
   
   // Get current connection info
@@ -57,11 +57,17 @@ export default function SqlEditor() {
       const result = await executeSql(currentConnectionId, sql, currentDatabase || undefined);
       setQueryResult(result);
       addLog(`查询成功，返回 ${result.rows.length} 行`);
+      // Save current SQL to workspace state after successful execution
+      setSavedSql(sql);
+      saveWorkspaceState();
       // History is automatically saved by the backend
     } catch (error) {
       const errorMsg = String(error);
       setError(errorMsg);
       addLog(`执行失败: ${errorMsg}`);
+      // Save current SQL to workspace state even on error (user might want to retry)
+      setSavedSql(sql);
+      saveWorkspaceState();
       // History is automatically saved by the backend
     } finally {
       setIsQuerying(false);

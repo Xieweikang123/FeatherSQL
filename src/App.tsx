@@ -5,7 +5,7 @@ import ResultTable from "./components/ResultTable";
 import SqlHistory from "./components/SqlHistory";
 import TableView from "./components/TableView";
 import { useConnectionStore } from "./store/connectionStore";
-import { getConnections, listDatabases } from "./lib/commands";
+import { getConnections } from "./lib/commands";
 
 const EDITOR_HEIGHT_RATIO_KEY = "feathersql_editor_height_ratio";
 
@@ -19,12 +19,6 @@ function App() {
     error, 
     logs, 
     clearLogs,
-    setCurrentConnection,
-    setCurrentDatabase,
-    setSelectedTable,
-    restoreWorkspaceState,
-    loadSql,
-    addLog,
     isQuerying,
   } = useConnectionStore();
   const [logsExpanded, setLogsExpanded] = useState(false);
@@ -32,7 +26,6 @@ function App() {
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
   const [editorHeightRatio, setEditorHeightRatio] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [workspaceRestored, setWorkspaceRestored] = useState(false);
   const mainContentRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef<number>(0);
   const dragStartHeight = useRef<number>(0);
@@ -40,60 +33,14 @@ function App() {
   useEffect(() => {
     // Load connections on mount
     getConnections()
-      .then(async (connections) => {
+      .then((connections) => {
         setConnections(connections);
-        
-        // Restore workspace state after connections are loaded
-        if (!workspaceRestored) {
-          const savedState = restoreWorkspaceState();
-          if (savedState && savedState.connectionId) {
-            // Find the connection in the loaded connections
-            const connection = connections.find(c => c.id === savedState.connectionId);
-            if (connection) {
-              addLog("正在恢复上次的工作状态...");
-              
-              try {
-                // Establish connection by testing it
-                if (connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql") {
-                  await listDatabases(savedState.connectionId);
-                } else if (connection.type === "sqlite") {
-                  // SQLite connection is established when we set the database
-                  setCurrentDatabase("");
-                }
-                
-                // Set current connection
-                setCurrentConnection(savedState.connectionId);
-                
-                // Restore database
-                if (savedState.database !== null) {
-                  if (connection.type !== "sqlite") {
-                    setCurrentDatabase(savedState.database);
-                  }
-                }
-                
-                // Restore table and SQL after a short delay to allow connection to establish
-                setTimeout(() => {
-                  if (savedState.table) {
-                    setSelectedTable(savedState.table);
-                  }
-                  if (savedState.sql) {
-                    loadSql(savedState.sql);
-                  }
-                  addLog("已恢复上次的工作状态");
-                }, 500);
-              } catch (error) {
-                const errorMsg = String(error);
-                addLog(`恢复工作状态失败: ${errorMsg}`);
-              }
-            }
-          }
-          setWorkspaceRestored(true);
-        }
+        // Auto-restore is disabled - user can manually restore from history if needed
       })
       .catch((err) => {
         console.error("Failed to load connections:", err);
       });
-  }, [setConnections, restoreWorkspaceState, setCurrentConnection, setCurrentDatabase, setSelectedTable, loadSql, addLog, workspaceRestored]);
+  }, [setConnections]);
 
   // Load saved editor height ratio from localStorage
   useEffect(() => {

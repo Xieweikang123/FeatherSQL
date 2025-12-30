@@ -68,20 +68,19 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   setConnections: (connections) => {
     set({ connections });
-    // Auto-save after connections are loaded
-    setTimeout(() => get().saveWorkspaceState(), 100);
+    // No auto-save on connections load
   },
   setCurrentConnection: (id) => {
     set({ currentConnectionId: id });
-    get().saveWorkspaceState();
+    // No auto-save on connection change
   },
   setCurrentDatabase: (database) => {
     set({ currentDatabase: database, selectedTable: null });
-    get().saveWorkspaceState();
+    // No auto-save on database change
   },
   setSelectedTable: (table) => {
     set({ selectedTable: table });
-    get().saveWorkspaceState();
+    // No auto-save on table selection
   },
   setQueryResult: (result) => set({ queryResult: result, error: null }),
   setError: (error) => set({ error, queryResult: null }),
@@ -92,12 +91,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   clearLogs: () => set({ logs: [] }),
   loadSql: (sql) => {
     set({ sqlToLoad: sql, savedSql: sql });
+    // Only save when SQL is loaded
     get().saveWorkspaceState();
   },
   clearSqlToLoad: () => set({ sqlToLoad: null }),
   setSavedSql: (sql) => {
     set({ savedSql: sql });
-    get().saveWorkspaceState();
+    // No auto-save on SQL editor content change (only save when explicitly loaded)
   },
   setIsQuerying: (isQuerying) => set({ isQuerying }),
   saveWorkspaceState: () => {
@@ -109,10 +109,28 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       sql: state.savedSql,
     };
     try {
+      // Generate descriptive name for auto-save
+      let historyName = "自动保存";
+      if (workspaceState.connectionId) {
+        const connection = state.connections.find(c => c.id === workspaceState.connectionId);
+        if (connection) {
+          const parts: string[] = [connection.name];
+          if (workspaceState.database && workspaceState.database !== "") {
+            parts.push(workspaceState.database);
+          } else if (connection.type === "sqlite") {
+            parts.push("SQLite");
+          }
+          if (workspaceState.table) {
+            parts.push(workspaceState.table);
+          }
+          historyName = parts.join(" → ");
+        }
+      }
+      
       // Save as the latest history (for auto-restore)
       const history: WorkspaceHistory = {
         id: `auto-${Date.now()}`,
-        name: "自动保存",
+        name: historyName,
         connectionId: workspaceState.connectionId,
         database: workspaceState.database,
         table: workspaceState.table,
@@ -120,9 +138,45 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         savedAt: new Date().toISOString(),
       };
       const allHistory = get().getWorkspaceHistory();
-      // Remove old auto-save entries, keep only the latest
+      // Keep all auto-save entries (don't remove old ones)
       const manualHistory = allHistory.filter(h => !h.id.startsWith("auto-"));
-      const updatedHistory = [history, ...manualHistory].slice(0, MAX_HISTORY_COUNT);
+      const autoHistory = allHistory.filter(h => h.id.startsWith("auto-"));
+      
+      // Check for duplicates: same connection, database, table, and SQL
+      // Normalize SQL for comparison (trim whitespace, handle null/undefined)
+      const normalizeSql = (sql: string | null) => {
+        if (!sql) return "";
+        return sql.trim().replace(/\s+/g, " ");
+      };
+      
+      const normalizedNewSql = normalizeSql(history.sql);
+      
+      const duplicateIndex = autoHistory.findIndex(h => {
+        const normalizedOldSql = normalizeSql(h.sql);
+        return h.connectionId === history.connectionId &&
+          h.database === history.database &&
+          h.table === history.table &&
+          normalizedOldSql === normalizedNewSql;
+      });
+      
+      let updatedAutoHistory: WorkspaceHistory[];
+      if (duplicateIndex !== -1) {
+        // Update existing record's timestamp instead of creating duplicate
+        updatedAutoHistory = [...autoHistory];
+        updatedAutoHistory[duplicateIndex] = {
+          ...updatedAutoHistory[duplicateIndex],
+          savedAt: history.savedAt, // Update timestamp
+        };
+        // Move updated record to the beginning
+        const updated = updatedAutoHistory.splice(duplicateIndex, 1)[0];
+        updatedAutoHistory.unshift(updated);
+      } else {
+        // Add new auto-save at the beginning
+        updatedAutoHistory = [history, ...autoHistory];
+      }
+      
+      // Add new auto-save at the beginning, keep existing auto-saves, then manual saves
+      const updatedHistory = [...updatedAutoHistory, ...manualHistory].slice(0, MAX_HISTORY_COUNT);
       localStorage.setItem(WORKSPACE_HISTORY_KEY, JSON.stringify(updatedHistory));
     } catch (error) {
       console.error("Failed to save workspace state:", error);
@@ -180,9 +234,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     try {
       const allHistory = get().getWorkspaceHistory();
-      // Remove auto-save entries when manually saving
+      // Keep auto-save entries when manually saving (don't remove them)
       const manualHistory = allHistory.filter(h => !h.id.startsWith("auto-"));
-      const updatedHistory = [history, ...manualHistory].slice(0, MAX_HISTORY_COUNT);
+      const autoHistory = allHistory.filter(h => h.id.startsWith("auto-"));
+      // Add new manual save at the beginning, then auto-saves, then other manual saves
+      const updatedHistory = [history, ...autoHistory, ...manualHistory].slice(0, MAX_HISTORY_COUNT);
       localStorage.setItem(WORKSPACE_HISTORY_KEY, JSON.stringify(updatedHistory));
       return history.id;
     } catch (error) {
@@ -195,10 +251,46 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const saved = localStorage.getItem(WORKSPACE_HISTORY_KEY);
       if (saved) {
         const history = JSON.parse(saved) as WorkspaceHistory[];
-        // Sort by savedAt, newest first
-        return history.sort((a, b) => 
+        
+        // Normalize SQL for comparison
+        const normalizeSql = (sql: string | null) => {
+          if (!sql) return "";
+          return sql.trim().replace(/\s+/g, " ");
+        };
+        
+        // Deduplicate auto-save entries: keep only the latest one for each unique combination
+        const autoHistory = history.filter(h => h.id.startsWith("auto-"));
+        const manualHistory = history.filter(h => !h.id.startsWith("auto-"));
+        
+        // Deduplicate auto-save entries
+        const seen = new Map<string, WorkspaceHistory>();
+        for (const entry of autoHistory) {
+          const key = `${entry.connectionId || ""}|${entry.database || ""}|${entry.table || ""}|${normalizeSql(entry.sql)}`;
+          if (!seen.has(key)) {
+            seen.set(key, entry);
+          } else {
+            // Keep the one with the latest timestamp
+            const existing = seen.get(key)!;
+            if (new Date(entry.savedAt) > new Date(existing.savedAt)) {
+              seen.set(key, entry);
+            }
+          }
+        }
+        
+        const deduplicatedAutoHistory = Array.from(seen.values());
+        
+        // Combine and sort by savedAt, newest first
+        const allHistory = [...deduplicatedAutoHistory, ...manualHistory];
+        const sorted = allHistory.sort((a, b) => 
           new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
         );
+        
+        // Save deduplicated history back to localStorage
+        if (sorted.length !== history.length) {
+          localStorage.setItem(WORKSPACE_HISTORY_KEY, JSON.stringify(sorted));
+        }
+        
+        return sorted;
       }
     } catch (error) {
       console.error("Failed to get workspace history:", error);

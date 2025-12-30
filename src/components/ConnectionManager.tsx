@@ -254,50 +254,110 @@ export default function ConnectionManager() {
     try {
       // Connect to the saved connection (even if not currently connected)
       if (currentConnectionId !== connection.id) {
-        addLog(`正在连接到: ${connection.name}...`);
+        addLog(`🔌 正在连接到数据库: ${connection.name}...`);
+        // Ensure connection is expanded
+        setExpandedConnections(new Set([connection.id]));
         await handleConnectionClick(connection);
-        // Wait for connection to establish
-        await new Promise(resolve => setTimeout(resolve, 800));
         
-        // Verify connection was established
-        if (currentConnectionId !== connection.id) {
+        // Wait for connection to be established (check store state)
+        // Use a polling approach to check if connection is established
+        addLog(`⏳ 等待连接建立...`);
+        let attempts = 0;
+        while (attempts < 50) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const store = useConnectionStore.getState();
+          if (store.currentConnectionId === connection.id) {
+            addLog(`✅ 连接已建立: ${connection.name}`);
+            break;
+          }
+          attempts++;
+          if (attempts % 5 === 0) {
+            addLog(`⏳ 连接中... (${attempts * 100}ms)`);
+          }
+        }
+        
+        // Final check
+        const finalStore = useConnectionStore.getState();
+        if (finalStore.currentConnectionId !== connection.id) {
           throw new Error(`连接失败: ${connection.name}`);
         }
+      } else {
+        addLog(`✅ 已连接到: ${connection.name}`);
+        // Ensure connection is expanded even if already connected
+        setExpandedConnections(new Set([connection.id]));
       }
 
       // Restore database
       if (savedState.database !== null) {
         if (connection.type === "sqlite") {
+          addLog(`📁 设置 SQLite 数据库...`);
           setCurrentDatabase("");
         } else {
+          addLog(`📁 正在切换到数据库: ${savedState.database}...`);
           setCurrentDatabase(savedState.database);
           // Expand connection to show databases
           setExpandedConnections(new Set([connection.id]));
           // Load databases if needed
           if (connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql") {
+            addLog(`📋 正在加载数据库列表...`);
             await loadDatabases(connection.id);
           }
         }
-        // Wait a bit for database to be set
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Wait for database to be set
+        addLog(`⏳ 等待数据库切换完成...`);
+        let dbAttempts = 0;
+        while (dbAttempts < 30) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const store = useConnectionStore.getState();
+          if (store.currentDatabase === savedState.database) {
+            addLog(`✅ 已切换到数据库: ${savedState.database}`);
+            // Scroll to the selected database after a short delay to ensure DOM is updated
+            setTimeout(() => {
+              const dbElement = document.querySelector(`[data-database="${savedState.database}"]`);
+              if (dbElement) {
+                dbElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                // Highlight the database briefly
+                dbElement.classList.add('ring-2', 'ring-blue-400');
+                setTimeout(() => {
+                  dbElement.classList.remove('ring-2', 'ring-blue-400');
+                }, 1000);
+              }
+            }, 200);
+            break;
+          }
+          dbAttempts++;
+        }
       }
 
       // Restore table
       if (savedState.table) {
+        addLog(`📄 正在打开数据表: ${savedState.table}...`);
         setSelectedTable(savedState.table);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Wait for table to be set
+        let tableAttempts = 0;
+        while (tableAttempts < 20) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const store = useConnectionStore.getState();
+          if (store.selectedTable === savedState.table) {
+            addLog(`✅ 已打开数据表: ${savedState.table}`);
+            break;
+          }
+          tableAttempts++;
+        }
       }
 
       // Restore SQL
       if (savedState.sql) {
+        addLog(`📝 正在加载 SQL 查询...`);
         loadSql(savedState.sql);
+        addLog(`✅ SQL 查询已加载`);
       }
 
-      addLog(`工作状态已恢复: ${historyName}`);
+      addLog(`🎉 工作状态已恢复: ${historyName}`);
       setShowHistory(false); // Close history panel after restoring
     } catch (error) {
       const errorMsg = String(error);
-      addLog(`恢复工作状态失败: ${errorMsg}`);
+      addLog(`❌ 恢复工作状态失败: ${errorMsg}`);
       // Don't close history panel on error so user can try again
     }
   };
@@ -315,8 +375,8 @@ export default function ConnectionManager() {
 
 
   const workspaceHistory = getWorkspaceHistory();
+  const autoHistory = workspaceHistory.filter(h => h.id.startsWith("auto-"));
   const manualHistory = workspaceHistory.filter(h => !h.id.startsWith("auto-"));
-  const latestAutoSave = workspaceHistory.find(h => h.id.startsWith("auto-"));
 
   return (
     <div className="flex flex-col h-full">
@@ -366,23 +426,36 @@ export default function ConnectionManager() {
         {showHistory && (
           <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 max-h-96 overflow-auto">
             <div className="p-2 space-y-1">
-              {latestAutoSave && (
+              {autoHistory.length > 0 && (
                 <div className="mb-2 pb-2 border-b border-gray-700/50">
                   <div className="text-xs text-gray-400 mb-1.5 px-2 font-medium">最近自动保存</div>
-                  <button
-                    onClick={() => handleRestoreWorkspace(latestAutoSave.id)}
-                    className="w-full text-left px-3 py-2 bg-gray-700/40 hover:bg-gray-700/60 rounded-md text-xs transition-all duration-200 group"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-gray-200 font-medium truncate">{latestAutoSave.name}</div>
-                        <div className="text-gray-400 text-xs mt-0.5 truncate">
-                          {new Date(latestAutoSave.savedAt).toLocaleString("zh-CN")}
-                        </div>
-                      </div>
-                      <span className="text-gray-500 group-hover:text-green-400 transition-colors">⚡</span>
-                    </div>
-                  </button>
+                  <div className="space-y-1">
+                    {autoHistory.map((history) => {
+                      const historyConnection = connections.find(c => c.id === history.connectionId);
+                      return (
+                        <button
+                          key={history.id}
+                          onClick={() => handleRestoreWorkspace(history.id)}
+                          className="w-full text-left px-3 py-2 bg-gray-700/40 hover:bg-gray-700/60 rounded-md text-xs transition-all duration-200 group"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-gray-200 font-medium break-words">{history.name}</div>
+                              <div className="text-gray-400 text-xs mt-0.5 break-words">
+                                {historyConnection?.name || "未知连接"}
+                                {history.database && history.database !== "" && ` → ${history.database}`}
+                                {history.table && ` → ${history.table}`}
+                              </div>
+                              <div className="text-gray-400 text-xs mt-0.5">
+                                {new Date(history.savedAt).toLocaleString("zh-CN")}
+                              </div>
+                            </div>
+                            <span className="text-gray-500 group-hover:text-green-400 transition-colors flex-shrink-0 ml-2">⚡</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -400,10 +473,10 @@ export default function ConnectionManager() {
                           onClick={() => handleRestoreWorkspace(history.id)}
                           className="w-full text-left"
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="text-gray-200 font-medium text-xs truncate">{history.name}</div>
-                              <div className="text-gray-400 text-xs mt-0.5 truncate">
+                              <div className="text-gray-200 font-medium text-xs break-words">{history.name}</div>
+                              <div className="text-gray-400 text-xs mt-0.5 break-words">
                                 {historyConnection?.name || "未知连接"}
                                 {history.database && history.database !== "" && ` → ${history.database}`}
                                 {history.table && ` → ${history.table}`}
@@ -412,7 +485,7 @@ export default function ConnectionManager() {
                                 {new Date(history.savedAt).toLocaleString("zh-CN")}
                               </div>
                             </div>
-                            <span className="text-gray-500 group-hover:text-green-400 transition-colors text-sm">⚡</span>
+                            <span className="text-gray-500 group-hover:text-green-400 transition-colors text-sm flex-shrink-0 ml-2">⚡</span>
                           </div>
                         </button>
                         <button
@@ -591,6 +664,7 @@ export default function ConnectionManager() {
                                 return (
                                   <div
                                     key={db}
+                                    data-database={db}
                                     onClick={(e) => handleDatabaseClick(e, db)}
                                     className={`text-xs py-2 px-2.5 rounded-md cursor-pointer transition-all duration-200 truncate flex items-center gap-2 group ${
                                       isSelected
