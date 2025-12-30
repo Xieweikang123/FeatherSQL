@@ -4,6 +4,22 @@ import { useConnectionStore } from "../store/connectionStore";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 
+/**
+ * 获取数据库类型的默认端口
+ */
+function getDefaultPort(dbType: "sqlite" | "mysql" | "postgres" | "mssql"): number {
+  switch (dbType) {
+    case "mysql":
+      return 3306;
+    case "postgres":
+      return 5432;
+    case "mssql":
+      return 1433;
+    default:
+      return 3306; // fallback
+  }
+}
+
 interface ConnectionFormProps {
   connection: Connection | null;
   onClose: () => void;
@@ -66,7 +82,7 @@ export default function ConnectionForm({
       if (dbType === "mysql" || dbType === "postgres" || dbType === "mssql") {
         // Use actual values from input fields (with defaults)
         const host = (config.host && config.host.trim()) || "localhost";
-        const port = config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433);
+        const port = config.port || getDefaultPort(dbType);
         const user = (config.user && config.user.trim()) || "";
         
         if (!host || !port || !user) {
@@ -80,7 +96,7 @@ export default function ConnectionForm({
       const testConfig: ConnectionConfig = {
         ...config,
         host: config.host || "localhost",
-        port: config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433),
+        port: config.port || getDefaultPort(dbType),
       };
 
       const result = await testConnection(dbType, testConfig);
@@ -107,7 +123,7 @@ export default function ConnectionForm({
       
       if (dbType === "mysql" || dbType === "postgres" || dbType === "mssql") {
         submitConfig.host = config.host || "localhost";
-        submitConfig.port = config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433);
+        submitConfig.port = config.port || getDefaultPort(dbType);
       }
 
       if (connection) {
@@ -159,7 +175,7 @@ export default function ConnectionForm({
                   // Set default values for MySQL/PostgreSQL/MSSQL
                   setConfig({
                     host: "localhost",
-                    port: newDbType === "mysql" ? 3306 : newDbType === "postgres" ? 5432 : 1433,
+                    port: getDefaultPort(newDbType),
                     user: "",
                     password: "",
                     database: "",
@@ -216,7 +232,7 @@ export default function ConnectionForm({
                   <label className="block text-sm font-medium mb-1">端口</label>
                   <input
                     type="number"
-                    value={config.port || (dbType === "mysql" ? 3306 : dbType === "postgres" ? 5432 : 1433)}
+                    value={config.port || getDefaultPort(dbType)}
                     onChange={(e) => {
                       const portValue = e.target.value;
                       const port = portValue === "" ? undefined : parseInt(portValue);

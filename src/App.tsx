@@ -3,13 +3,14 @@ import ConnectionManager from "./components/ConnectionManager";
 import SqlEditor from "./components/SqlEditor";
 import ResultTable from "./components/ResultTable";
 import SqlHistory from "./components/SqlHistory";
+import TableView from "./components/TableView";
 import { useConnectionStore } from "./store/connectionStore";
 import { getConnections } from "./lib/commands";
 
 const EDITOR_HEIGHT_RATIO_KEY = "feathersql_editor_height_ratio";
 
 function App() {
-  const { setConnections, currentConnectionId, queryResult, error, logs, clearLogs } =
+  const { setConnections, currentConnectionId, currentDatabase, selectedTable, queryResult, error, logs, clearLogs } =
     useConnectionStore();
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -147,62 +148,91 @@ function App() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar */}
+        {/* Left sidebar - Connections */}
         <aside className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
           <ConnectionManager />
         </aside>
 
         {/* Main content */}
         <main ref={mainContentRef} className="flex-1 flex flex-col overflow-hidden">
-          {/* SQL Editor */}
-          <div 
-            className="flex flex-col min-h-0"
-            style={{ 
-              height: editorHeight !== null ? `${editorHeight}px` : undefined,
-              flex: editorHeight === null ? 1 : undefined
-            }}
-          >
-            <SqlEditor />
-          </div>
+          {selectedTable ? (
+            // 选中表时：只显示 SQL 编辑器（不显示数据表视图）
+            <>
+              {/* SQL Editor */}
+              <div 
+                className="flex flex-col min-h-0"
+                style={{ 
+                  height: editorHeight !== null ? `${editorHeight}px` : undefined,
+                  flex: editorHeight === null ? 1 : undefined
+                }}
+              >
+                <SqlEditor />
+              </div>
 
-          {/* Resizable divider */}
-          <div
-            onMouseDown={handleMouseDown}
-            className={`h-1 bg-gray-700 hover:bg-blue-600 cursor-row-resize transition-colors ${
-              isDragging ? "bg-blue-600" : ""
-            }`}
-            style={{ flexShrink: 0 }}
-          >
-            <div className="h-full w-full flex items-center justify-center">
-              <div className="w-12 h-0.5 bg-gray-500 rounded" />
+              {/* Resizable divider */}
+              <div
+                onMouseDown={handleMouseDown}
+                className={`h-1 bg-gray-700 hover:bg-blue-600 cursor-row-resize transition-colors ${
+                  isDragging ? "bg-blue-600" : ""
+                }`}
+                style={{ flexShrink: 0 }}
+              >
+                <div className="h-full w-full flex items-center justify-center">
+                  <div className="w-12 h-0.5 bg-gray-500 rounded" />
+                </div>
+              </div>
+
+              {/* Result Table */}
+              <div 
+                className="border-t border-gray-700 overflow-auto"
+                style={{ 
+                  flex: editorHeight !== null ? 1 : undefined,
+                  height: editorHeight !== null ? undefined : "256px"
+                }}
+              >
+                {error ? (
+                  <div className="p-4 bg-red-900/20 text-red-400">
+                    <div className="font-semibold">错误:</div>
+                    <div>{error}</div>
+                  </div>
+                ) : queryResult ? (
+                  <ResultTable result={queryResult} />
+                ) : (
+                  <div className="p-4 text-gray-400 text-center">
+                    执行 SQL 查询以查看结果
+                  </div>
+                )}
+              </div>
+            </>
+          ) : currentConnectionId && currentDatabase !== null ? (
+            // 选中数据库但未选中表时：只显示数据表视图（不显示 SQL 编辑器）
+            <div className="flex-1 flex overflow-hidden">
+              {/* Tables View - 占据整个主内容区域 */}
+              <div className="flex-1 bg-gray-800 flex flex-col">
+                <TableView />
+              </div>
+              
+              {/* History - 可选的侧边栏 */}
+              {historyExpanded && (
+                <aside className="w-80 bg-gray-800 border-l border-gray-700 flex flex-col">
+                  <SqlHistory />
+                </aside>
+              )}
             </div>
-          </div>
-
-          {/* Result Table */}
-          <div 
-            className="border-t border-gray-700 overflow-auto"
-            style={{ 
-              flex: editorHeight !== null ? 1 : undefined,
-              height: editorHeight !== null ? undefined : "256px"
-            }}
-          >
-            {error ? (
-              <div className="p-4 bg-red-900/20 text-red-400">
-                <div className="font-semibold">错误:</div>
-                <div>{error}</div>
+          ) : (
+            // 未选中数据库时：显示提示信息
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-gray-500">
+                <div className="text-4xl mb-4">📁</div>
+                <div className="text-lg mb-2">请先选择一个数据库</div>
+                <div className="text-sm text-gray-600">在左侧连接列表中选择一个数据库以查看数据表</div>
               </div>
-            ) : queryResult ? (
-              <ResultTable result={queryResult} />
-            ) : (
-              <div className="p-4 text-gray-400 text-center">
-                执行 SQL 查询以查看结果
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </main>
 
-        {/* Right sidebar - History */}
-        {historyExpanded && (
+        {/* Right sidebar - History (only when table is selected) */}
+        {selectedTable && historyExpanded && (
           <aside className="w-80 bg-gray-800 border-l border-gray-700 flex flex-col">
             <SqlHistory />
           </aside>

@@ -5,8 +5,6 @@ import {
   deleteConnection,
   disconnectConnection,
   listDatabases,
-  listTables,
-  executeSql,
   type Connection,
 } from "../lib/commands";
 import ConnectionForm from "./ConnectionForm";
@@ -15,24 +13,18 @@ export default function ConnectionManager() {
   const {
     connections,
     currentConnectionId,
+    currentDatabase,
     setConnections,
     setCurrentConnection,
     setCurrentDatabase,
-    setQueryResult,
-    setError,
     addLog,
-    loadSql,
   } = useConnectionStore();
   const [showForm, setShowForm] = useState(false);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
   const [databases, setDatabases] = useState<string[]>([]);
   const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set());
-  const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set());
-  const [tables, setTables] = useState<Map<string, string[]>>(new Map());
-  const [loadingTables, setLoadingTables] = useState<Set<string>>(new Set());
   const [connectingConnections, setConnectingConnections] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState<string>("");
 
   useEffect(() => {
     loadConnections();
@@ -69,8 +61,8 @@ export default function ConnectionManager() {
         // 对于 MySQL/PostgreSQL/MSSQL，尝试列出数据库来测试连接
         await listDatabases(connection.id);
       } else if (connection.type === "sqlite") {
-        // 对于 SQLite，尝试列出表来测试连接
-        await listTables(connection.id, "");
+        // 对于 SQLite，直接设置当前数据库为空字符串（SQLite 没有数据库概念）
+        setCurrentDatabase("");
       }
 
       // 连接成功，设置当前连接
@@ -78,25 +70,19 @@ export default function ConnectionManager() {
       setCurrentDatabase(null);
       addLog(`已连接到: ${connection.name}`);
 
-      // Reset databases and tables when switching connections
+      // Reset databases when switching connections
       setDatabases([]);
-      setTables(new Map());
-      setExpandedDatabases(new Set());
       
       // 收起之前的连接，然后展开新连接
       setExpandedConnections(new Set([connection.id]));
       
-      // 自动加载数据库列表（MySQL/PostgreSQL/MSSQL）或表列表（SQLite）
+      // 自动加载数据库列表（MySQL/PostgreSQL/MSSQL）
       if (connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql") {
         loadDatabases(connection.id);
-      } else if (connection.type === "sqlite") {
-        // For SQLite, load tables directly
-        loadTables(connection.id, "");
       }
     } catch (error) {
       const errorMsg = String(error);
       addLog(`连接失败: ${connection.name} - ${errorMsg}`);
-      setError(errorMsg);
     } finally {
       // 清除连接状态
       setConnectingConnections(prev => {
@@ -121,50 +107,12 @@ export default function ConnectionManager() {
     }
   };
 
-  const loadTables = async (connectionId: string, database: string) => {
-    const key = `${connectionId}:${database}`;
-    setLoadingTables(prev => new Set(prev).add(key));
-    try {
-      const tableList = await listTables(connectionId, database);
-      setTables(prev => {
-        const newMap = new Map(prev);
-        newMap.set(key, tableList);
-        return newMap;
-      });
-      addLog(`已加载数据库 "${database}" 的 ${tableList.length} 个表`);
-    } catch (error) {
-      addLog(`加载表列表失败: ${error}`);
-      setTables(prev => {
-        const newMap = new Map(prev);
-        newMap.set(key, []);
-        return newMap;
-      });
-    } finally {
-      setLoadingTables(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(key);
-        return newSet;
-      });
-    }
-  };
 
-  const toggleTableList = (e: React.MouseEvent, connectionId: string, database: string) => {
+  const handleDatabaseClick = (e: React.MouseEvent, database: string) => {
     e.stopPropagation();
-    const key = `${connectionId}:${database}`;
-    const newExpanded = new Set(expandedDatabases);
-
-    if (newExpanded.has(key)) {
-      newExpanded.delete(key);
-    } else {
-      newExpanded.add(key);
-      // Set current database when expanding
-      setCurrentDatabase(database);
-      // Load tables if not already loaded
-      if (!tables.has(key)) {
-        loadTables(connectionId, database);
-      }
-    }
-    setExpandedDatabases(newExpanded);
+    // Set current database - this will trigger TableView to load tables
+    setCurrentDatabase(database);
+    addLog(`已选择数据库: ${database}`);
   };
 
   const toggleDatabaseList = (e: React.MouseEvent, connection: Connection) => {
@@ -179,18 +127,15 @@ export default function ConnectionManager() {
     const newExpanded = new Set(expandedConnections);
     if (newExpanded.has(connectionId)) {
       newExpanded.delete(connectionId);
-      // Clear tables when collapsing
-      setTables(new Map());
-      setExpandedDatabases(new Set());
+      // Clear current database when collapsing
+      setCurrentDatabase(null);
     } else {
       newExpanded.add(connectionId);
       // Load databases if not already loaded
       if (connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql") {
         loadDatabases(connectionId);
-      } else if (connection.type === "sqlite") {
-        // For SQLite, load tables directly
-        loadTables(connectionId, "");
       }
+      // SQLite tables will be loaded by TableView component
     }
     setExpandedConnections(newExpanded);
   };
@@ -230,8 +175,7 @@ export default function ConnectionManager() {
       if (currentConnectionId === connection.id) {
         setCurrentConnection(null);
         setDatabases([]);
-        setTables(new Map());
-        setExpandedDatabases(new Set());
+        setCurrentDatabase(null);
         setExpandedConnections(prev => {
           const newSet = new Set(prev);
           newSet.delete(connection.id);
@@ -242,81 +186,9 @@ export default function ConnectionManager() {
     } catch (error) {
       const errorMsg = String(error);
       addLog(`断开连接失败: ${connection.name} - ${errorMsg}`);
-      setError(errorMsg);
     }
   };
 
-  const handleTableClick = async (
-    e: React.MouseEvent,
-    connectionId: string,
-    tableName: string,
-    database?: string
-  ) => {
-    e.stopPropagation();
-
-    if (!currentConnectionId || currentConnectionId !== connectionId) {
-      addLog("请先选择该连接");
-      return;
-    }
-
-    const connection = connections.find((c) => c.id === connectionId);
-
-    if (!connection) {
-      addLog("连接不存在");
-      return;
-    }
-
-    // Set current database when clicking a table
-    if (database) {
-      setCurrentDatabase(database);
-    }
-
-    // Escape table name if needed (for MySQL/PostgreSQL with special characters)
-    let escapedTableName = tableName;
-    if (connection.type === "mysql") {
-      // Use backticks for MySQL
-      escapedTableName = `\`${tableName.replace(/`/g, "``")}\``;
-      // If database is specified, use database.table format to ensure correct database context
-      if (database) {
-        const escapedDb = `\`${database.replace(/`/g, "``")}\``;
-        escapedTableName = `${escapedDb}.${escapedTableName}`;
-      }
-    } else if (connection.type === "postgres") {
-      // Use double quotes for PostgreSQL
-      escapedTableName = `"${tableName.replace(/"/g, '""')}"`;
-      // If database is specified, use database.table format
-      if (database) {
-        const escapedDb = `"${database.replace(/"/g, '""')}"`;
-        escapedTableName = `${escapedDb}.${escapedTableName}`;
-      }
-    } else if (connection.type === "mssql") {
-      // Use square brackets for MSSQL
-      escapedTableName = `[${tableName.replace(/\]/g, "]]")}]`;
-      // If database is specified, use database.table format
-      if (database) {
-        const escapedDb = `[${database.replace(/\]/g, "]]")}]`;
-        escapedTableName = `${escapedDb}.${escapedTableName}`;
-      }
-    }
-
-    const sql = `SELECT * FROM ${escapedTableName} LIMIT 100`;
-
-    // Load SQL into editor
-    loadSql(sql);
-    addLog(`查询表: ${tableName}${database ? ` (数据库: ${database})` : ""}`);
-
-    // Execute query
-    setError(null);
-    try {
-      const result = await executeSql(connectionId, sql, database);
-      setQueryResult(result);
-      addLog(`查询成功，返回 ${result.rows.length} 行`);
-    } catch (error) {
-      const errorMsg = String(error);
-      setError(errorMsg);
-      addLog(`查询失败: ${errorMsg}`);
-    }
-  };
 
   return (
     <div className="flex flex-col h-full">
@@ -334,25 +206,6 @@ export default function ConnectionManager() {
           </span>
         </button>
 
-        {/* Search box */}
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="搜索表..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3 py-2 pl-8 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          <span className="absolute left-2.5 top-2.5 text-gray-400 text-sm">🔍</span>
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-2 text-gray-400 hover:text-white text-sm"
-            >
-              ✕
-            </button>
-          )}
-        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -486,7 +339,7 @@ export default function ConnectionManager() {
                   {isExpanded && isCurrentConnection && (
                     <div className="bg-gray-800/40 border-l-2 border-gray-700/50 pl-4 pr-3 py-2">
                       {showDatabases ? (
-                        // MySQL/PostgreSQL: Show databases
+                        // MySQL/PostgreSQL/MSSQL: Show databases
                         <>
                           {loadingDatabases ? (
                             <div className="text-xs text-gray-500 py-2 px-2">加载中...</div>
@@ -495,55 +348,21 @@ export default function ConnectionManager() {
                           ) : (
                             <div className="space-y-0.5">
                               {databases.map((db) => {
-                                const dbKey = `${connection.id}:${db}`;
-                                const isDbExpanded = expandedDatabases.has(dbKey);
-                                const dbTables = tables.get(dbKey) || [];
-                                const isLoadingTables = loadingTables.has(dbKey);
+                                const isSelected = currentDatabase === db;
                                 
                                 return (
-                                  <div key={db} className="group/db">
-                                    <div
-                                      className="text-xs text-gray-400 py-1.5 px-2 hover:bg-gray-700/60 rounded cursor-pointer flex items-center gap-1.5 transition-colors"
-                                      onClick={(e) => toggleTableList(e, connection.id, db)}
-                                      title={db}
-                                    >
-                                      <span className="text-[10px] w-3 text-center">{isDbExpanded ? "▼" : "▶"}</span>
-                                      <span className="flex-1 truncate">📁 {db}</span>
-                                    </div>
-                                    {isDbExpanded && (
-                                      <div className="pl-5 mt-0.5">
-                                        {isLoadingTables ? (
-                                          <div className="text-xs text-gray-500 py-1 px-2">加载中...</div>
-                                        ) : dbTables.length === 0 ? (
-                                          <div className="text-xs text-gray-500 py-1 px-2">暂无表</div>
-                                        ) : (
-                                          (() => {
-                                            const filteredTables = dbTables.filter(table =>
-                                              table.toLowerCase().includes(searchQuery.toLowerCase())
-                                            );
-
-                                            if (filteredTables.length === 0) {
-                                              return <div className="text-xs text-gray-500 py-1 px-2">无匹配的表</div>;
-                                            }
-
-                                            return (
-                                              <div className="space-y-0.5">
-                                                {filteredTables.map((table) => (
-                                                  <div
-                                                    key={table}
-                                                    onClick={(e) => handleTableClick(e, connection.id, table, db)}
-                                                    className="text-xs text-gray-500 py-1 px-2 hover:bg-gray-700/60 rounded cursor-pointer transition-colors truncate"
-                                                    title={`点击查询表: ${table}`}
-                                                  >
-                                                    📄 {table}
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            );
-                                          })()
-                                        )}
-                                      </div>
-                                    )}
+                                  <div
+                                    key={db}
+                                    onClick={(e) => handleDatabaseClick(e, db)}
+                                    className={`text-xs py-1.5 px-2 rounded cursor-pointer transition-colors truncate flex items-center gap-1.5 ${
+                                      isSelected
+                                        ? "bg-blue-600/30 text-blue-300 font-medium"
+                                        : "text-gray-400 hover:bg-gray-700/60"
+                                    }`}
+                                    title={db}
+                                  >
+                                    <span>📁</span>
+                                    <span className="flex-1 truncate">{db}</span>
                                   </div>
                                 );
                               })}
@@ -551,65 +370,10 @@ export default function ConnectionManager() {
                           )}
                         </>
                       ) : (
-                        // SQLite: Show tables directly
-                        <>
-                          {(() => {
-                            const key = `${connection.id}:`;
-                            // For SQLite, auto-expand when connection is expanded
-                            const shouldShowTables = isExpanded;
-                            const connectionTables = tables.get(key) || [];
-                            const isLoadingTables = loadingTables.has(key);
-                            
-                            // Auto-load tables if connection is expanded and tables not loaded
-                            if (shouldShowTables && !tables.has(key) && !isLoadingTables) {
-                              loadTables(connection.id, "");
-                            }
-                            
-                            if (!shouldShowTables) {
-                              return null;
-                            }
-                            
-                            return (
-                              <div>
-                                <div className="text-xs text-gray-400 py-1.5 px-2">
-                                  <span>📁 表</span>
-                                </div>
-                                <div className="pl-4 mt-0.5">
-                                  {isLoadingTables ? (
-                                    <div className="text-xs text-gray-500 py-1 px-2">加载中...</div>
-                                  ) : connectionTables.length === 0 ? (
-                                    <div className="text-xs text-gray-500 py-1 px-2">暂无表</div>
-                                  ) : (
-                                    (() => {
-                                      const filteredTables = connectionTables.filter(table =>
-                                        table.toLowerCase().includes(searchQuery.toLowerCase())
-                                      );
-
-                                      if (filteredTables.length === 0) {
-                                        return <div className="text-xs text-gray-500 py-1 px-2">无匹配的表</div>;
-                                      }
-
-                                      return (
-                                        <div className="space-y-0.5">
-                                          {filteredTables.map((table) => (
-                                            <div
-                                              key={table}
-                                              onClick={(e) => handleTableClick(e, connection.id, table)}
-                                              className="text-xs text-gray-500 py-1 px-2 hover:bg-gray-700/60 rounded cursor-pointer transition-colors truncate"
-                                              title={`点击查询表: ${table}`}
-                                            >
-                                              📄 {table}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      );
-                                    })()
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </>
+                        // SQLite: No database selection needed, tables will show in TableView
+                        <div className="text-xs text-gray-500 py-2 px-2">
+                          SQLite 数据库已连接，表将在右侧显示
+                        </div>
                       )}
                     </div>
                   )}

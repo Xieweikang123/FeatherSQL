@@ -5,6 +5,7 @@ interface ConnectionState {
   connections: Connection[];
   currentConnectionId: string | null;
   currentDatabase: string | null;
+  selectedTable: string | null;
   queryResult: QueryResult | null;
   error: string | null;
   logs: string[];
@@ -13,6 +14,7 @@ interface ConnectionState {
   setConnections: (connections: Connection[]) => void;
   setCurrentConnection: (id: string | null) => void;
   setCurrentDatabase: (database: string | null) => void;
+  setSelectedTable: (table: string | null) => void;
   setQueryResult: (result: QueryResult | null) => void;
   setError: (error: string | null) => void;
   addLog: (message: string) => void;
@@ -25,6 +27,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   connections: [],
   currentConnectionId: null,
   currentDatabase: null,
+  selectedTable: null,
   queryResult: null,
   error: null,
   logs: [],
@@ -32,7 +35,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 
   setConnections: (connections) => set({ connections }),
   setCurrentConnection: (id) => set({ currentConnectionId: id }),
-  setCurrentDatabase: (database) => set({ currentDatabase: database }),
+  setCurrentDatabase: (database) => set({ currentDatabase: database, selectedTable: null }),
+  setSelectedTable: (table) => set({ selectedTable: table }),
   setQueryResult: (result) => set({ queryResult: result, error: null }),
   setError: (error) => set({ error, queryResult: null }),
   addLog: (message) =>

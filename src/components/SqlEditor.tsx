@@ -6,7 +6,7 @@ import { executeSql } from "../lib/commands";
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
   const monacoEditorRef = useRef<any>(null);
-  const { connections, currentConnectionId, currentDatabase, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
+  const { connections, currentConnectionId, currentDatabase, selectedTable, setSelectedTable, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad } =
     useConnectionStore();
   
   // Get current connection info
@@ -87,6 +87,16 @@ export default function SqlEditor() {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
         <div className="flex items-center gap-3">
+          {selectedTable && (
+            <button
+              onClick={() => setSelectedTable(null)}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700/60 rounded transition-colors"
+              title="返回表视图"
+            >
+              <span>←</span>
+              <span>返回</span>
+            </button>
+          )}
           <span className="text-sm text-gray-400">SQL 编辑器</span>
           {currentConnection && (
             <div className="flex items-center gap-2 text-xs">
@@ -97,6 +107,12 @@ export default function SqlEditor() {
                 <>
                   <span className="text-gray-500">|</span>
                   <span className="text-blue-400 font-medium">数据库: {currentDatabase}</span>
+                </>
+              )}
+              {selectedTable && (
+                <>
+                  <span className="text-gray-500">|</span>
+                  <span className="text-green-400 font-medium">表: {selectedTable}</span>
                 </>
               )}
             </div>
