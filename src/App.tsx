@@ -20,6 +20,7 @@ function App() {
     logs, 
     clearLogs,
     isQuerying,
+    savedSql,
   } = useConnectionStore();
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -224,7 +225,7 @@ function App() {
                     <div className="text-sm">查询中...</div>
                   </div>
                 ) : queryResult ? (
-                  <ResultTable result={queryResult} />
+                  <ResultTable result={queryResult} sql={savedSql} />
                 ) : (
                   <div className="p-8 text-gray-400 text-center">
                     <div className="text-4xl mb-3 opacity-50">📊</div>

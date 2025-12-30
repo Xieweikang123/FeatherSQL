@@ -19,7 +19,6 @@ export default function ConnectionManager() {
     setCurrentDatabase,
     setSelectedTable,
     restoreWorkspaceState,
-    saveWorkspaceHistory,
     getWorkspaceHistory,
     restoreWorkspaceHistory,
     deleteWorkspaceHistory,
@@ -194,24 +193,6 @@ export default function ConnectionManager() {
     } catch (error) {
       const errorMsg = String(error);
       addLog(`断开连接失败: ${connection.name} - ${errorMsg}`);
-    }
-  };
-
-  const handleSaveWorkspace = () => {
-    if (!currentConnectionId) {
-      addLog("请先选择一个连接");
-      return;
-    }
-    const historyId = saveWorkspaceHistory();
-    if (historyId) {
-      addLog("工作状态已保存");
-      // Force re-render by toggling showHistory if it's open
-      if (showHistory) {
-        setShowHistory(false);
-        setTimeout(() => setShowHistory(true), 10);
-      }
-    } else {
-      addLog("保存工作状态失败");
     }
   };
 
@@ -394,63 +375,72 @@ export default function ConnectionManager() {
           </span>
         </button>
 
-        <div className="flex gap-2">
-          <button
-            onClick={handleSaveWorkspace}
-            disabled={!currentConnectionId}
-            className="flex-1 px-3 py-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 disabled:from-gray-700 disabled:to-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-medium text-white transition-all duration-200 shadow-md shadow-purple-600/30 hover:shadow-lg hover:shadow-purple-600/40 hover:scale-[1.02] active:scale-[0.98]"
-            title="保存当前工作状态"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <span>💾</span>
-              <span>保存</span>
-            </span>
-          </button>
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex-1 px-3 py-2 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800 rounded-lg text-xs font-medium text-white transition-all duration-200 shadow-md shadow-cyan-600/30 hover:shadow-lg hover:shadow-cyan-600/40 hover:scale-[1.02] active:scale-[0.98]"
-            title="查看工作历史"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <span>📚</span>
-              <span>历史</span>
-              {workspaceHistory.length > 0 && (
-                <span className="bg-cyan-500/30 px-1.5 py-0.5 rounded text-xs">
-                  {workspaceHistory.length}
-                </span>
-              )}
-            </span>
-          </button>
-        </div>
+        <button
+          onClick={() => setShowHistory(!showHistory)}
+          className="w-full px-3 py-2 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800 rounded-lg text-xs font-medium text-white transition-all duration-200 shadow-md shadow-cyan-600/30 hover:shadow-lg hover:shadow-cyan-600/40 hover:scale-[1.02] active:scale-[0.98]"
+          title="查看工作历史"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <span>📚</span>
+            <span>历史</span>
+            {workspaceHistory.length > 0 && (
+              <span className="bg-cyan-500/30 px-1.5 py-0.5 rounded text-xs">
+                {workspaceHistory.length}
+              </span>
+            )}
+          </span>
+        </button>
 
         {showHistory && (
-          <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 max-h-96 overflow-auto">
-            <div className="p-2 space-y-1">
+          <div className="bg-gray-800/80 rounded-lg border border-gray-700/50 max-h-96 overflow-auto shadow-lg">
+            <div className="p-3 space-y-2">
               {autoHistory.length > 0 && (
-                <div className="mb-2 pb-2 border-b border-gray-700/50">
-                  <div className="text-xs text-gray-400 mb-1.5 px-2 font-medium">最近自动保存</div>
-                  <div className="space-y-1">
+                <div className="mb-3 pb-3 border-b border-gray-700/60">
+                  <div className="flex items-center gap-2 mb-2.5 px-1">
+                    <span className="text-xs text-cyan-400 font-semibold uppercase tracking-wide">最近自动保存</span>
+                    <span className="flex-1 h-px bg-gradient-to-r from-cyan-500/30 to-transparent"></span>
+                  </div>
+                  <div className="space-y-1.5">
                     {autoHistory.map((history) => {
                       const historyConnection = connections.find(c => c.id === history.connectionId);
+                      const pathParts = [
+                        historyConnection?.name || "未知连接",
+                        history.database && history.database !== "" ? history.database : null,
+                        history.table
+                      ].filter(Boolean);
+                      
                       return (
                         <button
                           key={history.id}
                           onClick={() => handleRestoreWorkspace(history.id)}
-                          className="w-full text-left px-3 py-2 bg-gray-700/40 hover:bg-gray-700/60 rounded-md text-xs transition-all duration-200 group"
+                          className="w-full text-left px-3 py-2.5 bg-gradient-to-r from-gray-700/50 to-gray-700/30 hover:from-gray-700/70 hover:to-gray-700/50 rounded-lg text-xs transition-all duration-200 group border border-gray-600/30 hover:border-cyan-500/40 hover:shadow-md hover:shadow-cyan-500/10"
                         >
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
-                              <div className="text-gray-200 font-medium break-words">{history.name}</div>
-                              <div className="text-gray-400 text-xs mt-0.5 break-words">
-                                {historyConnection?.name || "未知连接"}
-                                {history.database && history.database !== "" && ` → ${history.database}`}
-                                {history.table && ` → ${history.table}`}
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-cyan-400/80 text-xs">⚡</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {pathParts.map((part, idx) => (
+                                    <span key={idx} className="flex items-center gap-1.5">
+                                      <span className="text-gray-300 font-medium text-xs">{part}</span>
+                                      {idx < pathParts.length - 1 && (
+                                        <span className="text-gray-500 text-[10px]">→</span>
+                                      )}
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
-                              <div className="text-gray-400 text-xs mt-0.5">
-                                {new Date(history.savedAt).toLocaleString("zh-CN")}
+                              <div className="text-gray-400 text-[10px] font-mono ml-5">
+                                {new Date(history.savedAt).toLocaleString("zh-CN", {
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit'
+                                })}
                               </div>
                             </div>
-                            <span className="text-gray-500 group-hover:text-green-400 transition-colors flex-shrink-0 ml-2">⚡</span>
+                            <span className="text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0 text-sm">▶</span>
                           </div>
                         </button>
                       );
@@ -461,47 +451,73 @@ export default function ConnectionManager() {
 
               {manualHistory.length > 0 ? (
                 <>
-                  <div className="text-xs text-gray-400 mb-1.5 px-2 font-medium">已保存的工作</div>
-                  {manualHistory.map((history) => {
-                    const historyConnection = connections.find(c => c.id === history.connectionId);
-                    return (
-                      <div
-                        key={history.id}
-                        className="group relative px-3 py-2 bg-gray-700/40 hover:bg-gray-700/60 rounded-md transition-all duration-200"
-                      >
-                        <button
-                          onClick={() => handleRestoreWorkspace(history.id)}
-                          className="w-full text-left"
+                  <div className="flex items-center gap-2 mb-2.5 px-1">
+                    <span className="text-xs text-purple-400 font-semibold uppercase tracking-wide">已保存的工作</span>
+                    <span className="flex-1 h-px bg-gradient-to-r from-purple-500/30 to-transparent"></span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {manualHistory.map((history) => {
+                      const historyConnection = connections.find(c => c.id === history.connectionId);
+                      const pathParts = [
+                        historyConnection?.name || "未知连接",
+                        history.database && history.database !== "" ? history.database : null,
+                        history.table
+                      ].filter(Boolean);
+                      
+                      return (
+                        <div
+                          key={history.id}
+                          className="group relative px-3 py-2.5 bg-gradient-to-r from-gray-700/50 to-gray-700/30 hover:from-gray-700/70 hover:to-gray-700/50 rounded-lg transition-all duration-200 border border-gray-600/30 hover:border-purple-500/40 hover:shadow-md hover:shadow-purple-500/10"
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-gray-200 font-medium text-xs break-words">{history.name}</div>
-                              <div className="text-gray-400 text-xs mt-0.5 break-words">
-                                {historyConnection?.name || "未知连接"}
-                                {history.database && history.database !== "" && ` → ${history.database}`}
-                                {history.table && ` → ${history.table}`}
+                          <button
+                            onClick={() => handleRestoreWorkspace(history.id)}
+                            className="w-full text-left"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="text-purple-400/80 text-xs">💾</span>
+                                  <div className="text-gray-200 font-semibold text-xs break-words">{history.name}</div>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap ml-5 mb-1">
+                                  {pathParts.map((part, idx) => (
+                                    <span key={idx} className="flex items-center gap-1.5">
+                                      <span className="text-gray-400 text-xs">{part}</span>
+                                      {idx < pathParts.length - 1 && (
+                                        <span className="text-gray-500 text-[10px]">→</span>
+                                      )}
+                                    </span>
+                                  ))}
+                                </div>
+                                <div className="text-gray-400 text-[10px] font-mono ml-5">
+                                  {new Date(history.savedAt).toLocaleString("zh-CN", {
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit'
+                                  })}
+                                </div>
                               </div>
-                              <div className="text-gray-500 text-xs mt-0.5">
-                                {new Date(history.savedAt).toLocaleString("zh-CN")}
-                              </div>
+                              <span className="text-gray-500 group-hover:text-purple-400 transition-colors text-sm flex-shrink-0">▶</span>
                             </div>
-                            <span className="text-gray-500 group-hover:text-green-400 transition-colors text-sm flex-shrink-0 ml-2">⚡</span>
-                          </div>
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteHistory(e, history.id)}
-                          className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-all duration-200"
-                          title="删除"
-                        >
-                          <span className="text-xs">🗑️</span>
-                        </button>
-                      </div>
-                    );
-                  })}
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteHistory(e, history.id)}
+                            className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all duration-200"
+                            title="删除"
+                          >
+                            <span className="text-xs">🗑️</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </>
-              ) : (
-                <div className="text-center text-gray-500 text-xs py-4">
-                  暂无保存的工作历史
+              ) : autoHistory.length === 0 && (
+                <div className="text-center text-gray-500 text-xs py-8">
+                  <div className="text-2xl mb-2 opacity-40">📚</div>
+                  <div>暂无工作历史</div>
                 </div>
               )}
             </div>

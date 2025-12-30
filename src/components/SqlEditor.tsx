@@ -3,6 +3,21 @@ import Editor from "@monaco-editor/react";
 import { useConnectionStore } from "../store/connectionStore";
 import { executeSql } from "../lib/commands";
 
+// Map database type to Monaco Editor language
+function getLanguageForDbType(dbType: string | undefined): string {
+  switch (dbType) {
+    case "mysql":
+      return "mysql";
+    case "postgres":
+      return "pgsql";
+    case "mssql":
+      return "mssql";
+    case "sqlite":
+    default:
+      return "sql";
+  }
+}
+
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
   const monacoEditorRef = useRef<any>(null);
@@ -11,6 +26,21 @@ export default function SqlEditor() {
   
   // Get current connection info
   const currentConnection = connections.find(c => c.id === currentConnectionId);
+  
+  // Get language mode based on current connection type
+  const editorLanguage = getLanguageForDbType(currentConnection?.type);
+
+  // Update editor language when connection changes
+  useEffect(() => {
+    if (monacoEditorRef.current && currentConnection) {
+      const language = getLanguageForDbType(currentConnection.type);
+      const model = monacoEditorRef.current.getModel();
+      if (model) {
+        // Update language without losing content
+        monacoEditorRef.current.setModelLanguage(model, language);
+      }
+    }
+  }, [currentConnectionId, currentConnection?.type]);
 
   // Load SQL from history
   useEffect(() => {
@@ -141,7 +171,7 @@ export default function SqlEditor() {
       <div className="flex-1 overflow-hidden">
         <Editor
           height="100%"
-          defaultLanguage="sql"
+          language={editorLanguage}
           theme="vs-dark"
           onChange={handleEditorChange}
           onMount={handleEditorMount}
