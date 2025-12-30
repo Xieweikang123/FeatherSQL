@@ -1,9 +1,24 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { type QueryResult } from "../lib/commands";
+import { type QueryResult, executeSql } from "../lib/commands";
+import { useConnectionStore } from "../store/connectionStore";
+import ConfirmDialog from "./ConfirmDialog";
+import { extractTableInfo, escapeIdentifier, escapeSqlValue, buildTableName } from "../lib/utils";
 
 interface ResultTableProps {
   result: QueryResult;
   sql?: string | null;
+}
+
+interface EditingCell {
+  row: number;
+  col: number;
+}
+
+interface CellModification {
+  rowIndex: number;
+  column: string;
+  oldValue: any;
+  newValue: any;
 }
 
 export default function ResultTable({ result, sql }: ResultTableProps) {
@@ -11,6 +26,34 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  
+  // 编辑相关状态
+  const [editMode, setEditMode] = useState(false);
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [editedData, setEditedData] = useState<QueryResult>(result);
+  const [modifications, setModifications] = useState<Map<string, CellModification>>(new Map());
+  const [editingValue, setEditingValue] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  
+  // 获取连接信息
+  const { 
+    currentConnectionId, 
+    currentDatabase, 
+    connections, 
+    addLog, 
+    setQueryResult,
+    setIsQuerying 
+  } = useConnectionStore();
+  const currentConnection = connections.find(c => c.id === currentConnectionId);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // 当 result 变化时，重置编辑状态
+  useEffect(() => {
+    setEditedData(result);
+    setModifications(new Map());
+    setEditingCell(null);
+  }, [result]);
 
   // 点击外部关闭搜索框
   useEffect(() => {
@@ -93,6 +136,266 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   };
 
+  // 编辑相关处理函数
+  const handleCellDoubleClick = (filteredRowIndex: number, cellIndex: number) => {
+    if (!editMode) return;
+    
+    // 获取原始行索引（考虑过滤）
+    const filteredRow = filteredRows[filteredRowIndex];
+    const originalRowIndex = result.rows.findIndex((row) => row === filteredRow);
+    
+    if (originalRowIndex === -1) return;
+    
+    const cellValue = editedData.rows[originalRowIndex][cellIndex];
+    setEditingCell({ row: originalRowIndex, col: cellIndex });
+    setEditingValue(cellValue === null || cellValue === undefined ? "" : String(cellValue));
+    
+    // 聚焦输入框
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  };
+
+  const handleCellInputChange = (value: string) => {
+    setEditingValue(value);
+  };
+
+  const handleCellSave = (rowIndex: number, cellIndex: number) => {
+    if (!editingCell || editingCell.row !== rowIndex || editingCell.col !== cellIndex) return;
+    
+    const column = result.columns[cellIndex];
+    const oldValue = result.rows[rowIndex][cellIndex];
+    const newValue = editingValue.trim() === "" ? null : editingValue;
+    
+    // 如果值未改变，不记录修改
+    if (oldValue === newValue || String(oldValue) === String(newValue)) {
+      setEditingCell(null);
+      setEditingValue("");
+      return;
+    }
+    
+    // 更新编辑数据
+    const newEditedData = { ...editedData };
+    newEditedData.rows = [...newEditedData.rows];
+    newEditedData.rows[rowIndex] = [...newEditedData.rows[rowIndex]];
+    newEditedData.rows[rowIndex][cellIndex] = newValue;
+    setEditedData(newEditedData);
+    
+    // 记录修改
+    const modKey = `${rowIndex}-${cellIndex}`;
+    const newMods = new Map(modifications);
+    newMods.set(modKey, {
+      rowIndex,
+      column,
+      oldValue,
+      newValue
+    });
+    setModifications(newMods);
+    
+    setEditingCell(null);
+    setEditingValue("");
+    addLog(`已修改: ${column} = ${newValue === null ? 'NULL' : newValue}`);
+  };
+
+  const handleCellCancel = () => {
+    setEditingCell(null);
+    setEditingValue("");
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, filteredRowIndex: number, cellIndex: number) => {
+    if (!editMode) return;
+    
+    if (e.key === "Enter" && editingCell) {
+      e.preventDefault();
+      handleCellSave(editingCell.row, editingCell.col);
+    } else if (e.key === "Escape" && editingCell) {
+      e.preventDefault();
+      handleCellCancel();
+    } else if (e.key === "F2" && !editingCell) {
+      e.preventDefault();
+      handleCellDoubleClick(filteredRowIndex, cellIndex);
+    }
+  };
+
+  const handleExitEditMode = () => {
+    if (modifications.size > 0) {
+      // 显示确认对话框
+      setShowExitConfirm(true);
+    } else {
+      // 没有修改，直接退出
+      doExitEditMode();
+    }
+  };
+
+  const doExitEditMode = () => {
+    setEditMode(false);
+    setEditingCell(null);
+    setEditingValue("");
+    setShowExitConfirm(false);
+  };
+
+  const handleConfirmExit = () => {
+    doExitEditMode();
+  };
+
+  const handleCancelExit = () => {
+    setShowExitConfirm(false);
+  };
+
+  // 生成 UPDATE SQL 语句
+  const generateUpdateSql = (): string[] => {
+    if (modifications.size === 0 || !sql || !currentConnection) return [];
+    
+    const tableInfo = extractTableInfo(sql);
+    if (!tableInfo || !tableInfo.tableName) {
+      throw new Error("无法从 SQL 中提取表名，请确保 SQL 是 SELECT ... FROM table_name 格式");
+    }
+    
+    const dbType = currentConnection.type;
+    // 如果 SQL 中指定了数据库名，使用 SQL 中的；否则使用当前选择的数据库
+    const databaseToUse = tableInfo.database || currentDatabase;
+    const escapedTableName = buildTableName(tableInfo.tableName, dbType, databaseToUse);
+    
+    // 按行分组修改
+    const rowMods = new Map<number, Map<string, any>>();
+    
+    modifications.forEach((mod) => {
+      if (!rowMods.has(mod.rowIndex)) {
+        rowMods.set(mod.rowIndex, new Map());
+      }
+      rowMods.get(mod.rowIndex)!.set(mod.column, mod.newValue);
+    });
+    
+    // 生成 UPDATE 语句
+    const sqls: string[] = [];
+    
+    rowMods.forEach((columns, rowIndex) => {
+      // SET 子句
+      const setClause = Array.from(columns.entries())
+        .map(([col, val]) => {
+          const escapedCol = escapeIdentifier(col, dbType);
+          const escapedVal = escapeSqlValue(val, dbType);
+          return `${escapedCol} = ${escapedVal}`;
+        })
+        .join(', ');
+      
+      // WHERE 子句：使用所有列的原始值来定位行
+      // 注意：这不是最理想的方式，但可以在没有主键的情况下工作
+      const whereConditions: string[] = [];
+      const originalRow = result.rows[rowIndex];
+      
+      result.columns.forEach((col, colIndex) => {
+        const escapedCol = escapeIdentifier(col, dbType);
+        const originalValue = originalRow[colIndex];
+        
+        // 处理 NULL 值
+        if (originalValue === null || originalValue === undefined) {
+          whereConditions.push(`${escapedCol} IS NULL`);
+        } else {
+          const escapedVal = escapeSqlValue(originalValue, dbType);
+          whereConditions.push(`${escapedCol} = ${escapedVal}`);
+        }
+      });
+      
+      const whereClause = whereConditions.join(' AND ');
+      
+      sqls.push(`UPDATE ${escapedTableName} SET ${setClause} WHERE ${whereClause};`);
+    });
+    
+    return sqls;
+  };
+
+  // 保存修改到数据库
+  const handleSaveChanges = async () => {
+    if (!currentConnectionId || !currentConnection) {
+      addLog("错误: 未选择数据库连接");
+      return;
+    }
+    
+    if (modifications.size === 0) {
+      addLog("没有需要保存的修改");
+      return;
+    }
+    
+    if (!sql) {
+      addLog("错误: 无法保存，缺少原始 SQL 语句");
+      return;
+    }
+    
+    setIsSaving(true);
+    setIsQuerying(true);
+    
+    try {
+      // 提取表信息（包括数据库名）
+      const tableInfo = extractTableInfo(sql);
+      if (!tableInfo) {
+        throw new Error("无法从 SQL 中提取表信息");
+      }
+      
+      // 确定使用的数据库：优先使用 SQL 中指定的数据库，否则使用当前选择的数据库
+      const databaseToUse = tableInfo.database || currentDatabase;
+      // 对于 SQLite，数据库参数应该是空字符串
+      const dbParam = currentConnection.type === "sqlite" ? "" : (databaseToUse || undefined);
+      
+      // 生成 UPDATE SQL 语句
+      const updateSqls = generateUpdateSql();
+      
+      if (updateSqls.length === 0) {
+        addLog("错误: 无法生成 UPDATE 语句");
+        return;
+      }
+      
+      addLog(`开始保存 ${updateSqls.length} 条修改...`);
+      if (databaseToUse) {
+        addLog(`使用数据库: ${databaseToUse}`);
+      }
+      
+      // 执行所有 UPDATE 语句
+      let successCount = 0;
+      let failCount = 0;
+      
+      for (const updateSql of updateSqls) {
+        try {
+          await executeSql(currentConnectionId, updateSql, dbParam);
+          successCount++;
+        } catch (error) {
+          failCount++;
+          const errorMsg = String(error);
+          addLog(`保存失败: ${errorMsg}`);
+          console.error("Update SQL:", updateSql);
+          console.error("Database param:", dbParam);
+          console.error("Error:", error);
+        }
+      }
+      
+      if (failCount > 0) {
+        addLog(`保存完成: 成功 ${successCount} 条，失败 ${failCount} 条`);
+        throw new Error(`部分保存失败: ${failCount} 条记录保存失败`);
+      }
+      
+      addLog(`成功保存 ${successCount} 条修改`);
+      
+      // 重新执行原始 SQL 查询以刷新数据
+      addLog("正在刷新数据...");
+      const newResult = await executeSql(currentConnectionId, sql, dbParam);
+      setQueryResult(newResult);
+      
+      // 清除修改记录
+      setModifications(new Map());
+      setEditedData(newResult);
+      
+      addLog("数据已刷新");
+    } catch (error) {
+      const errorMsg = String(error);
+      addLog(`保存失败: ${errorMsg}`);
+      // 不抛出错误，让用户看到日志
+    } finally {
+      setIsSaving(false);
+      setIsQuerying(false);
+    }
+  };
+
   const hasActiveFilters = Object.values(columnFilters).some(v => v.trim() !== "");
 
   if (!result || result.columns.length === 0) {
@@ -104,7 +407,53 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <>
+      {/* 确认对话框 */}
+      <ConfirmDialog
+        isOpen={showExitConfirm}
+        title="退出编辑模式"
+        message={`有 ${modifications.size} 个未保存的修改，确定要退出编辑模式吗？退出后这些修改将丢失。`}
+        confirmText="确定退出"
+        cancelText="取消"
+        type="warning"
+        onConfirm={handleConfirmExit}
+        onCancel={handleCancelExit}
+      />
+
+      <div className="h-full flex flex-col">
+        {/* 编辑工具栏 */}
+        {editMode && (
+        <div className="px-4 py-2 bg-blue-600/20 border-b border-blue-500/30 flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-xs text-blue-400 font-semibold">编辑模式</span>
+            {modifications.size > 0 && (
+              <span className="text-xs text-yellow-400">
+                ({modifications.size} 个未保存的修改)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {modifications.size > 0 && (
+              <button
+                onClick={handleSaveChanges}
+                disabled={isSaving || !currentConnectionId}
+                className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-white font-medium"
+                title="保存所有修改到数据库"
+              >
+                {isSaving ? "保存中..." : `💾 保存 (${modifications.size})`}
+              </button>
+            )}
+            <button
+              onClick={handleExitEditMode}
+              className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              title="退出编辑模式"
+            >
+              退出编辑
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* SQL 显示栏 */}
       {sql && (
         <div className="px-4 py-2.5 bg-gray-800/40 border-b border-gray-700/50 flex items-center justify-between gap-3">
@@ -125,6 +474,15 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {!editMode && (
+              <button
+                onClick={() => setEditMode(true)}
+                className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 rounded transition-colors text-white font-medium"
+                title="进入编辑模式（双击单元格可编辑）"
+              >
+                ✏️ 编辑模式
+              </button>
+            )}
             {hasActiveFilters && (
               <button
                 onClick={() => setColumnFilters({})}
@@ -236,33 +594,81 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 </td>
               </tr>
             ) : (
-              filteredRows.map((row, rowIndex) => (
-                <tr
-                  key={rowIndex}
-                  className="border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors duration-150 group"
-                >
-                  {row.map((cell, cellIndex) => (
-                    <td
-                      key={cellIndex}
-                      className="px-4 py-2.5 text-gray-300 max-w-xs truncate group-hover:text-gray-200"
-                      title={String(cell ?? "")}
-                    >
-                      {cell === null || cell === undefined
-                        ? (
-                          <span className="text-gray-500 italic font-mono text-xs">NULL</span>
-                        )
-                        : typeof cell === "object"
-                        ? <span className="font-mono text-xs text-gray-400">{JSON.stringify(cell)}</span>
-                        : <span className="font-mono text-xs">{String(cell)}</span>}
-                    </td>
-                  ))}
-                </tr>
-              ))
+              filteredRows.map((row, rowIndex) => {
+                // 找到原始行索引
+                const originalRowIndex = result.rows.findIndex((r) => r === row);
+                const displayRow = originalRowIndex !== -1 ? editedData.rows[originalRowIndex] : row;
+                
+                return (
+                  <tr
+                    key={rowIndex}
+                    className="border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors duration-150 group"
+                  >
+                    {displayRow.map((cell, cellIndex) => {
+                      const isEditing = editingCell?.row === originalRowIndex && editingCell?.col === cellIndex;
+                      const modKey = `${originalRowIndex}-${cellIndex}`;
+                      const isModified = modifications.has(modKey);
+                      
+                      return (
+                        <td
+                          key={cellIndex}
+                          className={`
+                            px-4 py-2.5 text-gray-300 relative
+                            ${isEditing ? 'bg-blue-500/20 ring-2 ring-blue-400' : ''}
+                            ${isModified && !isEditing ? 'bg-yellow-500/10 border-l-2 border-yellow-500' : ''}
+                            ${editMode ? 'cursor-cell hover:bg-gray-800/60' : 'max-w-xs truncate'}
+                            group-hover:text-gray-200
+                          `}
+                          title={!isEditing ? String(cell ?? "") : undefined}
+                          onDoubleClick={() => handleCellDoubleClick(rowIndex, cellIndex)}
+                          onKeyDown={(e) => handleKeyDown(e, rowIndex, cellIndex)}
+                          tabIndex={editMode ? 0 : -1}
+                        >
+                          {isEditing ? (
+                            <input
+                              ref={inputRef}
+                              type="text"
+                              value={editingValue}
+                              onChange={(e) => handleCellInputChange(e.target.value)}
+                              onBlur={() => handleCellSave(originalRowIndex, cellIndex)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleCellSave(originalRowIndex, cellIndex);
+                                } else if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  handleCellCancel();
+                                }
+                              }}
+                              className="w-full bg-gray-700 text-white px-2 py-1 rounded text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <>
+                              {cell === null || cell === undefined
+                                ? (
+                                  <span className="text-gray-500 italic font-mono text-xs">NULL</span>
+                                )
+                                : typeof cell === "object"
+                                ? <span className="font-mono text-xs text-gray-400">{JSON.stringify(cell)}</span>
+                                : <span className="font-mono text-xs">{String(cell)}</span>}
+                              {isModified && (
+                                <span className="absolute top-1 right-1 text-yellow-500 text-xs" title="已修改">●</span>
+                              )}
+                            </>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
     </div>
+    </>
   );
 }
 

@@ -583,10 +583,10 @@ export default function ConnectionManager() {
                         className="flex-1 min-w-0"
                         onClick={() => !isConnecting && handleConnectionClick(connection)}
                       >
-                        <div className="font-semibold text-sm text-gray-100 truncate flex items-center gap-1.5">
-                          {connection.name}
+                        <div className="font-semibold text-sm text-gray-100 flex items-center gap-1.5 min-w-0">
+                          <span className="break-words">{connection.name}</span>
                           {isConnecting && (
-                            <span className="text-xs text-yellow-400 animate-pulse font-normal">连接中...</span>
+                            <span className="text-xs text-yellow-400 animate-pulse font-normal flex-shrink-0 whitespace-nowrap">连接中...</span>
                           )}
                         </div>
                         <div className="text-xs text-gray-400 mt-1 font-medium uppercase tracking-wide">
@@ -595,8 +595,8 @@ export default function ConnectionManager() {
                       </div>
                       
                       {/* 操作按钮组 */}
-                      <div className={`flex items-center gap-1.5 transition-all duration-200 ${
-                        isConnecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      <div className={`flex items-center gap-1.5 transition-all duration-200 flex-shrink-0 ${
+                        isConnecting ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto"
                       }`}>
                         {/* 连接/断开按钮 */}
                         {isCurrentConnection ? (
