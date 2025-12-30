@@ -21,6 +21,11 @@ interface CellModification {
   newValue: any;
 }
 
+interface SelectionRange {
+  start: { row: number; col: number };
+  end: { row: number; col: number };
+}
+
 export default function ResultTable({ result, sql }: ResultTableProps) {
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
@@ -35,6 +40,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [editingValue, setEditingValue] = useState<string>("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  
+  // 选择相关状态
+  const [selection, setSelection] = useState<SelectionRange | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ row: number; col: number } | null>(null);
   
   // 获取连接信息
   const { 
@@ -53,7 +63,26 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setEditedData(result);
     setModifications(new Map());
     setEditingCell(null);
+    setSelection(null);
   }, [result]);
+
+  // 点击表格外部时清除选择
+  useEffect(() => {
+    if (!editMode) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      // 如果点击的不是表格单元格，清除选择
+      if (!target.closest('td') && !target.closest('input')) {
+        setSelection(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [editMode]);
 
   // 点击外部关闭搜索框
   useEffect(() => {
@@ -203,6 +232,232 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setEditingValue("");
   };
 
+  // 获取原始行索引
+  const getOriginalRowIndex = (filteredRowIndex: number): number => {
+    const filteredRow = filteredRows[filteredRowIndex];
+    return result.rows.findIndex((row) => row === filteredRow);
+  };
+
+  // 检查单元格是否在选择范围内
+  const isCellSelected = (originalRowIndex: number, cellIndex: number): boolean => {
+    if (!selection || originalRowIndex === -1) return false;
+    
+    const minRow = Math.min(selection.start.row, selection.end.row);
+    const maxRow = Math.max(selection.start.row, selection.end.row);
+    const minCol = Math.min(selection.start.col, selection.end.col);
+    const maxCol = Math.max(selection.start.col, selection.end.col);
+    
+    return (
+      originalRowIndex >= minRow &&
+      originalRowIndex <= maxRow &&
+      cellIndex >= minCol &&
+      cellIndex <= maxCol
+    );
+  };
+
+  // 处理单元格鼠标按下
+  const handleCellMouseDown = (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
+    if (!editMode) return;
+    
+    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
+    if (originalRowIndex === -1) return;
+    
+    // 如果正在编辑，不处理选择
+    if (editingCell) return;
+    
+    if (e.shiftKey && selection) {
+      // Shift+点击：扩展选择范围
+      setSelection({
+        start: selection.start,
+        end: { row: originalRowIndex, col: cellIndex }
+      });
+    } else {
+      // 普通点击或 Ctrl+点击：新选择
+      setSelection({
+        start: { row: originalRowIndex, col: cellIndex },
+        end: { row: originalRowIndex, col: cellIndex }
+      });
+      dragStartRef.current = { row: originalRowIndex, col: cellIndex };
+      setIsDragging(true);
+    }
+  };
+
+  // 处理单元格鼠标移动（拖拽）
+  const handleCellMouseMove = (filteredRowIndex: number, cellIndex: number) => {
+    if (!editMode || !isDragging || !dragStartRef.current) return;
+    
+    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
+    if (originalRowIndex === -1) return;
+    
+    setSelection({
+      start: dragStartRef.current,
+      end: { row: originalRowIndex, col: cellIndex }
+    });
+  };
+
+  // 处理鼠标释放和移动
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // 鼠标移动时，找到当前悬停的单元格
+      const target = e.target as HTMLElement;
+      const cell = target.closest('td');
+      if (cell && cell.dataset.rowIndex !== undefined && cell.dataset.cellIndex !== undefined) {
+        const filteredRowIndex = parseInt(cell.dataset.rowIndex);
+        const cellIndex = parseInt(cell.dataset.cellIndex);
+        handleCellMouseMove(filteredRowIndex, cellIndex);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, editMode]);
+
+  // 批量编辑选中单元格
+  const handleBatchEdit = (value: string) => {
+    if (!selection) return;
+    
+    const minRow = Math.min(selection.start.row, selection.end.row);
+    const maxRow = Math.max(selection.start.row, selection.end.row);
+    const minCol = Math.min(selection.start.col, selection.end.col);
+    const maxCol = Math.max(selection.start.col, selection.end.col);
+    
+    const newEditedData = { ...editedData };
+    newEditedData.rows = [...newEditedData.rows];
+    const newMods = new Map(modifications);
+    
+    let modifiedCount = 0;
+    
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        const oldValue = result.rows[row][col];
+        const newValue = value.trim() === "" ? null : value;
+        
+        // 如果值未改变，跳过
+        if (oldValue === newValue || String(oldValue) === String(newValue)) continue;
+        
+        // 更新编辑数据
+        if (!newEditedData.rows[row]) {
+          newEditedData.rows[row] = [...editedData.rows[row]];
+        }
+        newEditedData.rows[row] = [...newEditedData.rows[row]];
+        newEditedData.rows[row][col] = newValue;
+        
+        // 记录修改
+        const modKey = `${row}-${col}`;
+        const column = result.columns[col];
+        newMods.set(modKey, {
+          rowIndex: row,
+          column,
+          oldValue,
+          newValue
+        });
+        
+        modifiedCount++;
+      }
+    }
+    
+    if (modifiedCount > 0) {
+      setEditedData(newEditedData);
+      setModifications(newMods);
+      addLog(`批量修改了 ${modifiedCount} 个单元格`);
+    }
+  };
+
+  // 复制选中区域
+  const handleCopy = async () => {
+    if (!selection) return;
+    
+    const minRow = Math.min(selection.start.row, selection.end.row);
+    const maxRow = Math.max(selection.start.row, selection.end.row);
+    const minCol = Math.min(selection.start.col, selection.end.col);
+    const maxCol = Math.max(selection.start.col, selection.end.col);
+    
+    const rows: string[] = [];
+    
+    for (let row = minRow; row <= maxRow; row++) {
+      const cells: string[] = [];
+      for (let col = minCol; col <= maxCol; col++) {
+        const value = editedData.rows[row]?.[col];
+        cells.push(value === null || value === undefined ? '' : String(value));
+      }
+      rows.push(cells.join('\t'));
+    }
+    
+    const text = rows.join('\n');
+    await navigator.clipboard.writeText(text);
+    addLog(`已复制 ${rows.length} 行 ${maxCol - minCol + 1} 列`);
+  };
+
+  // 粘贴数据
+  const handlePaste = async () => {
+    if (!selection) return;
+    
+    try {
+      const text = await navigator.clipboard.readText();
+      const lines = text.split('\n').map(line => line.split('\t'));
+      
+      const startRow = selection.start.row;
+      const startCol = selection.start.col;
+      
+      const newEditedData = { ...editedData };
+      newEditedData.rows = [...newEditedData.rows];
+      const newMods = new Map(modifications);
+      
+      let pastedCount = 0;
+      
+      lines.forEach((line, rowOffset) => {
+        line.forEach((value, colOffset) => {
+          const row = startRow + rowOffset;
+          const col = startCol + colOffset;
+          
+          if (row < newEditedData.rows.length && col < result.columns.length) {
+            const oldValue = result.rows[row][col];
+            const newValue = value.trim() === "" ? null : value;
+            
+            if (!newEditedData.rows[row]) {
+              newEditedData.rows[row] = [...editedData.rows[row]];
+            }
+            newEditedData.rows[row] = [...newEditedData.rows[row]];
+            newEditedData.rows[row][col] = newValue;
+            
+            if (oldValue !== newValue && String(oldValue) !== String(newValue)) {
+              const modKey = `${row}-${col}`;
+              const column = result.columns[col];
+              newMods.set(modKey, {
+                rowIndex: row,
+                column,
+                oldValue,
+                newValue
+              });
+              pastedCount++;
+            }
+          }
+        });
+      });
+      
+      if (pastedCount > 0) {
+        setEditedData(newEditedData);
+        setModifications(newMods);
+        addLog(`已粘贴 ${pastedCount} 个单元格`);
+      }
+    } catch (error) {
+      addLog(`粘贴失败: ${error}`);
+    }
+  };
+
+  // 处理键盘快捷键
   const handleKeyDown = (e: React.KeyboardEvent, filteredRowIndex: number, cellIndex: number) => {
     if (!editMode) return;
     
@@ -215,6 +470,15 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } else if (e.key === "F2" && !editingCell) {
       e.preventDefault();
       handleCellDoubleClick(filteredRowIndex, cellIndex);
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selection) {
+      e.preventDefault();
+      handleCopy();
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && selection) {
+      e.preventDefault();
+      handlePaste();
+    } else if (e.key === 'Delete' && selection && !editingCell) {
+      e.preventDefault();
+      handleBatchEdit('');
     }
   };
 
@@ -229,10 +493,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   };
 
   const doExitEditMode = () => {
+    // 还原所有未保存的修改
+    setEditedData(result);
+    setModifications(new Map());
     setEditMode(false);
     setEditingCell(null);
     setEditingValue("");
+    setSelection(null);
     setShowExitConfirm(false);
+    setIsDragging(false);
+    dragStartRef.current = null;
   };
 
   const handleConfirmExit = () => {
@@ -431,8 +701,57 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 ({modifications.size} 个未保存的修改)
               </span>
             )}
+            {selection && (
+              <span className="text-xs text-blue-300">
+                (已选择: {
+                  Math.abs(selection.end.row - selection.start.row) + 1
+                } 行 × {
+                  Math.abs(selection.end.col - selection.start.col) + 1
+                } 列)
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
+            {selection && (
+              <>
+                <input
+                  type="text"
+                  placeholder="批量编辑选中单元格..."
+                  className="px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-40"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleBatchEdit(e.currentTarget.value);
+                      e.currentTarget.value = '';
+                    } else if (e.key === 'Escape') {
+                      setSelection(null);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  title="输入值后按 Enter 批量编辑，按 Escape 清除选择"
+                />
+                <button
+                  onClick={handleCopy}
+                  className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  title="复制选中区域 (Ctrl+C)"
+                >
+                  📋 复制
+                </button>
+                <button
+                  onClick={handlePaste}
+                  className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  title="粘贴到选中区域 (Ctrl+V)"
+                >
+                  📄 粘贴
+                </button>
+                <button
+                  onClick={() => setSelection(null)}
+                  className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  title="清除选择"
+                >
+                  ✕
+                </button>
+              </>
+            )}
             {modifications.size > 0 && (
               <button
                 onClick={handleSaveChanges}
@@ -608,18 +927,24 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                       const isEditing = editingCell?.row === originalRowIndex && editingCell?.col === cellIndex;
                       const modKey = `${originalRowIndex}-${cellIndex}`;
                       const isModified = modifications.has(modKey);
+                      const isSelected = isCellSelected(originalRowIndex, cellIndex);
                       
                       return (
                         <td
                           key={cellIndex}
+                          data-row-index={rowIndex}
+                          data-cell-index={cellIndex}
                           className={`
                             px-4 py-2.5 text-gray-300 relative
                             ${isEditing ? 'bg-blue-500/20 ring-2 ring-blue-400' : ''}
-                            ${isModified && !isEditing ? 'bg-yellow-500/10 border-l-2 border-yellow-500' : ''}
+                            ${isSelected && !isEditing ? 'bg-blue-500/30 ring-1 ring-blue-400' : ''}
+                            ${isModified && !isEditing && !isSelected ? 'bg-yellow-500/10 border-l-2 border-yellow-500' : ''}
                             ${editMode ? 'cursor-cell hover:bg-gray-800/60' : 'max-w-xs truncate'}
                             group-hover:text-gray-200
+                            select-none
                           `}
                           title={!isEditing ? String(cell ?? "") : undefined}
+                          onMouseDown={(e) => handleCellMouseDown(rowIndex, cellIndex, e)}
                           onDoubleClick={() => handleCellDoubleClick(rowIndex, cellIndex)}
                           onKeyDown={(e) => handleKeyDown(e, rowIndex, cellIndex)}
                           tabIndex={editMode ? 0 : -1}
