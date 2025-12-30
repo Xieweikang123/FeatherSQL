@@ -28,7 +28,22 @@ export default function SqlEditor() {
       return;
     }
 
-    const sql = editorRef.current.trim();
+    // Get selected text if any, otherwise use all text
+    let sql = "";
+    if (monacoEditorRef.current) {
+      const selection = monacoEditorRef.current.getSelection();
+      if (selection && !selection.isEmpty()) {
+        // Execute selected text
+        sql = monacoEditorRef.current.getModel()?.getValueInRange(selection) || "";
+      } else {
+        // No selection, execute all text
+        sql = editorRef.current;
+      }
+    } else {
+      sql = editorRef.current;
+    }
+
+    sql = sql.trim();
     if (!sql) {
       setError("SQL 查询不能为空");
       return;
@@ -38,7 +53,7 @@ export default function SqlEditor() {
     addLog(`执行 SQL: ${sql.substring(0, 50)}...`);
 
     try {
-      const result = await executeSql(currentConnectionId, sql);
+      const result = await executeSql(currentConnectionId, sql, currentDatabase || undefined);
       setQueryResult(result);
       addLog(`查询成功，返回 ${result.rows.length} 行`);
       // History is automatically saved by the backend
