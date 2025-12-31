@@ -130,32 +130,46 @@ function App() {
   }, [isDragging, editorHeight]);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white">
+    <div className="flex flex-col h-screen" style={{ backgroundColor: 'var(--neu-bg)', color: 'var(--neu-text)' }}>
       {/* Top bar */}
-      <header className="flex items-center justify-between px-5 py-3 bg-gray-900/95 border-b border-gray-800/80 backdrop-blur-sm shadow-sm">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+      <header className="flex items-center justify-between px-5 py-3 neu-raised" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
+        <h1 className="text-xl font-bold" style={{ 
+          background: 'linear-gradient(135deg, var(--neu-accent-light) 0%, var(--neu-accent) 50%, var(--neu-accent-dark) 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+          textShadow: '0 0 20px rgba(91, 155, 213, 0.3)',
+          filter: 'drop-shadow(0 0 2px rgba(91, 155, 213, 0.5))'
+        }}>
           FeatherSQL
         </h1>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setHistoryExpanded(!historyExpanded)}
-            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-all duration-200 ${
+            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-all duration-200 neu-hover neu-active ${
               historyExpanded
-                ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30"
-                : "bg-gray-800/60 hover:bg-gray-700/80 text-gray-300 border border-gray-700/50"
+                ? "neu-pressed"
+                : "neu-flat"
             }`}
+            style={{ color: historyExpanded ? 'var(--neu-accent-dark)' : 'var(--neu-text)' }}
           >
             {historyExpanded ? "隐藏历史" : "显示历史"}
           </button>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/60 rounded-lg border border-gray-700/50">
+          <div className="flex items-center gap-2 px-3 py-1.5 neu-flat rounded-lg">
             <div
               className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
                 currentConnectionId 
-                  ? "bg-green-400 shadow-sm shadow-green-400/50 animate-pulse" 
-                  : "bg-gray-500"
+                  ? "animate-pulse" 
+                  : ""
               }`}
+              style={{ 
+                backgroundColor: currentConnectionId ? 'var(--neu-success)' : 'rgba(255, 255, 255, 0.1)',
+                boxShadow: currentConnectionId 
+                  ? '0 0 10px var(--neu-success), 0 0 20px rgba(102, 187, 106, 0.3)' 
+                  : 'inset 0 0 4px rgba(0, 0, 0, 0.5)'
+              }}
             />
-            <span className="text-sm text-gray-300 font-medium">
+            <span className="text-sm font-medium" style={{ color: 'var(--neu-text)' }}>
               {currentConnectionId ? "已连接" : "未连接"}
             </span>
           </div>
@@ -164,7 +178,7 @@ function App() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Connections */}
-        <aside className="w-64 bg-gray-900/95 border-r border-gray-800/80 flex flex-col backdrop-blur-sm">
+        <aside className="w-64 neu-raised flex flex-col" style={{ borderRight: '1px solid var(--neu-dark)' }}>
           <ConnectionManager />
         </aside>
 
@@ -187,37 +201,48 @@ function App() {
               {/* Resizable divider */}
               <div
                 onMouseDown={handleMouseDown}
-                className={`h-1.5 bg-gray-800/60 hover:bg-blue-600/80 cursor-row-resize transition-all duration-200 group ${
-                  isDragging ? "bg-blue-600" : ""
+                className={`h-1.5 cursor-row-resize transition-all duration-200 group neu-flat ${
+                  isDragging ? "" : ""
                 }`}
-                style={{ flexShrink: 0 }}
+                style={{ 
+                  flexShrink: 0,
+                  backgroundColor: isDragging ? 'var(--neu-accent)' : 'var(--neu-bg)'
+                }}
               >
                 <div className="h-full w-full flex items-center justify-center">
                   <div className={`w-16 h-1 rounded-full transition-all duration-200 ${
                     isDragging 
-                      ? "bg-blue-400" 
-                      : "bg-gray-600/60 group-hover:bg-blue-500/60"
-                  }`} />
+                      ? "" 
+                      : ""
+                  }`} 
+                  style={{ 
+                    backgroundColor: isDragging ? 'var(--neu-accent-light)' : 'rgba(255, 255, 255, 0.1)',
+                    boxShadow: isDragging ? '0 0 4px var(--neu-accent)' : 'none'
+                  }} />
                 </div>
               </div>
 
               {/* Result Table */}
               <div 
-                className="border-t border-gray-800/80 overflow-auto bg-gray-900/50"
+                className="overflow-auto neu-flat"
                 style={{ 
                   flex: editorHeight !== null ? 1 : undefined,
-                  height: editorHeight !== null ? undefined : "256px"
+                  height: editorHeight !== null ? undefined : "256px",
+                  borderTop: '1px solid var(--neu-dark)'
                 }}
               >
                 {error ? (
-                  <div className="p-4 bg-red-950/40 border-l-4 border-red-500/60 text-red-300 rounded-r-lg m-4">
-                    <div className="font-semibold text-red-200 mb-1">错误:</div>
+                  <div className="p-4 neu-pressed rounded-lg m-4" style={{ 
+                    borderLeft: '4px solid var(--neu-error)',
+                    color: 'var(--neu-error)'
+                  }}>
+                    <div className="font-semibold mb-1">错误:</div>
                     <div className="text-sm">{error}</div>
                   </div>
                 ) : isQuerying ? (
-                  <div className="p-8 text-gray-400 text-center">
+                  <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
                     <div className="flex justify-center mb-3">
-                      <svg className="animate-spin h-8 w-8 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <svg className="animate-spin h-8 w-8" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
@@ -227,7 +252,7 @@ function App() {
                 ) : queryResult ? (
                   <ResultTable result={queryResult} sql={savedSql} />
                 ) : (
-                  <div className="p-8 text-gray-400 text-center">
+                  <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
                     <div className="text-4xl mb-3 opacity-50">📊</div>
                     <div className="text-sm">执行 SQL 查询以查看结果</div>
                   </div>
@@ -238,24 +263,24 @@ function App() {
             // 选中数据库但未选中表时：只显示数据表视图（不显示 SQL 编辑器）
             <div className="flex-1 flex overflow-hidden">
               {/* Tables View - 占据整个主内容区域 */}
-              <div className="flex-1 bg-gray-900/50 flex flex-col">
+              <div className="flex-1 neu-flat flex flex-col">
                 <TableView />
               </div>
               
               {/* History - 可选的侧边栏 */}
               {historyExpanded && (
-                <aside className="w-80 bg-gray-900/95 border-l border-gray-800/80 flex flex-col backdrop-blur-sm">
+                <aside className="w-80 neu-raised flex flex-col" style={{ borderLeft: '1px solid var(--neu-dark)' }}>
                   <SqlHistory />
                 </aside>
               )}
             </div>
           ) : (
             // 未选中数据库时：显示提示信息
-            <div className="flex-1 flex items-center justify-center bg-gray-900/30">
-              <div className="text-center text-gray-400">
+            <div className="flex-1 flex items-center justify-center neu-flat">
+              <div className="text-center" style={{ color: 'var(--neu-text-light)' }}>
                 <div className="text-5xl mb-5 opacity-60">📁</div>
-                <div className="text-lg mb-2 text-gray-300 font-medium">请先选择一个数据库</div>
-                <div className="text-sm text-gray-500">在左侧连接列表中选择一个数据库以查看数据表</div>
+                <div className="text-lg mb-2 font-medium" style={{ color: 'var(--neu-text)' }}>请先选择一个数据库</div>
+                <div className="text-sm">在左侧连接列表中选择一个数据库以查看数据表</div>
               </div>
             </div>
           )}
@@ -263,36 +288,38 @@ function App() {
 
         {/* Right sidebar - History (only when table is selected) */}
         {selectedTable && historyExpanded && (
-          <aside className="w-80 bg-gray-900/95 border-l border-gray-800/80 flex flex-col backdrop-blur-sm">
+          <aside className="w-80 neu-raised flex flex-col" style={{ borderLeft: '1px solid var(--neu-dark)' }}>
             <SqlHistory />
           </aside>
         )}
       </div>
 
       {/* Logs panel */}
-      <div className="border-t border-gray-800/80 bg-gray-900/95 backdrop-blur-sm">
+      <div className="neu-raised" style={{ borderTop: '1px solid var(--neu-dark)' }}>
         <button
           onClick={() => setLogsExpanded(!logsExpanded)}
-          className="w-full px-4 py-2.5 bg-gray-900/60 hover:bg-gray-800/80 text-left text-sm flex items-center justify-between transition-colors duration-200 border-b border-gray-800/50"
+          className="w-full px-4 py-2.5 neu-flat hover:neu-hover active:neu-active text-left text-sm flex items-center justify-between transition-all duration-200"
+          style={{ color: 'var(--neu-text)' }}
         >
-          <span className="font-medium text-gray-300">日志</span>
-          <span className="text-gray-400 text-xs transition-transform duration-200">{logsExpanded ? "▼" : "▶"}</span>
+          <span className="font-medium">日志</span>
+          <span className="text-xs transition-transform duration-200" style={{ color: 'var(--neu-text-light)' }}>{logsExpanded ? "▼" : "▶"}</span>
         </button>
         {logsExpanded && (
-          <div className="h-32 bg-gray-950/80 overflow-auto p-3 text-xs font-mono">
+          <div className="h-32 neu-pressed overflow-auto p-3 text-xs font-mono">
             {logs.length === 0 ? (
-              <div className="text-gray-500 text-center py-4">暂无日志</div>
+              <div className="text-center py-4" style={{ color: 'var(--neu-text-light)' }}>暂无日志</div>
             ) : (
               <>
                 <button
                   onClick={clearLogs}
-                  className="mb-3 px-3 py-1.5 bg-gray-800/60 hover:bg-gray-700/80 rounded-lg text-xs text-gray-300 hover:text-white transition-colors duration-200 border border-gray-700/50"
+                  className="mb-3 px-3 py-1.5 neu-flat hover:neu-hover active:neu-active rounded-lg text-xs transition-all duration-200"
+                  style={{ color: 'var(--neu-text)' }}
                 >
                   清空日志
                 </button>
                 <div className="space-y-1">
                   {logs.map((log, index) => (
-                    <div key={index} className="text-gray-400 hover:text-gray-300 transition-colors duration-150 py-0.5 px-1 rounded">
+                    <div key={index} className="py-0.5 px-1 rounded transition-colors duration-150" style={{ color: 'var(--neu-text-light)' }}>
                       {log}
                     </div>
                   ))}

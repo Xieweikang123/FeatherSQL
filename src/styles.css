@@ -2,18 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 新拟物化风格 - 深色主题（优化版） */
+:root {
+  --neu-bg: #1E1E1E;
+  --neu-light: #2D2D2D;
+  --neu-dark: #0F0F0F;
+  --neu-text: #F0F0F0;
+  --neu-text-light: #B0B0B0;
+  --neu-accent: #5B9BD5;
+  --neu-accent-light: #7BB3E5;
+  --neu-accent-dark: #4A8BC4;
+  --neu-success: #66BB6A;
+  --neu-warning: #FFA726;
+  --neu-error: #EF5350;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: transparent;
+  background-color: var(--neu-bg);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color: var(--neu-text);
 }
 
 #root {
@@ -23,48 +39,103 @@ html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: transparent;
+  background-color: var(--neu-bg);
+}
+
+/* 新拟物化工具类 - 深色主题（优化版） */
+.neu-raised {
+  background: var(--neu-bg);
+  box-shadow: 
+    8px 8px 16px rgba(0, 0, 0, 0.7),
+    -4px -4px 8px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.neu-pressed {
+  background: var(--neu-bg);
+  box-shadow: 
+    inset 5px 5px 10px rgba(0, 0, 0, 0.8),
+    inset -3px -3px 6px rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+.neu-flat {
+  background: var(--neu-bg);
+  box-shadow: 
+    4px 4px 8px rgba(0, 0, 0, 0.5),
+    -2px -2px 4px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.neu-hover:hover {
+  box-shadow: 
+    10px 10px 20px rgba(0, 0, 0, 0.8),
+    -5px -5px 10px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: translateY(-2px);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.neu-active:active {
+  box-shadow: 
+    inset 3px 3px 6px rgba(0, 0, 0, 0.9),
+    inset -2px -2px 4px rgba(255, 255, 255, 0.03);
+  transform: translateY(1px);
+  border-color: rgba(0, 0, 0, 0.4);
 }
 
 /* ============================================
-   全局滚动条样式优化 - 深色主题
+   全局滚动条样式优化 - 新拟物化风格
    ============================================ */
 
 /* Firefox 滚动条样式 */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #4b5563 #1f2937; /* thumb track */
+  scrollbar-color: rgba(0, 0, 0, 0.5) var(--neu-bg);
 }
 
 /* WebKit 滚动条样式（Chrome, Edge, Safari, Tauri WebView） */
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   -webkit-appearance: none;
 }
 
 *::-webkit-scrollbar-track {
-  background: #1f2937; /* gray-800 */
-  border-left: 1px solid #111827; /* gray-900 */
+  background: var(--neu-bg);
+  border-radius: 6px;
+  box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.7), inset -2px -2px 4px rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #4b5563; /* gray-600 */
-  border-radius: 5px;
-  border: 2px solid #1f2937; /* 与轨道背景一致，形成内边距效果 */
-  background-clip: content-box;
+  background: var(--neu-bg);
+  border-radius: 6px;
+  box-shadow: 
+    4px 4px 8px rgba(0, 0, 0, 0.5),
+    -2px -2px 4px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.02);
   min-height: 30px;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280; /* gray-500 */
-  border-color: #374151; /* gray-700 */
+  box-shadow: 
+    5px 5px 10px rgba(0, 0, 0, 0.6),
+    -3px -3px 6px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.04);
 }
 
 *::-webkit-scrollbar-thumb:active {
-  background-color: #9ca3af; /* gray-400 */
-  border-color: #4b5563; /* gray-600 */
+  box-shadow: 
+    inset 2px 2px 4px rgba(0, 0, 0, 0.8),
+    inset -1px -1px 2px rgba(255, 255, 255, 0.03);
+  border-color: rgba(0, 0, 0, 0.3);
 }
 
 /* 隐藏滚动条按钮（箭头） */
@@ -77,11 +148,20 @@ html, body {
 /* 针对特定容器的滚动条优化 */
 /* 连接管理器、历史记录等侧边栏 */
 aside *::-webkit-scrollbar-thumb {
-  background-color: #4b5563;
+  background: var(--neu-bg);
+  box-shadow: 
+    4px 4px 8px rgba(0, 0, 0, 0.5),
+    -2px -2px 4px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.02);
 }
 
 aside *::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280;
+  box-shadow: 
+    5px 5px 10px rgba(0, 0, 0, 0.6),
+    -3px -3px 6px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.04);
 }
 
 /* 结果表格区域 - 稍微更明显的滚动条 */
@@ -91,19 +171,26 @@ aside *::-webkit-scrollbar-thumb:hover {
 }
 
 .overflow-auto::-webkit-scrollbar-thumb {
-  background-color: #4b5563;
-  border: 2px solid #1f2937;
+  background: var(--neu-bg);
+  box-shadow: 
+    4px 4px 8px rgba(0, 0, 0, 0.5),
+    -2px -2px 4px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.02);
 }
 
 .overflow-auto::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280;
-  border-color: #374151;
+  box-shadow: 
+    5px 5px 10px rgba(0, 0, 0, 0.6),
+    -3px -3px 6px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.04);
 }
 
 /* 日志面板 - 更细的滚动条 */
 .text-xs::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 /* 保留原有的 results-list-scroll 类（如果其他地方使用） */
@@ -116,7 +203,6 @@ aside *::-webkit-scrollbar-thumb:hover {
   height: 12px !important;
   display: block !important;
   -webkit-appearance: none !important;
-  background-color: transparent !important;
 }
 
 .results-list-scroll::-webkit-scrollbar-button {
@@ -126,27 +212,37 @@ aside *::-webkit-scrollbar-thumb:hover {
 }
 
 .results-list-scroll::-webkit-scrollbar-track {
-  background: #1f2937 !important;
-  border-left: 1px solid #111827 !important;
+  background: var(--neu-bg) !important;
+  border-radius: 6px !important;
+  box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.7), inset -2px -2px 4px rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(0, 0, 0, 0.2) !important;
 }
 
 .results-list-scroll::-webkit-scrollbar-thumb {
-  background-color: #4b5563 !important;
+  background: var(--neu-bg) !important;
   border-radius: 6px !important;
-  border: 2px solid #1f2937 !important;
-  background-clip: content-box !important;
+  box-shadow: 
+    4px 4px 8px rgba(0, 0, 0, 0.5),
+    -2px -2px 4px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.02) !important;
   min-height: 32px !important;
-  transition: background-color 0.2s ease !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .results-list-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280 !important;
-  border-color: #374151 !important;
+  box-shadow: 
+    5px 5px 10px rgba(0, 0, 0, 0.6),
+    -3px -3px 6px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.04) !important;
 }
 
 .results-list-scroll::-webkit-scrollbar-thumb:active {
-  background-color: #9ca3af !important;
-  border-color: #4b5563 !important;
+  box-shadow: 
+    inset 2px 2px 4px rgba(0, 0, 0, 0.8),
+    inset -1px -1px 2px rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.3) !important;
 }
 
 /* 插件卡片动画 */
@@ -278,14 +374,15 @@ aside *::-webkit-scrollbar-thumb:hover {
 
 /* 搜索结果高亮文本样式 */
 .highlight-match {
-  color: #ea580c; /* orange-600 */
+  color: var(--neu-accent-dark);
   background-color: transparent;
+  font-weight: 600;
 }
 
 /* 选中状态下的高亮文本 */
 .bg-gradient-to-r .highlight-match {
-  color: #fef3c7; /* amber-100，在蓝色背景上更清晰 */
-  background-color: rgba(255, 255, 255, 0.15);
+  color: var(--neu-accent-dark);
+  background-color: rgba(74, 144, 226, 0.15);
   padding: 0 2px;
   border-radius: 3px;
 }

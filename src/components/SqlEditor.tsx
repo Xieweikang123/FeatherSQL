@@ -127,34 +127,35 @@ export default function SqlEditor() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-5 py-3 bg-gray-900/95 border-b border-gray-800/80 backdrop-blur-sm shadow-sm">
+      <div className="flex items-center justify-between px-5 py-3 neu-raised" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {selectedTable && (
             <button
               onClick={() => setSelectedTable(null)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800/80 rounded-lg transition-all duration-200 border border-gray-700/50 hover:border-gray-600/50 hover:scale-105 active:scale-95"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+              style={{ color: 'var(--neu-text)' }}
               title="返回表视图"
             >
               <span>←</span>
               <span>返回</span>
             </button>
           )}
-          <span className="text-sm text-gray-300 font-semibold">SQL 编辑器</span>
+          <span className="text-sm font-semibold" style={{ color: 'var(--neu-text)' }}>SQL 编辑器</span>
           {currentConnection && (
             <div className="flex items-center gap-2 text-xs flex-wrap">
-              <span className="text-gray-600">|</span>
-              <span className="text-gray-200 font-medium px-2 py-0.5 bg-gray-800/60 rounded">{currentConnection.name}</span>
-              <span className="text-gray-500 uppercase tracking-wide">({currentConnection.type})</span>
+              <span style={{ color: 'var(--neu-text-light)' }}>|</span>
+              <span className="font-medium px-2 py-0.5 neu-flat rounded" style={{ color: 'var(--neu-text)' }}>{currentConnection.name}</span>
+              <span className="uppercase tracking-wide" style={{ color: 'var(--neu-text-light)' }}>({currentConnection.type})</span>
               {currentDatabase && (
                 <>
-                  <span className="text-gray-600">|</span>
-                  <span className="text-blue-400 font-medium px-2 py-0.5 bg-blue-500/10 rounded">数据库: {currentDatabase}</span>
+                  <span style={{ color: 'var(--neu-text-light)' }}>|</span>
+                  <span className="font-medium px-2 py-0.5 neu-flat rounded" style={{ color: 'var(--neu-accent)' }}>数据库: {currentDatabase}</span>
                 </>
               )}
               {selectedTable && (
                 <>
-                  <span className="text-gray-600">|</span>
-                  <span className="text-green-400 font-medium px-2 py-0.5 bg-green-500/10 rounded">表: {selectedTable}</span>
+                  <span style={{ color: 'var(--neu-text-light)' }}>|</span>
+                  <span className="font-medium px-2 py-0.5 neu-flat rounded" style={{ color: 'var(--neu-success)' }}>表: {selectedTable}</span>
                 </>
               )}
             </div>
@@ -163,7 +164,8 @@ export default function SqlEditor() {
         <button
           onClick={handleExecute}
           disabled={!currentConnectionId}
-          className="px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-700 disabled:to-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold transition-all duration-200 shadow-md shadow-blue-600/30 hover:shadow-lg hover:shadow-blue-600/40 hover:scale-105 active:scale-95"
+          className="px-5 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold transition-all duration-200 neu-raised hover:neu-hover active:neu-active disabled:hover:neu-raised"
+          style={{ color: 'var(--neu-accent-dark)' }}
         >
           执行 (Ctrl+Enter)
         </button>

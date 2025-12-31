@@ -361,13 +361,14 @@ export default function ConnectionManager() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-gray-800/80 space-y-3 bg-gray-900/50">
+      <div className="p-4 space-y-3 neu-flat" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
         <button
           onClick={() => {
             setEditingConnection(null);
             setShowForm(true);
           }}
-          className="w-full px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 active:from-blue-800 active:to-blue-900 rounded-lg text-sm font-medium text-white transition-all duration-200 shadow-md shadow-blue-600/30 hover:shadow-lg hover:shadow-blue-600/40 hover:scale-[1.02] active:scale-[0.98]"
+          className="w-full px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 neu-hover neu-active neu-raised"
+          style={{ color: 'var(--neu-accent-dark)' }}
         >
           <span className="inline-flex items-center gap-2">
             <span className="text-base font-bold">+</span>
@@ -377,14 +378,15 @@ export default function ConnectionManager() {
 
         <button
           onClick={() => setShowHistory(!showHistory)}
-          className="w-full px-3 py-2 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800 rounded-lg text-xs font-medium text-white transition-all duration-200 shadow-md shadow-cyan-600/30 hover:shadow-lg hover:shadow-cyan-600/40 hover:scale-[1.02] active:scale-[0.98]"
+          className="w-full px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 neu-hover neu-active neu-raised"
+          style={{ color: 'var(--neu-text)' }}
           title="查看工作历史"
         >
           <span className="inline-flex items-center gap-1.5">
             <span>📚</span>
             <span>历史</span>
             {workspaceHistory.length > 0 && (
-              <span className="bg-cyan-500/30 px-1.5 py-0.5 rounded text-xs">
+              <span className="px-1.5 py-0.5 rounded text-xs neu-pressed" style={{ color: 'var(--neu-accent)' }}>
                 {workspaceHistory.length}
               </span>
             )}
@@ -392,13 +394,13 @@ export default function ConnectionManager() {
         </button>
 
         {showHistory && (
-          <div className="bg-gray-800/80 rounded-lg border border-gray-700/50 max-h-96 overflow-auto shadow-lg">
+          <div className="neu-pressed rounded-lg max-h-96 overflow-auto">
             <div className="p-3 space-y-2">
               {autoHistory.length > 0 && (
-                <div className="mb-3 pb-3 border-b border-gray-700/60">
+                <div className="mb-3 pb-3" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
                   <div className="flex items-center gap-2 mb-2.5 px-1">
-                    <span className="text-xs text-cyan-400 font-semibold uppercase tracking-wide">最近自动保存</span>
-                    <span className="flex-1 h-px bg-gradient-to-r from-cyan-500/30 to-transparent"></span>
+                    <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--neu-accent)' }}>最近自动保存</span>
+                    <span className="flex-1 h-px" style={{ background: 'linear-gradient(to right, var(--neu-accent), transparent)' }}></span>
                   </div>
                   <div className="space-y-1.5">
                     {autoHistory.map((history) => {
@@ -413,24 +415,25 @@ export default function ConnectionManager() {
                         <button
                           key={history.id}
                           onClick={() => handleRestoreWorkspace(history.id)}
-                          className="w-full text-left px-3 py-2.5 bg-gradient-to-r from-gray-700/50 to-gray-700/30 hover:from-gray-700/70 hover:to-gray-700/50 rounded-lg text-xs transition-all duration-200 group border border-gray-600/30 hover:border-cyan-500/40 hover:shadow-md hover:shadow-cyan-500/10"
+                          className="w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all duration-200 group neu-flat hover:neu-hover active:neu-active"
+                          style={{ color: 'var(--neu-text)' }}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1.5">
-                                <span className="text-cyan-400/80 text-xs">⚡</span>
+                                <span className="text-xs" style={{ color: 'var(--neu-accent)' }}>⚡</span>
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {pathParts.map((part, idx) => (
                                     <span key={idx} className="flex items-center gap-1.5">
-                                      <span className="text-gray-300 font-medium text-xs">{part}</span>
+                                      <span className="font-medium text-xs" style={{ color: 'var(--neu-text)' }}>{part}</span>
                                       {idx < pathParts.length - 1 && (
-                                        <span className="text-gray-500 text-[10px]">→</span>
+                                        <span className="text-[10px]" style={{ color: 'var(--neu-text-light)' }}>→</span>
                                       )}
                                     </span>
                                   ))}
                                 </div>
                               </div>
-                              <div className="text-gray-400 text-[10px] font-mono ml-5">
+                              <div className="text-[10px] font-mono ml-5" style={{ color: 'var(--neu-text-light)' }}>
                                 {new Date(history.savedAt).toLocaleString("zh-CN", {
                                   month: '2-digit',
                                   day: '2-digit',
@@ -440,7 +443,7 @@ export default function ConnectionManager() {
                                 })}
                               </div>
                             </div>
-                            <span className="text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0 text-sm">▶</span>
+                            <span className="transition-colors flex-shrink-0 text-sm" style={{ color: 'var(--neu-text-light)' }}>▶</span>
                           </div>
                         </button>
                       );
@@ -452,8 +455,8 @@ export default function ConnectionManager() {
               {manualHistory.length > 0 ? (
                 <>
                   <div className="flex items-center gap-2 mb-2.5 px-1">
-                    <span className="text-xs text-purple-400 font-semibold uppercase tracking-wide">已保存的工作</span>
-                    <span className="flex-1 h-px bg-gradient-to-r from-purple-500/30 to-transparent"></span>
+                    <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--neu-accent)' }}>已保存的工作</span>
+                    <span className="flex-1 h-px" style={{ background: 'linear-gradient(to right, var(--neu-accent), transparent)' }}></span>
                   </div>
                   <div className="space-y-1.5">
                     {manualHistory.map((history) => {
@@ -467,29 +470,30 @@ export default function ConnectionManager() {
                       return (
                         <div
                           key={history.id}
-                          className="group relative px-3 py-2.5 bg-gradient-to-r from-gray-700/50 to-gray-700/30 hover:from-gray-700/70 hover:to-gray-700/50 rounded-lg transition-all duration-200 border border-gray-600/30 hover:border-purple-500/40 hover:shadow-md hover:shadow-purple-500/10"
+                          className="group relative px-3 py-2.5 rounded-lg transition-all duration-200 neu-flat hover:neu-hover"
                         >
                           <button
                             onClick={() => handleRestoreWorkspace(history.id)}
                             className="w-full text-left"
+                            style={{ color: 'var(--neu-text)' }}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1.5">
-                                  <span className="text-purple-400/80 text-xs">💾</span>
-                                  <div className="text-gray-200 font-semibold text-xs break-words">{history.name}</div>
+                                  <span className="text-xs" style={{ color: 'var(--neu-accent)' }}>💾</span>
+                                  <div className="font-semibold text-xs break-words">{history.name}</div>
                                 </div>
                                 <div className="flex items-center gap-1.5 flex-wrap ml-5 mb-1">
                                   {pathParts.map((part, idx) => (
                                     <span key={idx} className="flex items-center gap-1.5">
-                                      <span className="text-gray-400 text-xs">{part}</span>
+                                      <span className="text-xs" style={{ color: 'var(--neu-text-light)' }}>{part}</span>
                                       {idx < pathParts.length - 1 && (
-                                        <span className="text-gray-500 text-[10px]">→</span>
+                                        <span className="text-[10px]" style={{ color: 'var(--neu-text-light)' }}>→</span>
                                       )}
                                     </span>
                                   ))}
                                 </div>
-                                <div className="text-gray-400 text-[10px] font-mono ml-5">
+                                <div className="text-[10px] font-mono ml-5" style={{ color: 'var(--neu-text-light)' }}>
                                   {new Date(history.savedAt).toLocaleString("zh-CN", {
                                     month: '2-digit',
                                     day: '2-digit',
@@ -499,12 +503,13 @@ export default function ConnectionManager() {
                                   })}
                                 </div>
                               </div>
-                              <span className="text-gray-500 group-hover:text-purple-400 transition-colors text-sm flex-shrink-0">▶</span>
+                              <span className="transition-colors text-sm flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>▶</span>
                             </div>
                           </button>
                           <button
                             onClick={(e) => handleDeleteHistory(e, history.id)}
-                            className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all duration-200"
+                            className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 p-1.5 rounded-md transition-all duration-200 neu-flat hover:neu-hover"
+                            style={{ color: 'var(--neu-error)' }}
                             title="删除"
                           >
                             <span className="text-xs">🗑️</span>
@@ -515,7 +520,7 @@ export default function ConnectionManager() {
                   </div>
                 </>
               ) : autoHistory.length === 0 && (
-                <div className="text-center text-gray-500 text-xs py-8">
+                <div className="text-center text-xs py-8" style={{ color: 'var(--neu-text-light)' }}>
                   <div className="text-2xl mb-2 opacity-40">📚</div>
                   <div>暂无工作历史</div>
                 </div>
@@ -530,11 +535,11 @@ export default function ConnectionManager() {
         {connections.length === 0 ? (
           <div className="p-8 text-center">
             <div className="text-4xl mb-3 opacity-40">🔌</div>
-            <div className="text-gray-400 text-sm mb-1 font-medium">暂无连接</div>
-            <div className="text-gray-500 text-xs">点击上方按钮创建新连接</div>
+            <div className="text-sm mb-1 font-medium" style={{ color: 'var(--neu-text)' }}>暂无连接</div>
+            <div className="text-xs" style={{ color: 'var(--neu-text-light)' }}>点击上方按钮创建新连接</div>
           </div>
         ) : (
-          <div className="divide-y divide-gray-800/60">
+          <div style={{ borderTop: '1px solid var(--neu-dark)' }}>
             {connections.map((connection) => {
               const isExpanded = expandedConnections.has(connection.id);
               const showDatabases = connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql";
@@ -542,15 +547,18 @@ export default function ConnectionManager() {
               const isConnecting = connectingConnections.has(connection.id);
               
               return (
-                <div key={connection.id}>
+                <div key={connection.id} style={{ borderBottom: '1px solid var(--neu-dark)' }}>
                   <div
-                    className={`group relative p-3.5 transition-all duration-200 ${
+                    className={`group relative p-3.5 transition-all duration-200 cursor-pointer ${
                       isConnecting
-                        ? "bg-yellow-500/10 border-l-4 border-yellow-500 cursor-wait shadow-sm shadow-yellow-500/20"
+                        ? "neu-pressed"
                         : isCurrentConnection
-                        ? "bg-blue-500/15 border-l-4 border-blue-500 cursor-pointer shadow-sm shadow-blue-500/20"
-                        : "hover:bg-gray-800/60 cursor-pointer border-l-4 border-transparent"
+                        ? "neu-raised"
+                        : "neu-flat hover:neu-hover"
                     }`}
+                    style={{
+                      borderLeft: isConnecting ? '4px solid var(--neu-warning)' : isCurrentConnection ? '4px solid var(--neu-accent)' : '4px solid transparent'
+                    }}
                   >
                     <div className="flex items-center gap-2">
                       {/* 展开/收起按钮 - 移到左侧 */}
@@ -570,11 +578,19 @@ export default function ConnectionManager() {
                       {/* 连接状态指示器 */}
                       <div className="flex-shrink-0 w-3 h-3 flex items-center justify-center">
                         {isConnecting ? (
-                          <div className="w-3 h-3 rounded-full bg-yellow-400 animate-pulse shadow-md shadow-yellow-400/60 ring-2 ring-yellow-500/30" title="正在连接..."></div>
+                          <div className="w-3 h-3 rounded-full animate-pulse" style={{ 
+                            backgroundColor: 'var(--neu-warning)',
+                            boxShadow: '0 0 10px var(--neu-warning), 0 0 20px rgba(255, 167, 38, 0.3)'
+                          }} title="正在连接..."></div>
                         ) : isCurrentConnection ? (
-                          <div className="w-3 h-3 rounded-full bg-green-400 shadow-md shadow-green-400/50 ring-2 ring-green-500/30" title="已连接"></div>
+                          <div className="w-3 h-3 rounded-full" style={{ 
+                            backgroundColor: 'var(--neu-success)',
+                            boxShadow: '0 0 10px var(--neu-success), 0 0 20px rgba(102, 187, 106, 0.3)'
+                          }} title="已连接"></div>
                         ) : (
-                          <div className="w-2.5 h-2.5 rounded-full bg-gray-500/60 ring-1 ring-gray-600/50" title="未连接"></div>
+                          <div className="w-2.5 h-2.5 rounded-full neu-pressed" style={{ 
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                          }} title="未连接"></div>
                         )}
                       </div>
                       
@@ -583,13 +599,10 @@ export default function ConnectionManager() {
                         className="flex-1 min-w-0"
                         onClick={() => !isConnecting && handleConnectionClick(connection)}
                       >
-                        <div className="font-semibold text-sm text-gray-100 flex items-center gap-1.5 min-w-0">
+                        <div className="font-semibold text-sm flex items-center gap-1.5 min-w-0" style={{ color: 'var(--neu-text)' }}>
                           <span className="break-words">{connection.name}</span>
-                          {isConnecting && (
-                            <span className="text-xs text-yellow-400 animate-pulse font-normal flex-shrink-0 whitespace-nowrap">连接中...</span>
-                          )}
                         </div>
-                        <div className="text-xs text-gray-400 mt-1 font-medium uppercase tracking-wide">
+                        <div className="text-xs mt-1 font-medium uppercase tracking-wide" style={{ color: 'var(--neu-text-light)' }}>
                           {connection.type}
                         </div>
                       </div>
@@ -604,7 +617,8 @@ export default function ConnectionManager() {
                           <button
                             onClick={(e) => handleDisconnect(e, connection)}
                             disabled={isConnecting}
-                            className="flex-shrink-0 w-7 h-7 flex items-center justify-center bg-orange-600/80 hover:bg-orange-600 rounded-md transition-all duration-200 text-white hover:scale-110 active:scale-95 shadow-sm shadow-orange-600/30"
+                            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-all duration-200 neu-hover neu-active neu-raised"
+                            style={{ color: 'var(--neu-warning)' }}
                             title="断开连接"
                           >
                             <span className="text-xs">⏸</span>
@@ -621,13 +635,14 @@ export default function ConnectionManager() {
                             disabled={isConnecting}
                             className={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-all duration-200 ${
                               isConnecting
-                                ? "bg-yellow-600/80 text-white cursor-wait"
-                                : "bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:scale-110 active:scale-95"
+                                ? "neu-pressed cursor-wait"
+                                : "neu-flat hover:neu-hover active:neu-active"
                             }`}
+                            style={{ color: isConnecting ? 'var(--neu-warning)' : 'var(--neu-text)' }}
                             title={isConnecting ? "正在连接..." : "连接"}
                           >
                             {isConnecting ? (
-                              <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <svg className="animate-spin h-3.5 w-3.5" style={{ color: 'var(--neu-warning)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                               </svg>
@@ -640,7 +655,8 @@ export default function ConnectionManager() {
                         {/* 编辑按钮 */}
                         <button
                           onClick={(e) => handleEdit(e, connection)}
-                          className="flex-shrink-0 w-7 h-7 flex items-center justify-center bg-gray-700/80 hover:bg-gray-600 rounded-md transition-all duration-200 text-gray-300 hover:text-white hover:scale-110 active:scale-95"
+                          className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                          style={{ color: 'var(--neu-text)' }}
                           title="编辑"
                         >
                           <span className="text-xs">✏️</span>
@@ -649,7 +665,8 @@ export default function ConnectionManager() {
                         {/* 删除按钮 */}
                         <button
                           onClick={(e) => handleDelete(e, connection.id)}
-                          className="flex-shrink-0 w-7 h-7 flex items-center justify-center bg-gray-700/80 hover:bg-red-600/80 rounded-md transition-all duration-200 text-gray-300 hover:text-white hover:scale-110 active:scale-95"
+                          className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                          style={{ color: 'var(--neu-error)' }}
                           title="删除"
                         >
                           <span className="text-xs">🗑️</span>
@@ -658,20 +675,20 @@ export default function ConnectionManager() {
                     </div>
                   </div>
                   {isExpanded && isCurrentConnection && (
-                    <div className="bg-gray-900/60 border-l-4 border-blue-500/30 pl-5 pr-3 py-2.5 backdrop-blur-sm">
+                    <div className="neu-pressed pl-5 pr-3 py-2.5" style={{ borderLeft: '4px solid var(--neu-accent)' }}>
                       {showDatabases ? (
                         // MySQL/PostgreSQL/MSSQL: Show databases
                         <>
                           {loadingDatabases ? (
-                            <div className="text-xs text-gray-400 py-2.5 px-2 flex items-center gap-2">
-                              <svg className="animate-spin h-3 w-3 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <div className="text-xs py-2.5 px-2 flex items-center gap-2" style={{ color: 'var(--neu-text-light)' }}>
+                              <svg className="animate-spin h-3 w-3" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                               </svg>
                               <span>加载中...</span>
                             </div>
                           ) : databases.length === 0 ? (
-                            <div className="text-xs text-gray-500 py-2.5 px-2">暂无数据库</div>
+                            <div className="text-xs py-2.5 px-2" style={{ color: 'var(--neu-text-light)' }}>暂无数据库</div>
                           ) : (
                             <div className="space-y-1">
                               {databases.map((db) => {
@@ -684,9 +701,13 @@ export default function ConnectionManager() {
                                     onClick={(e) => handleDatabaseClick(e, db)}
                                     className={`text-xs py-2 px-2.5 rounded-md cursor-pointer transition-all duration-200 truncate flex items-center gap-2 group ${
                                       isSelected
-                                        ? "bg-blue-600/30 text-blue-300 font-semibold border border-blue-500/40 shadow-sm shadow-blue-500/20"
-                                        : "text-gray-400 hover:bg-gray-800/80 hover:text-gray-300 border border-transparent"
+                                        ? "neu-raised"
+                                        : "neu-flat hover:neu-hover"
                                     }`}
+                                    style={{ 
+                                      color: isSelected ? 'var(--neu-accent-dark)' : 'var(--neu-text)',
+                                      fontWeight: isSelected ? '600' : 'normal'
+                                    }}
                                     title={db}
                                   >
                                     <span className={`text-base transition-transform duration-200 ${
@@ -701,7 +722,7 @@ export default function ConnectionManager() {
                         </>
                       ) : (
                         // SQLite: No database selection needed, tables will show in TableView
-                        <div className="text-xs text-gray-400 py-2.5 px-2 flex items-center gap-2">
+                        <div className="text-xs py-2.5 px-2 flex items-center gap-2" style={{ color: 'var(--neu-text-light)' }}>
                           <span>✓</span>
                           <span>SQLite 数据库已连接，表将在右侧显示</span>
                         </div>

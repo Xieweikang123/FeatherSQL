@@ -95,11 +95,11 @@ export default function TableView() {
   if (!currentConnectionId) {
     return (
       <div className="flex flex-col h-full">
-        <div className="p-4 border-b border-gray-800/80 bg-gray-900/50">
-          <h2 className="text-sm font-semibold text-gray-300">数据表</h2>
+        <div className="p-4 neu-flat" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--neu-text)' }}>数据表</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-gray-400 text-sm">
+          <div className="text-center text-sm" style={{ color: 'var(--neu-text-light)' }}>
             <div className="mb-3 text-4xl opacity-50">📁</div>
             <div className="font-medium">请先选择一个连接</div>
           </div>
@@ -111,11 +111,11 @@ export default function TableView() {
   if (currentConnection?.type !== "sqlite" && !currentDatabase) {
     return (
       <div className="flex flex-col h-full">
-        <div className="p-4 border-b border-gray-800/80 bg-gray-900/50">
-          <h2 className="text-sm font-semibold text-gray-300">数据表</h2>
+        <div className="p-4 neu-flat" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--neu-text)' }}>数据表</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-gray-400 text-sm">
+          <div className="text-center text-sm" style={{ color: 'var(--neu-text-light)' }}>
             <div className="mb-3 text-4xl opacity-50">📁</div>
             <div className="font-medium">请先选择一个数据库</div>
           </div>
@@ -131,18 +131,19 @@ export default function TableView() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 border-b border-gray-800/80 space-y-3 bg-gray-900/50 backdrop-blur-sm">
+      <div className="p-4 space-y-3 neu-flat" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-200">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--neu-text)' }}>
             数据表 {currentConnection?.type === "sqlite" ? (
-              <span className="text-blue-400 font-normal">(SQLite)</span>
+              <span className="font-normal" style={{ color: 'var(--neu-accent)' }}>(SQLite)</span>
             ) : currentDatabase ? (
-              <span className="text-blue-400 font-normal">({currentDatabase})</span>
+              <span className="font-normal" style={{ color: 'var(--neu-accent)' }}>({currentDatabase})</span>
             ) : null}
           </h2>
           <button
             onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center hover:bg-gray-800/80 rounded-lg transition-all duration-200 text-gray-400 hover:text-gray-200 hover:scale-110 active:scale-95 border border-gray-700/50"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+            style={{ color: 'var(--neu-text)' }}
             title={viewMode === 'list' ? '切换到网格视图' : '切换到列表视图'}
           >
             <span className="text-sm">{viewMode === 'list' ? '⊞' : '☰'}</span>
@@ -156,13 +157,15 @@ export default function TableView() {
             placeholder="搜索表..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3.5 py-2.5 pl-9 bg-gray-800/60 border border-gray-700/50 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-200"
+            className="w-full px-3.5 py-2.5 pl-9 neu-pressed rounded-lg text-sm focus:outline-none transition-all duration-200"
+            style={{ color: 'var(--neu-text)' }}
           />
-          <span className="absolute left-3 top-3 text-gray-400 text-sm">🔍</span>
+          <span className="absolute left-3 top-3 text-sm" style={{ color: 'var(--neu-text-light)' }}>🔍</span>
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-2.5 top-2.5 text-gray-400 hover:text-white text-sm w-5 h-5 flex items-center justify-center hover:bg-gray-700/60 rounded transition-colors duration-200"
+              className="absolute right-2.5 top-2.5 text-sm w-5 h-5 flex items-center justify-center rounded transition-all neu-flat hover:neu-hover"
+              style={{ color: 'var(--neu-text-light)' }}
             >
               ✕
             </button>
@@ -173,15 +176,15 @@ export default function TableView() {
       {/* Table list */}
       <div className="flex-1 overflow-auto p-4">
         {loading ? (
-          <div className="text-center text-gray-400 text-sm py-12 flex flex-col items-center gap-3">
-            <svg className="animate-spin h-6 w-6 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <div className="text-center text-sm py-12 flex flex-col items-center gap-3" style={{ color: 'var(--neu-text-light)' }}>
+            <svg className="animate-spin h-6 w-6" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
             <span>加载中...</span>
           </div>
         ) : filteredTables.length === 0 ? (
-          <div className="text-center text-gray-400 text-sm py-12">
+          <div className="text-center text-sm py-12" style={{ color: 'var(--neu-text-light)' }}>
             <div className="text-4xl mb-3 opacity-40">📋</div>
             <div className="font-medium">
               {tables.length === 0 ? "暂无表" : "无匹配的表"}
@@ -193,16 +196,15 @@ export default function TableView() {
               <div
                 key={table}
                 onClick={() => handleTableClick(table)}
-                className="group relative bg-gray-800/60 hover:bg-gray-800/90 border border-gray-700/50 hover:border-blue-500/60 rounded-lg p-4 cursor-pointer transition-all duration-200 hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                className="group relative rounded-lg p-4 cursor-pointer transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
                 title={`点击查询表: ${table}`}
               >
                 <div className="flex items-center gap-2.5">
                   <span className="text-xl transition-transform duration-200 group-hover:scale-110">📄</span>
-                  <span className="text-sm text-gray-200 font-semibold truncate flex-1">
+                  <span className="text-sm font-semibold truncate flex-1" style={{ color: 'var(--neu-text)' }}>
                     {table}
                   </span>
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-blue-500/0 group-hover:from-blue-500/5 group-hover:to-blue-500/10 rounded-lg transition-all duration-200 pointer-events-none"></div>
               </div>
             ))}
           </div>
@@ -212,7 +214,8 @@ export default function TableView() {
               <div
                 key={table}
                 onClick={() => handleTableClick(table)}
-                className="text-sm text-gray-300 py-2.5 px-3.5 hover:bg-gray-800/80 rounded-lg cursor-pointer transition-all duration-200 truncate flex items-center gap-2.5 hover:scale-[1.01] border border-transparent hover:border-gray-700/50"
+                className="text-sm py-2.5 px-3.5 rounded-lg cursor-pointer transition-all duration-200 truncate flex items-center gap-2.5 neu-flat hover:neu-hover active:neu-active"
+                style={{ color: 'var(--neu-text)' }}
                 title={`点击查询表: ${table}`}
               >
                 <span className="text-base">📄</span>

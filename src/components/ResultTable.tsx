@@ -26,6 +26,11 @@ interface SelectionRange {
   end: { row: number; col: number };
 }
 
+interface EditHistoryState {
+  editedData: QueryResult;
+  modifications: Map<string, CellModification>;
+}
+
 export default function ResultTable({ result, sql }: ResultTableProps) {
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
@@ -46,6 +51,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ row: number; col: number } | null>(null);
   
+  // 撤销/重做历史栈
+  const [history, setHistory] = useState<EditHistoryState[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const maxHistorySize = 50; // 最多保存50步历史
+  
   // 获取连接信息
   const { 
     currentConnectionId, 
@@ -64,7 +74,67 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setModifications(new Map());
     setEditingCell(null);
     setSelection(null);
+    setHistory([]);
+    setHistoryIndex(-1);
   }, [result]);
+
+  // 保存当前状态到历史栈
+  const saveToHistory = () => {
+    const currentState: EditHistoryState = {
+      editedData: JSON.parse(JSON.stringify(editedData)), // 深拷贝
+      modifications: new Map(modifications)
+    };
+    
+    setHistory(prev => {
+      // 如果当前不在历史栈的末尾，删除后面的历史
+      const newHistory = prev.slice(0, historyIndex + 1);
+      // 添加新状态
+      newHistory.push(currentState);
+      // 限制历史栈大小
+      if (newHistory.length > maxHistorySize) {
+        newHistory.shift();
+        return newHistory;
+      }
+      return newHistory;
+    });
+    
+    setHistoryIndex(prev => {
+      const newIndex = prev + 1;
+      return newIndex >= maxHistorySize ? maxHistorySize - 1 : newIndex;
+    });
+  };
+
+  // 撤销
+  const handleUndo = () => {
+    if (historyIndex < 0) {
+      addLog("没有可撤销的操作");
+      return;
+    }
+    
+    const previousState = history[historyIndex];
+    if (previousState) {
+      setEditedData(previousState.editedData);
+      setModifications(previousState.modifications);
+      setHistoryIndex(prev => prev - 1);
+      addLog("已撤销上一步操作");
+    }
+  };
+
+  // 重做
+  const handleRedo = () => {
+    if (historyIndex >= history.length - 1) {
+      addLog("没有可重做的操作");
+      return;
+    }
+    
+    const nextState = history[historyIndex + 1];
+    if (nextState) {
+      setEditedData(nextState.editedData);
+      setModifications(nextState.modifications);
+      setHistoryIndex(prev => prev + 1);
+      addLog("已重做操作");
+    }
+  };
 
   // 点击表格外部时清除选择
   useEffect(() => {
@@ -204,6 +274,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       return;
     }
     
+    // 保存当前状态到历史栈（在修改之前）
+    saveToHistory();
+    
     // 更新编辑数据
     const newEditedData = { ...editedData };
     newEditedData.rows = [...newEditedData.rows];
@@ -333,6 +406,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const minCol = Math.min(selection.start.col, selection.end.col);
     const maxCol = Math.max(selection.start.col, selection.end.col);
     
+    // 保存当前状态到历史栈（在修改之前）
+    saveToHistory();
+    
     const newEditedData = { ...editedData };
     newEditedData.rows = [...newEditedData.rows];
     const newMods = new Map(modifications);
@@ -408,6 +484,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       const text = await navigator.clipboard.readText();
       const lines = text.split('\n').map(line => line.split('\t'));
       
+      // 保存当前状态到历史栈（在修改之前）
+      saveToHistory();
+      
       const startRow = selection.start.row;
       const startCol = selection.start.col;
       
@@ -470,6 +549,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } else if (e.key === "F2" && !editingCell) {
       e.preventDefault();
       handleCellDoubleClick(filteredRowIndex, cellIndex);
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      handleUndo();
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+      e.preventDefault();
+      handleRedo();
     } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selection) {
       e.preventDefault();
       handleCopy();
@@ -479,8 +564,73 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } else if (e.key === 'Delete' && selection && !editingCell) {
       e.preventDefault();
       handleBatchEdit('');
+    } else if (!editingCell && selection && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // 直接输入字符时，如果有选中单元格，进入编辑模式
+      e.preventDefault();
+      const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
+      if (originalRowIndex !== -1) {
+        // 编辑选中区域的第一个单元格
+        const startRow = selection.start.row;
+        const startCol = selection.start.col;
+        handleCellDoubleClick(
+          filteredRows.findIndex((row) => {
+            return result.rows.findIndex((r) => r === row) === startRow;
+          }),
+          startCol
+        );
+        // 设置输入值（去掉第一个字符，因为已经输入了）
+        setEditingValue(e.key);
+      }
     }
   };
+
+  // 全局键盘快捷键处理
+  useEffect(() => {
+    if (!editMode) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // 如果焦点在输入框中，不处理全局快捷键
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      } else if (!editingCell && selection && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // 直接输入字符时，如果有选中单元格且不在编辑状态，进入编辑模式
+        e.preventDefault();
+        
+        // 找到选中区域的第一个单元格对应的过滤行索引
+        const startRow = selection.start.row;
+        const startCol = selection.start.col;
+        const startFilteredRowIndex = filteredRows.findIndex((row) => {
+          return result.rows.findIndex((r) => r === row) === startRow;
+        });
+        
+        if (startFilteredRowIndex !== -1) {
+          // 进入编辑模式
+          setEditingCell({ row: startRow, col: startCol });
+          // 设置输入值为用户输入的字符
+          setEditingValue(e.key);
+          
+          // 聚焦输入框
+          setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.setSelectionRange(1, 1); // 光标移到末尾
+          }, 0);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [editMode, historyIndex, history, handleUndo, handleRedo, editingCell, selection, filteredRows, result.rows, editedData]);
 
   const handleExitEditMode = () => {
     if (modifications.size > 0) {
@@ -670,7 +820,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   if (!result || result.columns.length === 0) {
     return (
-      <div className="p-4 text-center text-gray-400">
+      <div className="p-4 text-center" style={{ color: 'var(--neu-text-light)' }}>
         无数据返回
       </div>
     );
@@ -693,16 +843,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       <div className="h-full flex flex-col">
         {/* 编辑工具栏 */}
         {editMode && (
-        <div className="px-4 py-2 bg-blue-600/20 border-b border-blue-500/30 flex items-center gap-3">
+        <div className="px-4 py-2 neu-flat flex items-center gap-3" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
           <div className="flex items-center gap-2 flex-1">
-            <span className="text-xs text-blue-400 font-semibold">编辑模式</span>
+            <span className="text-xs font-semibold" style={{ color: 'var(--neu-accent)' }}>编辑模式</span>
             {modifications.size > 0 && (
-              <span className="text-xs text-yellow-400">
+              <span className="text-xs" style={{ color: 'var(--neu-warning)' }}>
                 ({modifications.size} 个未保存的修改)
               </span>
             )}
             {selection && (
-              <span className="text-xs text-blue-300">
+              <span className="text-xs" style={{ color: 'var(--neu-accent-light)' }}>
                 (已选择: {
                   Math.abs(selection.end.row - selection.start.row) + 1
                 } 行 × {
@@ -712,12 +862,35 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleUndo}
+              disabled={historyIndex < 0}
+              className="px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:hover:neu-flat"
+              style={{ color: 'var(--neu-text)' }}
+              title="撤销 (Ctrl+Z)"
+            >
+              ↶ 撤销
+            </button>
+            <button
+              onClick={handleRedo}
+              disabled={historyIndex >= history.length - 1}
+              className="px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:hover:neu-flat"
+              style={{ color: 'var(--neu-text)' }}
+              title="重做 (Ctrl+Y 或 Ctrl+Shift+Z)"
+            >
+              ↷ 重做
+            </button>
             {selection && (
               <>
+                <div className="w-px h-4" style={{ backgroundColor: 'var(--neu-dark)' }}></div>
                 <input
                   type="text"
                   placeholder="批量编辑选中单元格..."
-                  className="px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-40"
+                  className="px-2 py-1 text-xs rounded neu-pressed focus:outline-none w-40 transition-all"
+                  style={{ 
+                    color: 'var(--neu-text)',
+                    '--placeholder-color': 'var(--neu-text-light)'
+                  } as React.CSSProperties}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       handleBatchEdit(e.currentTarget.value);
@@ -731,21 +904,24 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 />
                 <button
                   onClick={handleCopy}
-                  className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                  style={{ color: 'var(--neu-text)' }}
                   title="复制选中区域 (Ctrl+C)"
                 >
                   📋 复制
                 </button>
                 <button
                   onClick={handlePaste}
-                  className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                  style={{ color: 'var(--neu-text)' }}
                   title="粘贴到选中区域 (Ctrl+V)"
                 >
                   📄 粘贴
                 </button>
                 <button
                   onClick={() => setSelection(null)}
-                  className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                  style={{ color: 'var(--neu-text)' }}
                   title="清除选择"
                 >
                   ✕
@@ -756,7 +932,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               <button
                 onClick={handleSaveChanges}
                 disabled={isSaving || !currentConnectionId}
-                className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors text-white font-medium"
+                className="px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-raised hover:neu-hover active:neu-active disabled:hover:neu-raised font-medium"
+                style={{ color: 'var(--neu-success)' }}
                 title="保存所有修改到数据库"
               >
                 {isSaving ? "保存中..." : `💾 保存 (${modifications.size})`}
@@ -764,7 +941,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             )}
             <button
               onClick={handleExitEditMode}
-              className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              className="px-3 py-1.5 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+              style={{ color: 'var(--neu-text)' }}
               title="退出编辑模式"
             >
               退出编辑
@@ -775,19 +953,19 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
       {/* SQL 显示栏 */}
       {sql && (
-        <div className="px-4 py-2.5 bg-gray-800/40 border-b border-gray-700/50 flex items-center justify-between gap-3">
+        <div className="px-4 py-2.5 neu-flat flex items-center justify-between gap-3" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-xs text-gray-400 font-semibold flex-shrink-0">SQL:</span>
-            <code className="text-xs text-gray-300 font-mono truncate flex-1">
+            <span className="text-xs font-semibold flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>SQL:</span>
+            <code className="text-xs font-mono truncate flex-1" style={{ color: 'var(--neu-text)' }}>
               {sql}
             </code>
             {hasActiveFilters && (
-              <span className="text-xs text-blue-400 flex-shrink-0">
+              <span className="text-xs flex-shrink-0" style={{ color: 'var(--neu-accent)' }}>
                 (已过滤: {filteredRows.length} / {result.rows.length})
               </span>
             )}
             {!hasActiveFilters && (
-              <span className="text-xs text-gray-500 flex-shrink-0">
+              <span className="text-xs flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>
                 (共 {result.rows.length} 条)
               </span>
             )}
@@ -796,7 +974,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             {!editMode && (
               <button
                 onClick={() => setEditMode(true)}
-                className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 rounded transition-colors text-white font-medium"
+                className="px-3 py-1.5 text-xs rounded transition-all neu-raised hover:neu-hover active:neu-active font-medium"
+                style={{ color: 'var(--neu-success)' }}
                 title="进入编辑模式（双击单元格可编辑）"
               >
                 ✏️ 编辑模式
@@ -805,7 +984,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             {hasActiveFilters && (
               <button
                 onClick={() => setColumnFilters({})}
-                className="px-2 py-1 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded transition-colors"
+                className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                style={{ color: 'var(--neu-accent)' }}
                 title="清除所有过滤"
               >
                 清除过滤
@@ -813,7 +993,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             )}
             <button
               onClick={handleCopySql}
-              className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700/60 rounded transition-colors"
+              className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+              style={{ color: 'var(--neu-text-light)' }}
               title="复制 SQL"
             >
               {copied ? "✓ 已复制" : "📋 复制"}
@@ -824,7 +1005,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
       <div className="flex-1 overflow-auto">
         <table className="w-full border-collapse text-sm">
-          <thead className="bg-gray-900/95 sticky top-0 backdrop-blur-sm z-10 shadow-sm">
+          <thead className="neu-raised sticky top-0 z-10">
             <tr>
               {result.columns.map((column, index) => {
                 const filterValue = columnFilters[column] || "";
@@ -834,8 +1015,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 return (
                   <th
                     key={index}
-                    className="px-4 py-3 text-left border-b border-gray-800/80 font-semibold text-gray-200 uppercase text-xs tracking-wider relative group"
-                    style={{ minWidth: "120px" }}
+                    className="px-4 py-3 text-left font-semibold uppercase text-xs tracking-wider relative group"
+                    style={{ 
+                      minWidth: "120px",
+                      borderBottom: '1px solid var(--neu-dark)',
+                      color: 'var(--neu-text)'
+                    }}
                   >
                     <div className="flex items-center gap-2">
                       <span className="flex-1 truncate">{column}</span>
@@ -844,11 +1029,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                       )}
                       <button
                         onClick={() => setExpandedSearchColumn(isExpanded ? null : column)}
-                        className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded transition-all duration-200 ${
+                        className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active ${
                           isExpanded || hasFilter
-                            ? "bg-blue-500/20 text-blue-400 opacity-100"
-                            : "opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-300 hover:bg-gray-800/60"
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100"
                         }`}
+                        style={{ color: isExpanded || hasFilter ? 'var(--neu-accent)' : 'var(--neu-text-light)' }}
                         title="搜索此列"
                       >
                         <span className="text-xs">🔍</span>
@@ -859,7 +1045,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                     {isExpanded && (
                       <div 
                         ref={(el) => { searchBoxRefs.current[column] = el; }}
-                        className="absolute top-full left-0 right-0 mt-1 p-2 bg-gray-900 border border-gray-700 rounded-lg shadow-lg z-20"
+                        className="absolute top-full left-0 right-0 mt-1 p-2 neu-raised rounded-lg z-20"
                       >
                         <div className="relative">
                           <input
@@ -867,7 +1053,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                             value={filterValue}
                             onChange={(e) => handleFilterChange(column, e.target.value)}
                             placeholder={`搜索 ${column}...`}
-                            className="w-full px-2.5 py-1.5 pl-7 bg-gray-800/60 border border-gray-700/50 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+                            className="w-full px-2.5 py-1.5 pl-7 neu-pressed rounded text-sm focus:outline-none transition-all"
+                            style={{ 
+                              color: 'var(--neu-text)',
+                              '--placeholder-color': 'var(--neu-text-light)'
+                            } as React.CSSProperties}
                             autoFocus
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => {
@@ -876,14 +1066,15 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                               }
                             }}
                           />
-                          <span className="absolute left-2 top-1.5 text-gray-400 text-xs">🔍</span>
+                          <span className="absolute left-2 top-1.5 text-xs" style={{ color: 'var(--neu-text-light)' }}>🔍</span>
                           {filterValue && (
                             <button
                               onClick={() => {
                                 handleClearFilter(column);
                                 setExpandedSearchColumn(null);
                               }}
-                              className="absolute right-2 top-1.5 text-gray-400 hover:text-white text-xs w-4 h-4 flex items-center justify-center hover:bg-gray-700/60 rounded transition-colors"
+                              className="absolute right-2 top-1.5 text-xs w-4 h-4 flex items-center justify-center rounded transition-all neu-flat hover:neu-hover"
+                              style={{ color: 'var(--neu-text-light)' }}
                               title="清除"
                             >
                               ✕
@@ -902,7 +1093,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               <tr>
                 <td
                   colSpan={result.columns.length}
-                  className="px-4 py-12 text-center text-gray-400"
+                  className="px-4 py-12 text-center"
+                  style={{ color: 'var(--neu-text-light)' }}
                 >
                   <div className="flex flex-col items-center gap-2">
                     <span className="text-3xl opacity-50">📭</span>
@@ -921,7 +1113,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 return (
                   <tr
                     key={rowIndex}
-                    className="border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors duration-150 group"
+                    className="transition-colors duration-150 group neu-flat"
+                    style={{ borderBottom: '1px solid var(--neu-dark)' }}
                   >
                     {displayRow.map((cell, cellIndex) => {
                       const isEditing = editingCell?.row === originalRowIndex && editingCell?.col === cellIndex;
@@ -935,14 +1128,17 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                           data-row-index={rowIndex}
                           data-cell-index={cellIndex}
                           className={`
-                            px-4 py-2.5 text-gray-300 relative
-                            ${isEditing ? 'bg-blue-500/20 ring-2 ring-blue-400' : ''}
-                            ${isSelected && !isEditing ? 'bg-blue-500/30 ring-1 ring-blue-400' : ''}
-                            ${isModified && !isEditing && !isSelected ? 'bg-yellow-500/10 border-l-2 border-yellow-500' : ''}
-                            ${editMode ? 'cursor-cell hover:bg-gray-800/60' : 'max-w-xs truncate'}
-                            group-hover:text-gray-200
+                            px-4 py-2.5 relative
+                            ${isEditing ? 'neu-pressed' : ''}
+                            ${isSelected && !isEditing ? 'neu-raised' : ''}
+                            ${isModified && !isEditing && !isSelected ? '' : ''}
+                            ${editMode ? 'cursor-cell hover:neu-hover' : 'max-w-xs truncate'}
                             select-none
                           `}
+                          style={{
+                            color: isEditing ? 'var(--neu-accent-dark)' : isSelected ? 'var(--neu-accent-dark)' : isModified ? 'var(--neu-warning)' : 'var(--neu-text)',
+                            borderLeft: isModified && !isEditing && !isSelected ? '2px solid var(--neu-warning)' : 'none'
+                          }}
                           title={!isEditing ? String(cell ?? "") : undefined}
                           onMouseDown={(e) => handleCellMouseDown(rowIndex, cellIndex, e)}
                           onDoubleClick={() => handleCellDoubleClick(rowIndex, cellIndex)}
@@ -965,20 +1161,21 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                                   handleCellCancel();
                                 }
                               }}
-                              className="w-full bg-gray-700 text-white px-2 py-1 rounded text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-full neu-pressed px-2 py-1 rounded text-xs font-mono focus:outline-none transition-all"
+                              style={{ color: 'var(--neu-text)' }}
                               onClick={(e) => e.stopPropagation()}
                             />
                           ) : (
                             <>
                               {cell === null || cell === undefined
                                 ? (
-                                  <span className="text-gray-500 italic font-mono text-xs">NULL</span>
+                                  <span className="italic font-mono text-xs" style={{ color: 'var(--neu-text-light)' }}>NULL</span>
                                 )
                                 : typeof cell === "object"
-                                ? <span className="font-mono text-xs text-gray-400">{JSON.stringify(cell)}</span>
+                                ? <span className="font-mono text-xs" style={{ color: 'var(--neu-text-light)' }}>{JSON.stringify(cell)}</span>
                                 : <span className="font-mono text-xs">{String(cell)}</span>}
                               {isModified && (
-                                <span className="absolute top-1 right-1 text-yellow-500 text-xs" title="已修改">●</span>
+                                <span className="absolute top-1 right-1 text-xs" style={{ color: 'var(--neu-warning)' }} title="已修改">●</span>
                               )}
                             </>
                           )}

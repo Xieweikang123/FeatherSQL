@@ -144,26 +144,27 @@ export default function ConnectionForm({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-xl font-bold mb-4">
+    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+      <div className="neu-raised rounded-lg p-6 w-full max-w-md">
+        <h2 className="text-xl font-bold mb-4" style={{ color: 'var(--neu-text)' }}>
           {connection ? "编辑连接" : "新建连接"}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">名称</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>名称</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+              className="w-full px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+              style={{ color: 'var(--neu-text)' }}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">数据库类型</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>数据库类型</label>
             <select
               value={dbType}
               onChange={(e) => {
@@ -183,7 +184,8 @@ export default function ConnectionForm({
                   });
                 }
               }}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+              className="w-full px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+              style={{ color: 'var(--neu-text)' }}
             >
               <option value="sqlite">SQLite</option>
               <option value="mysql">MySQL</option>
@@ -194,7 +196,7 @@ export default function ConnectionForm({
 
           {dbType === "sqlite" && (
             <div>
-              <label className="block text-sm font-medium mb-1">文件路径</label>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>文件路径</label>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -202,12 +204,14 @@ export default function ConnectionForm({
                   onChange={(e) => setConfig({ ...config, filepath: e.target.value })}
                   required
                   placeholder="选择数据库文件..."
-                  className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                  className="flex-1 px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+                  style={{ color: 'var(--neu-text)' }}
                 />
                 <button
                   type="button"
                   onClick={handleFileSelect}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded"
+                  className="px-4 py-2 rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                  style={{ color: 'var(--neu-text)' }}
                 >
                   浏览
                 </button>
@@ -219,17 +223,18 @@ export default function ConnectionForm({
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">主机</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>主机</label>
                   <input
                     type="text"
                     value={config.host || "localhost"}
                     onChange={(e) => setConfig({ ...config, host: e.target.value })}
                     required
-                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                    className="w-full px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+                    style={{ color: 'var(--neu-text)' }}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">端口</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>端口</label>
                   <input
                     type="number"
                     value={config.port || getDefaultPort(dbType)}
@@ -239,46 +244,50 @@ export default function ConnectionForm({
                       setConfig({ ...config, port: isNaN(port as number) ? undefined : port });
                     }}
                     required
-                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                    className="w-full px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+                    style={{ color: 'var(--neu-text)' }}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">用户名</label>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>用户名</label>
                 <input
                   type="text"
                   value={config.user || ""}
                   onChange={(e) => setConfig({ ...config, user: e.target.value })}
                   required
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                  className="w-full px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+                  style={{ color: 'var(--neu-text)' }}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">密码</label>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>密码</label>
                 <input
                   type="password"
                   value={config.password || ""}
                   onChange={(e) => setConfig({ ...config, password: e.target.value })}
                   required
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                  className="w-full px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+                  style={{ color: 'var(--neu-text)' }}
                 />
-                <p className="text-xs text-yellow-400 mt-1">
+                <p className="text-xs mt-1" style={{ color: 'var(--neu-warning)' }}>
                   ⚠️ 密码将以明文存储，请注意安全
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">数据库名（可选）</label>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--neu-text)' }}>数据库名（可选）</label>
                 <input
                   type="text"
                   value={config.database || ""}
                   onChange={(e) => setConfig({ ...config, database: e.target.value })}
                   placeholder="留空则连接到服务器"
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white"
+                  className="w-full px-3 py-2 neu-pressed rounded transition-all focus:outline-none"
+                  style={{ color: 'var(--neu-text)' }}
                 />
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs mt-1" style={{ color: 'var(--neu-text-light)' }}>
                   留空时连接到服务器，不指定具体数据库
                 </p>
               </div>
@@ -291,18 +300,21 @@ export default function ConnectionForm({
                     onChange={(e) => setConfig({ ...config, ssl: e.target.checked })}
                     className="rounded"
                   />
-                  <span className="text-sm">启用 SSL</span>
+                  <span className="text-sm" style={{ color: 'var(--neu-text)' }}>启用 SSL</span>
                 </label>
               </div>
             </>
           )}
 
           {testResult && (
-            <div className={`p-3 rounded text-sm ${
+            <div className={`p-3 rounded text-sm neu-pressed ${
               testResult.includes("成功") 
-                ? "bg-green-900/50 text-green-300 border border-green-700" 
-                : "bg-red-900/50 text-red-300 border border-red-700"
-            }`}>
+                ? "" 
+                : ""
+            }`}
+            style={{ 
+              color: testResult.includes("成功") ? 'var(--neu-success)' : 'var(--neu-error)'
+            }}>
               {testResult}
             </div>
           )}
@@ -312,7 +324,8 @@ export default function ConnectionForm({
               type="button"
               onClick={handleTestConnection}
               disabled={testing || loading}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-all neu-raised hover:neu-hover active:neu-active disabled:hover:neu-raised"
+              style={{ color: 'var(--neu-success)' }}
             >
               {testing ? "测试中..." : "测试连接"}
             </button>
@@ -320,14 +333,16 @@ export default function ConnectionForm({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded"
+                className="px-4 py-2 rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                style={{ color: 'var(--neu-text)' }}
               >
                 取消
               </button>
               <button
                 type="submit"
                 disabled={loading || testing}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-all neu-raised hover:neu-hover active:neu-active disabled:hover:neu-raised"
+                style={{ color: 'var(--neu-accent-dark)' }}
               >
                 {loading ? "保存中..." : "保存"}
               </button>
