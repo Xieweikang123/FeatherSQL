@@ -164,8 +164,11 @@ export default function SqlEditor() {
         <button
           onClick={handleExecute}
           disabled={!currentConnectionId}
-          className="px-5 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold transition-all duration-200 neu-raised hover:neu-hover active:neu-active disabled:hover:neu-raised"
-          style={{ color: 'var(--neu-accent-dark)' }}
+          className="px-5 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold neu-raised"
+          style={{ 
+            color: 'var(--neu-accent-dark)',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+          }}
         >
           执行 (Ctrl+Enter)
         </button>

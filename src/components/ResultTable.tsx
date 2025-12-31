@@ -54,6 +54,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   // 撤销/重做历史栈
   const [history, setHistory] = useState<EditHistoryState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const historyIndexRef = useRef(-1); // 用于同步跟踪 historyIndex
   const maxHistorySize = 50; // 最多保存50步历史
   
   // 获取连接信息
@@ -68,6 +69,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const currentConnection = connections.find(c => c.id === currentConnectionId);
   const [isSaving, setIsSaving] = useState(false);
   
+  // 同步 historyIndexRef 和 historyIndex
+  useEffect(() => {
+    historyIndexRef.current = historyIndex;
+  }, [historyIndex]);
+
   // 当 result 变化时，重置编辑状态
   useEffect(() => {
     setEditedData(result);
@@ -76,6 +82,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setSelection(null);
     setHistory([]);
     setHistoryIndex(-1);
+    historyIndexRef.current = -1;
   }, [result]);
 
   // 保存当前状态到历史栈
@@ -85,53 +92,61 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       modifications: new Map(modifications)
     };
     
-    setHistory(prev => {
+    // 使用 ref 获取最新的 historyIndex，确保同步
+    const currentIndex = historyIndexRef.current;
+    
+    setHistory(prevHistory => {
       // 如果当前不在历史栈的末尾，删除后面的历史
-      const newHistory = prev.slice(0, historyIndex + 1);
+      const newHistory = prevHistory.slice(0, currentIndex + 1);
       // 添加新状态
       newHistory.push(currentState);
       // 限制历史栈大小
       if (newHistory.length > maxHistorySize) {
-        newHistory.shift();
-        return newHistory;
+        return newHistory.slice(-maxHistorySize);
       }
       return newHistory;
     });
     
-    setHistoryIndex(prev => {
-      const newIndex = prev + 1;
-      return newIndex >= maxHistorySize ? maxHistorySize - 1 : newIndex;
-    });
+    const newIndex = currentIndex + 1;
+    const finalIndex = newIndex >= maxHistorySize ? maxHistorySize - 1 : newIndex;
+    setHistoryIndex(finalIndex);
+    historyIndexRef.current = finalIndex;
   };
 
   // 撤销
   const handleUndo = () => {
-    if (historyIndex < 0) {
+    const currentIndex = historyIndexRef.current;
+    if (currentIndex < 0) {
       addLog("没有可撤销的操作");
       return;
     }
     
-    const previousState = history[historyIndex];
+    const previousState = history[currentIndex];
     if (previousState) {
       setEditedData(previousState.editedData);
       setModifications(previousState.modifications);
-      setHistoryIndex(prev => prev - 1);
+      const newIndex = currentIndex - 1;
+      setHistoryIndex(newIndex);
+      historyIndexRef.current = newIndex;
       addLog("已撤销上一步操作");
     }
   };
 
   // 重做
   const handleRedo = () => {
-    if (historyIndex >= history.length - 1) {
+    const currentIndex = historyIndexRef.current;
+    if (currentIndex >= history.length - 1) {
       addLog("没有可重做的操作");
       return;
     }
     
-    const nextState = history[historyIndex + 1];
+    const nextState = history[currentIndex + 1];
     if (nextState) {
       setEditedData(nextState.editedData);
       setModifications(nextState.modifications);
-      setHistoryIndex(prev => prev + 1);
+      const newIndex = currentIndex + 1;
+      setHistoryIndex(newIndex);
+      historyIndexRef.current = newIndex;
       addLog("已重做操作");
     }
   };
@@ -565,22 +580,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       e.preventDefault();
       handleBatchEdit('');
     } else if (!editingCell && selection && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      // 直接输入字符时，如果有选中单元格，进入编辑模式
+      // 直接输入字符时，如果有选中单元格，进行批量编辑
       e.preventDefault();
-      const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
-      if (originalRowIndex !== -1) {
-        // 编辑选中区域的第一个单元格
-        const startRow = selection.start.row;
-        const startCol = selection.start.col;
-        handleCellDoubleClick(
-          filteredRows.findIndex((row) => {
-            return result.rows.findIndex((r) => r === row) === startRow;
-          }),
-          startCol
-        );
-        // 设置输入值（去掉第一个字符，因为已经输入了）
-        setEditingValue(e.key);
-      }
+      // 将输入的字符应用到所有选中的单元格
+      handleBatchEdit(e.key);
     }
   };
 
@@ -600,29 +603,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
         handleRedo();
-      } else if (!editingCell && selection && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        // 直接输入字符时，如果有选中单元格且不在编辑状态，进入编辑模式
-        e.preventDefault();
-        
-        // 找到选中区域的第一个单元格对应的过滤行索引
-        const startRow = selection.start.row;
-        const startCol = selection.start.col;
-        const startFilteredRowIndex = filteredRows.findIndex((row) => {
-          return result.rows.findIndex((r) => r === row) === startRow;
-        });
-        
-        if (startFilteredRowIndex !== -1) {
-          // 进入编辑模式
-          setEditingCell({ row: startRow, col: startCol });
-          // 设置输入值为用户输入的字符
-          setEditingValue(e.key);
-          
-          // 聚焦输入框
-          setTimeout(() => {
-            inputRef.current?.focus();
-            inputRef.current?.setSelectionRange(1, 1); // 光标移到末尾
-          }, 0);
-        }
       }
     };
 
@@ -881,52 +861,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               ↷ 重做
             </button>
             {selection && (
-              <>
-                <div className="w-px h-4" style={{ backgroundColor: 'var(--neu-dark)' }}></div>
-                <input
-                  type="text"
-                  placeholder="批量编辑选中单元格..."
-                  className="px-2 py-1 text-xs rounded neu-pressed focus:outline-none w-40 transition-all"
-                  style={{ 
-                    color: 'var(--neu-text)',
-                    '--placeholder-color': 'var(--neu-text-light)'
-                  } as React.CSSProperties}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleBatchEdit(e.currentTarget.value);
-                      e.currentTarget.value = '';
-                    } else if (e.key === 'Escape') {
-                      setSelection(null);
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  title="输入值后按 Enter 批量编辑，按 Escape 清除选择"
-                />
-                <button
-                  onClick={handleCopy}
-                  className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
-                  style={{ color: 'var(--neu-text)' }}
-                  title="复制选中区域 (Ctrl+C)"
-                >
-                  📋 复制
-                </button>
-                <button
-                  onClick={handlePaste}
-                  className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
-                  style={{ color: 'var(--neu-text)' }}
-                  title="粘贴到选中区域 (Ctrl+V)"
-                >
-                  📄 粘贴
-                </button>
-                <button
-                  onClick={() => setSelection(null)}
-                  className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
-                  style={{ color: 'var(--neu-text)' }}
-                  title="清除选择"
-                >
-                  ✕
-                </button>
-              </>
+              <button
+                onClick={() => setSelection(null)}
+                className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                style={{ color: 'var(--neu-text)' }}
+                title="清除选择"
+              >
+                ✕
+              </button>
             )}
             {modifications.size > 0 && (
               <button
