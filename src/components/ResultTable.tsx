@@ -555,6 +555,42 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     
     let modifiedCount = 0;
     
+    // 收集所有选中单元格的当前值，用于判断是否应该追加
+    const currentValues: string[] = [];
+    for (const cellKey of selection.cells) {
+      const [row, col] = cellKey.split('-').map(Number);
+      const originalValue = result.rows[row]?.[col];
+      const currentValue = editedData.rows[row]?.[col];
+      // 如果当前值等于原始值，说明未修改，使用空字符串作为标记
+      const valueStr = (currentValue === originalValue || String(currentValue) === String(originalValue))
+        ? "" 
+        : String(currentValue ?? "");
+      currentValues.push(valueStr);
+    }
+    
+    // 判断所有单元格的当前值是否相同
+    const allValuesSame = currentValues.length > 0 && currentValues.every(v => v === currentValues[0]);
+    // 判断是否所有单元格都未修改（当前值都等于原始值）
+    const allUnmodified = currentValues.every(v => v === "");
+    
+    // 确定新值：
+    // 1. 如果所有单元格都未修改，则替换模式（第一次输入）
+    // 2. 如果所有单元格的当前值相同，则追加模式（连续输入）
+    // 3. 否则，统一替换为输入的值
+    let baseValue = "";
+    if (allUnmodified) {
+      // 所有单元格都未修改，替换模式
+      baseValue = "";
+    } else if (allValuesSame) {
+      // 所有单元格的当前值相同，追加模式
+      baseValue = currentValues[0];
+    } else {
+      // 单元格的值不同，统一替换
+      baseValue = "";
+    }
+    
+    const newValue = value.trim() === "" ? null : (baseValue + value);
+    
     // 遍历所有选中的单元格
     for (const cellKey of selection.cells) {
       const [row, col] = cellKey.split('-').map(Number);
@@ -562,25 +598,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       const originalValue = result.rows[row]?.[col];
       const currentValue = editedData.rows[row]?.[col];
       
-      // 确定新值：如果当前值等于原始值，说明是第一次输入，直接设置；否则追加
-      let newValue: string | null;
-      if (value.trim() === "") {
-        newValue = null;
-      } else {
-        // 如果当前值等于原始值，说明是第一次输入，直接设置
-        // 否则，追加到当前值后面
-        if (currentValue === originalValue || String(currentValue) === String(originalValue)) {
-          newValue = value;
-        } else {
-          // 追加模式：将新字符追加到当前值后面
-          const currentStr = currentValue === null || currentValue === undefined ? "" : String(currentValue);
-          newValue = currentStr + value;
-        }
-      }
-      
       // 如果值未改变，跳过（避免不必要的更新）
-      const oldValueForCompare = currentValue !== undefined ? currentValue : originalValue;
-      if (oldValueForCompare === newValue || String(oldValueForCompare) === String(newValue)) continue;
+      if (currentValue === newValue || String(currentValue) === String(newValue)) continue;
       
       // 更新编辑数据
       if (!newEditedData.rows[row]) {
@@ -957,7 +976,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
     
     setIsSaving(true);
-    setIsQuerying(true);
     
     try {
       // 提取表信息（包括数据库名）
@@ -1011,21 +1029,25 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       
       // 重新执行原始 SQL 查询以刷新数据
       addLog("正在刷新数据...");
-      const newResult = await executeSql(currentConnectionId, sql, dbParam);
-      setQueryResult(newResult);
-      
-      // 清除修改记录
-      setModifications(new Map());
-      setEditedData(newResult);
-      
-      addLog("数据已刷新");
+      setIsQuerying(true); // 只在刷新数据时显示"查询中..."
+      try {
+        const newResult = await executeSql(currentConnectionId, sql, dbParam);
+        setQueryResult(newResult);
+        
+        // 清除修改记录
+        setModifications(new Map());
+        setEditedData(newResult);
+        
+        addLog("数据已刷新");
+      } finally {
+        setIsQuerying(false);
+      }
     } catch (error) {
       const errorMsg = String(error);
       addLog(`保存失败: ${errorMsg}`);
       // 不抛出错误，让用户看到日志
     } finally {
       setIsSaving(false);
-      setIsQuerying(false);
     }
   };
 
