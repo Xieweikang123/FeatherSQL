@@ -206,19 +206,39 @@ async fn execute_sql_sqlite(
     
     match query_result {
         Ok(rows) => {
-            if rows.is_empty() {
-                return Ok(QueryResult {
-                    columns: vec![],
-                    rows: vec![],
-                });
-            }
-
-            // Get column names from the first row
-            let columns: Vec<String> = rows[0]
-                .columns()
-                .iter()
-                .map(|col| col.name().to_string())
-                .collect();
+            // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
+            let columns: Vec<String> = if rows.is_empty() {
+                // If no rows, try to get column info by executing a LIMIT 0 query
+                let limit_query = if sql.trim().to_uppercase().starts_with("SELECT") {
+                    format!("{} LIMIT 0", sql.trim_end_matches(';').trim())
+                } else {
+                    sql.to_string()
+                };
+                
+                match sqlx::query(&limit_query).fetch_all(pool).await {
+                    Ok(limit_rows) => {
+                        if !limit_rows.is_empty() {
+                            limit_rows[0]
+                                .columns()
+                                .iter()
+                                .map(|col| col.name().to_string())
+                                .collect()
+                        } else {
+                            // Try to get from the original query's row structure
+                            // This might work if the query structure is preserved
+                            vec![]
+                        }
+                    }
+                    Err(_) => vec![],
+                }
+            } else {
+                // Get column names from the first row
+                rows[0]
+                    .columns()
+                    .iter()
+                    .map(|col| col.name().to_string())
+                    .collect()
+            };
 
             // Convert rows to JSON values
             let json_rows: Vec<Vec<serde_json::Value>> = rows
@@ -257,19 +277,37 @@ async fn execute_sql_mysql(
     
     match query_result {
         Ok(rows) => {
-            if rows.is_empty() {
-                return Ok(QueryResult {
-                    columns: vec![],
-                    rows: vec![],
-                });
-            }
-
-            // Get column names from the first row
-            let columns: Vec<String> = rows[0]
-                .columns()
-                .iter()
-                .map(|col| col.name().to_string())
-                .collect();
+            // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
+            let columns: Vec<String> = if rows.is_empty() {
+                // If no rows, try to get column info by executing a LIMIT 0 query
+                let limit_query = if sql.trim().to_uppercase().starts_with("SELECT") {
+                    format!("{} LIMIT 0", sql.trim_end_matches(';').trim())
+                } else {
+                    sql.to_string()
+                };
+                
+                match sqlx::query(&limit_query).fetch_all(pool).await {
+                    Ok(limit_rows) => {
+                        if !limit_rows.is_empty() {
+                            limit_rows[0]
+                                .columns()
+                                .iter()
+                                .map(|col| col.name().to_string())
+                                .collect()
+                        } else {
+                            vec![]
+                        }
+                    }
+                    Err(_) => vec![],
+                }
+            } else {
+                // Get column names from the first row
+                rows[0]
+                    .columns()
+                    .iter()
+                    .map(|col| col.name().to_string())
+                    .collect()
+            };
 
             // Convert rows to JSON values
             let json_rows: Vec<Vec<serde_json::Value>> = rows
@@ -308,19 +346,39 @@ async fn execute_sql_postgres(
     
     match query_result {
         Ok(rows) => {
-            if rows.is_empty() {
-                return Ok(QueryResult {
-                    columns: vec![],
-                    rows: vec![],
-                });
-            }
-
-            // Get column names from the first row
-            let columns: Vec<String> = rows[0]
-                .columns()
-                .iter()
-                .map(|col| col.name().to_string())
-                .collect();
+            // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
+            let columns: Vec<String> = if rows.is_empty() {
+                // If no rows, try to get column info by executing a LIMIT 0 query
+                // Check if SQL already has LIMIT clause
+                let sql_upper = sql.trim().to_uppercase();
+                let limit_query = if sql_upper.starts_with("SELECT") && !sql_upper.contains("LIMIT") {
+                    format!("{} LIMIT 0", sql.trim_end_matches(';').trim())
+                } else {
+                    sql.to_string()
+                };
+                
+                match sqlx::query(&limit_query).fetch_all(pool).await {
+                    Ok(limit_rows) => {
+                        if !limit_rows.is_empty() {
+                            limit_rows[0]
+                                .columns()
+                                .iter()
+                                .map(|col| col.name().to_string())
+                                .collect()
+                        } else {
+                            vec![]
+                        }
+                    }
+                    Err(_) => vec![],
+                }
+            } else {
+                // Get column names from the first row
+                rows[0]
+                    .columns()
+                    .iter()
+                    .map(|col| col.name().to_string())
+                    .collect()
+            };
 
             // Convert rows to JSON values
             let json_rows: Vec<Vec<serde_json::Value>> = rows
