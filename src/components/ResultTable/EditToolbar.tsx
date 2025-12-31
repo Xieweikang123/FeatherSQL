@@ -1,4 +1,3 @@
-import React from "react";
 import type { CellSelection } from "../../hooks/useCellSelection";
 
 interface EditToolbarProps {
@@ -10,6 +9,7 @@ interface EditToolbarProps {
   hasConnection: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  onResetAll: () => void;
   onClearSelection: () => void;
   onSave: () => void;
   onExit: () => void;
@@ -24,6 +24,7 @@ export default function EditToolbar({
   hasConnection,
   onUndo,
   onRedo,
+  onResetAll,
   onClearSelection,
   onSave,
   onExit,
@@ -67,6 +68,16 @@ export default function EditToolbar({
         >
           ↷ 重做
         </button>
+        {modificationsCount > 0 && (
+          <button
+            onClick={onResetAll}
+            className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+            style={{ color: "var(--neu-warning)" }}
+            title="撤销所有改动"
+          >
+            ↶ 撤销所有
+          </button>
+        )}
         {selection && (
           <button
             onClick={onClearSelection}

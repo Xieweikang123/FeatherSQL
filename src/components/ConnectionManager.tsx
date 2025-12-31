@@ -378,8 +378,8 @@ export default function ConnectionManager() {
               className="text-xl font-bold leading-none flex items-center justify-center w-6 h-6"
               style={{ 
                 color: 'var(--neu-accent)',
-                textShadow: '0 0 10px rgba(91, 155, 213, 0.6), 0 0 20px rgba(91, 155, 213, 0.3)',
-                filter: 'drop-shadow(0 0 2px rgba(91, 155, 213, 0.8))'
+                textShadow: '0 0 8px rgba(91, 155, 213, 0.5), 0 0 16px rgba(91, 155, 213, 0.25)',
+                filter: 'drop-shadow(0 0 2px rgba(91, 155, 213, 0.6))'
               }}
             >
               +

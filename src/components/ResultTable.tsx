@@ -273,6 +273,17 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   }, [editHistory, addLog]);
 
+  // 撤销所有改动
+  const handleResetAll = useCallback(() => {
+    setEditedData(result);
+    setModifications(new Map());
+    editHistory.reset();
+    clearSelection();
+    setEditingCell(null);
+    setEditingValue("");
+    addLog("已撤销所有改动");
+  }, [result, editHistory, clearSelection, addLog]);
+
 
 
 
@@ -1128,6 +1139,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             hasConnection={!!currentConnectionId}
             onUndo={handleUndo}
             onRedo={handleRedo}
+            onResetAll={handleResetAll}
             onClearSelection={clearSelection}
             onSave={handleSaveChanges}
             onExit={handleExitEditMode}

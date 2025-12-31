@@ -22,6 +22,7 @@ export default function TableHeader({
   onExpandSearch,
 }: TableHeaderProps) {
   const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const thRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
 
   // Close search box when clicking outside
   useEffect(() => {
@@ -49,8 +50,32 @@ export default function TableHeader({
     };
   }, [expandedSearchColumn, onExpandSearch]);
 
+  // 更新搜索框宽度以匹配 th 的实际宽度
+  useEffect(() => {
+    if (!expandedSearchColumn) return;
+
+    const updateSearchBoxWidth = () => {
+      const th = thRefs.current[expandedSearchColumn];
+      const searchBox = searchBoxRefs.current[expandedSearchColumn];
+      
+      if (th && searchBox) {
+        const thWidth = th.offsetWidth;
+        searchBox.style.width = `${thWidth}px`;
+      }
+    };
+
+    updateSearchBoxWidth();
+    
+    // 监听窗口大小变化
+    window.addEventListener('resize', updateSearchBoxWidth);
+    
+    return () => {
+      window.removeEventListener('resize', updateSearchBoxWidth);
+    };
+  }, [expandedSearchColumn]);
+
   return (
-    <thead className="neu-raised sticky top-0 z-10">
+    <thead className="neu-raised sticky top-0" style={{ zIndex: 10 }}>
       <tr>
         {columns.map((column, index) => {
           const filterValue = columnFilters[column] || "";
@@ -60,11 +85,15 @@ export default function TableHeader({
           return (
             <th
               key={index}
+              ref={(el) => {
+                thRefs.current[column] = el;
+              }}
               className="px-4 py-3 text-left font-semibold uppercase text-xs tracking-wider relative group"
               style={{
                 minWidth: "120px",
                 borderBottom: "1px solid var(--neu-dark)",
                 color: "var(--neu-text)",
+                zIndex: isExpanded ? 1001 : 'auto',
               }}
             >
               <div className="flex items-center gap-2">
@@ -94,8 +123,20 @@ export default function TableHeader({
                 <div
                   ref={(el) => {
                     searchBoxRefs.current[column] = el;
+                    // 立即设置宽度
+                    if (el) {
+                      const th = el.closest('th') as HTMLTableCellElement;
+                      if (th) {
+                        el.style.width = `${th.offsetWidth}px`;
+                      }
+                    }
                   }}
-                  className="absolute top-full left-0 right-0 mt-1 p-2 neu-raised rounded-lg z-20"
+                  className="absolute top-full left-0 mt-1 p-2 neu-raised rounded-lg"
+                  style={{ 
+                    zIndex: 1000,
+                    boxSizing: 'border-box',
+                    minWidth: '200px'
+                  }}
                 >
                   <div className="relative">
                     <input

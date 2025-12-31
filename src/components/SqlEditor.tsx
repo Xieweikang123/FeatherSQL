@@ -21,6 +21,7 @@ function getLanguageForDbType(dbType: string | undefined): string {
 export default function SqlEditor() {
   const editorRef = useRef<string>("");
   const monacoEditorRef = useRef<any>(null);
+  const isEditorMountedRef = useRef<boolean>(false);
   const { connections, currentConnectionId, currentDatabase, selectedTable, setSelectedTable, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad, setSavedSql, setIsQuerying, saveWorkspaceState } =
     useConnectionStore();
   
@@ -42,13 +43,17 @@ export default function SqlEditor() {
     }
   }, [currentConnectionId, currentConnection?.type]);
 
-  // Load SQL from history
+  // Load SQL from history when sqlToLoad changes
   useEffect(() => {
-    if (sqlToLoad && monacoEditorRef.current) {
+    if (!sqlToLoad) return;
+
+    // If editor is already mounted, load immediately
+    if (isEditorMountedRef.current && monacoEditorRef.current) {
       monacoEditorRef.current.setValue(sqlToLoad);
       editorRef.current = sqlToLoad;
       clearSqlToLoad();
     }
+    // If editor is not mounted yet, wait for onMount event to handle it
   }, [sqlToLoad, clearSqlToLoad]);
 
   const handleExecute = async () => {
@@ -113,15 +118,20 @@ export default function SqlEditor() {
 
   const handleEditorMount = (editor: any, monaco: any) => {
     monacoEditorRef.current = editor;
+    isEditorMountedRef.current = true;
+    
     // Add keyboard shortcut: Ctrl+Enter to execute
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       handleExecute();
     });
+    
     // Load SQL if there's one to load
-    if (sqlToLoad) {
-      editor.setValue(sqlToLoad);
-      editorRef.current = sqlToLoad;
-      clearSqlToLoad();
+    // Get the latest sqlToLoad from store to avoid closure issues
+    const store = useConnectionStore.getState();
+    if (store.sqlToLoad) {
+      editor.setValue(store.sqlToLoad);
+      editorRef.current = store.sqlToLoad;
+      store.clearSqlToLoad();
     }
   };
 
