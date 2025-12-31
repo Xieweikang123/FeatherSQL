@@ -10,6 +10,7 @@ import EditToolbar from "./ResultTable/EditToolbar";
 import SqlDisplayBar from "./ResultTable/SqlDisplayBar";
 import TableHeader from "./ResultTable/TableHeader";
 import TableRow from "./ResultTable/TableRow";
+import TableStructure from "./TableStructure";
 
 interface ResultTableProps {
   result: QueryResult;
@@ -56,6 +57,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [modifications, setModifications] = useState<Map<string, CellModification>>(new Map());
   const [editingValue, setEditingValue] = useState<string>("");
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [viewingStructure, setViewingStructure] = useState<string | null>(null);
   
   // 使用编辑历史 hook
   const editHistory = useEditHistory(editedData);
@@ -69,6 +71,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   }, [result]);
 
+  // 使用 ref 来存储稳定的函数引用，避免无限循环
+  const clearSelectionRef = useRef(clearSelection);
+  const resetHistoryRef = useRef(editHistory.reset);
+  
+  // 更新 ref
+  useEffect(() => {
+    clearSelectionRef.current = clearSelection;
+    resetHistoryRef.current = editHistory.reset;
+  }, [clearSelection, editHistory.reset]);
+  
   // 当 result 变化时，重置编辑状态
   useEffect(() => {
     // 如果查询返回空结果但没有列信息，使用保存的列信息
@@ -83,9 +95,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
     setModifications(new Map());
     setEditingCell(null);
-    clearSelection();
-    editHistory.reset();
-  }, [result, clearSelection, editHistory]);
+    clearSelectionRef.current();
+    resetHistoryRef.current();
+  }, [result]);
 
   // 构建带 WHERE 条件的 SQL
   const buildFilteredSql = (baseSql: string, filters: Record<string, string>): string => {
@@ -1203,6 +1215,29 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     return buildFilteredSql(originalSqlRef.current || sql, columnFilters);
   }, [hasActiveFilters, sql, columnFilters]);
 
+  // 从 SQL 中提取表名
+  const tableInfo = useMemo(() => {
+    if (!sql) return null;
+    return extractTableInfo(sql);
+  }, [sql]);
+
+  // 处理查看表结构
+  const handleViewStructure = () => {
+    if (tableInfo && tableInfo.tableName) {
+      setViewingStructure(tableInfo.tableName);
+    }
+  };
+
+  // 如果正在查看表结构，显示表结构组件
+  if (viewingStructure) {
+    return (
+      <TableStructure
+        tableName={viewingStructure}
+        onClose={() => setViewingStructure(null)}
+      />
+    );
+  }
+
   // 只有在完全没有 result 或完全没有列信息时才显示"无数据返回"
   // 如果 result 存在但只是没有行数据，应该显示表格结构
   if (!result) {
@@ -1261,8 +1296,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             isFiltering={isFiltering}
             rowCount={displayRows.length}
             editMode={editMode}
+            canViewStructure={!!tableInfo?.tableName}
             onEnterEditMode={() => setEditMode(true)}
             onClearFilters={handleClearAllFilters}
+            onViewStructure={handleViewStructure}
           />
         )}
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { QueryResult } from "../lib/commands";
 
 export interface CellModification {
@@ -83,11 +83,11 @@ export function useEditHistory(initialData: QueryResult) {
     return null;
   };
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setHistory([]);
     setHistoryIndex(-1);
     historyIndexRef.current = -1;
-  };
+  }, []);
 
   return {
     history,

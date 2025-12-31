@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import ViewStructureButton from "./ViewStructureButton";
 
 interface SqlDisplayBarProps {
   sql: string | null;
@@ -7,8 +8,10 @@ interface SqlDisplayBarProps {
   isFiltering: boolean;
   rowCount: number;
   editMode: boolean;
+  canViewStructure?: boolean;
   onEnterEditMode: () => void;
   onClearFilters: () => void;
+  onViewStructure?: () => void;
 }
 
 export default function SqlDisplayBar({
@@ -18,15 +21,19 @@ export default function SqlDisplayBar({
   isFiltering,
   rowCount,
   editMode,
+  canViewStructure = false,
   onEnterEditMode,
   onClearFilters,
+  onViewStructure,
 }: SqlDisplayBarProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopySql = async () => {
-    if (!sql) return;
+    // 复制实际显示的 SQL（如果有过滤条件则复制 filteredSql，否则复制原始 sql）
+    const sqlToCopy = hasActiveFilters ? (filteredSql || sql) : sql;
+    if (!sqlToCopy) return;
     try {
-      await navigator.clipboard.writeText(sql);
+      await navigator.clipboard.writeText(sqlToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
@@ -71,6 +78,9 @@ export default function SqlDisplayBar({
         )}
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
+        {canViewStructure && onViewStructure && (
+          <ViewStructureButton onClick={onViewStructure} />
+        )}
         {!editMode && (
           <button
             onClick={onEnterEditMode}

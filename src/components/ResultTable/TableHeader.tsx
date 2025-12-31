@@ -106,7 +106,6 @@ export default function TableHeader({
                       className="w-full px-2.5 py-1.5 pl-7 neu-pressed rounded text-sm focus:outline-none transition-all"
                       style={{
                         color: "var(--neu-text)",
-                        "--placeholder-color": "var(--neu-text-light)",
                       } as React.CSSProperties}
                       autoFocus
                       onClick={(e) => e.stopPropagation()}
