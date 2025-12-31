@@ -1,8 +1,9 @@
 import React from "react";
+import type { CellSelection } from "../../hooks/useCellSelection";
 
 interface EditToolbarProps {
   modificationsCount: number;
-  selection: { start: { row: number; col: number }; end: { row: number; col: number } } | null;
+  selection: CellSelection | null;
   canUndo: boolean;
   canRedo: boolean;
   isSaving: boolean;
@@ -43,8 +44,7 @@ export default function EditToolbar({
         )}
         {selection && (
           <span className="text-xs" style={{ color: "var(--neu-accent-light)" }}>
-            (已选择: {Math.abs(selection.end.row - selection.start.row) + 1} 行 ×{" "}
-            {Math.abs(selection.end.col - selection.start.col) + 1} 列)
+            (已选择: {selection.cells.size} 个单元格)
           </span>
         )}
       </div>

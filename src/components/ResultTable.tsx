@@ -49,7 +49,17 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   
   // 使用自定义 hooks
   const { columnFilters, updateFilters, originalSqlRef } = useColumnFilters(sql);
-  const { selection, setSelection, clearSelection, isDragging, setIsDragging, dragStartRef } = useCellSelection(editMode);
+  const { 
+    selection, 
+    clearSelection, 
+    isDragging, 
+    setIsDragging, 
+    dragStartRef,
+    isCellSelected: isCellSelectedHook,
+    addCellToSelection,
+    removeCellFromSelection,
+    setRectSelection
+  } = useCellSelection(editMode);
   
   // 编辑相关状态
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
@@ -449,19 +459,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 检查单元格是否在选择范围内
   const isCellSelected = (originalRowIndex: number, cellIndex: number): boolean => {
-    if (!selection || originalRowIndex === -1) return false;
-    
-    const minRow = Math.min(selection.start.row, selection.end.row);
-    const maxRow = Math.max(selection.start.row, selection.end.row);
-    const minCol = Math.min(selection.start.col, selection.end.col);
-    const maxCol = Math.max(selection.start.col, selection.end.col);
-    
-    return (
-      originalRowIndex >= minRow &&
-      originalRowIndex <= maxRow &&
-      cellIndex >= minCol &&
-      cellIndex <= maxCol
-    );
+    if (originalRowIndex === -1) return false;
+    return isCellSelectedHook(originalRowIndex, cellIndex);
   };
 
   // 处理单元格鼠标按下
@@ -478,12 +477,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const isCtrlOrCmd = e.ctrlKey || e.metaKey;
     const isCurrentlySelected = selection && isCellSelected(originalRowIndex, cellIndex);
     
-    if (e.shiftKey && selection) {
-      // Shift+点击：扩展选择范围（从 start 到点击位置）
-      setSelection({
-        start: selection.start,
-        end: clickedCell
-      });
+    if (e.shiftKey && selection && selection.range) {
+      // Shift+点击：扩展选择范围（从 range.start 到点击位置）
+      setRectSelection(selection.range.start, clickedCell);
     } else if (isCtrlOrCmd) {
       // Ctrl+点击：只影响点击的那个单元格
       e.preventDefault();
@@ -491,201 +487,17 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       
       if (isCurrentlySelected) {
         // 如果已选中，只取消选中点击的这个单元格，保留其他选中的单元格
-        const minRow = Math.min(selection.start.row, selection.end.row);
-        const maxRow = Math.max(selection.start.row, selection.end.row);
-        const minCol = Math.min(selection.start.col, selection.end.col);
-        const maxCol = Math.max(selection.start.col, selection.end.col);
-        
-        // 如果选择区域是单个单元格，清除选择
-        if (minRow === maxRow && minCol === maxCol) {
-          setSelection(null);
-        } else {
-          // 收集所有选中的单元格（排除点击的单元格）
-          const remainingCells: Array<{ row: number; col: number }> = [];
-          for (let row = minRow; row <= maxRow; row++) {
-            for (let col = minCol; col <= maxCol; col++) {
-              if (row !== originalRowIndex || col !== cellIndex) {
-                remainingCells.push({ row, col });
-              }
-            }
-          }
-          
-          // 如果没有剩余的单元格，清除选择
-          if (remainingCells.length === 0) {
-            setSelection(null);
-          } else {
-            // 计算剩余单元格的最小和最大行列，形成新的矩形选择范围
-            const newMinRow = Math.min(...remainingCells.map(c => c.row));
-            const newMaxRow = Math.max(...remainingCells.map(c => c.row));
-            const newMinCol = Math.min(...remainingCells.map(c => c.col));
-            const newMaxCol = Math.max(...remainingCells.map(c => c.col));
-            
-            // 验证新的矩形范围是否只包含剩余单元格（检查是否连续）
-            const remainingCellsSet = new Set(remainingCells.map(c => `${c.row}-${c.col}`));
-            let isValidRect = true;
-            for (let row = newMinRow; row <= newMaxRow; row++) {
-              for (let col = newMinCol; col <= newMaxCol; col++) {
-                if (!remainingCellsSet.has(`${row}-${col}`)) {
-                  isValidRect = false;
-                  break;
-                }
-              }
-              if (!isValidRect) break;
-            }
-            
-            if (!isValidRect) {
-              // 剩余单元格不连续，找到包含最多剩余单元格的连续矩形区域
-              let bestRect: { minRow: number; maxRow: number; minCol: number; maxCol: number; count: number } | null = null;
-              
-              // 尝试所有可能的矩形组合（任意两个剩余单元格作为对角）
-              for (let i = 0; i < remainingCells.length; i++) {
-                for (let j = i; j < remainingCells.length; j++) {
-                  const cell1 = remainingCells[i];
-                  const cell2 = remainingCells[j];
-                  const testMinRow = Math.min(cell1.row, cell2.row);
-                  const testMaxRow = Math.max(cell1.row, cell2.row);
-                  const testMinCol = Math.min(cell1.col, cell2.col);
-                  const testMaxCol = Math.max(cell1.col, cell2.col);
-                  
-                  // 检查这个矩形是否只包含剩余单元格（连续矩形）
-                  let testIsValid = true;
-                  let count = 0;
-                  for (let row = testMinRow; row <= testMaxRow; row++) {
-                    for (let col = testMinCol; col <= testMaxCol; col++) {
-                      if (remainingCellsSet.has(`${row}-${col}`)) {
-                        count++;
-                      } else {
-                        // 矩形中包含非剩余单元格，不连续
-                        testIsValid = false;
-                        break;
-                      }
-                    }
-                    if (!testIsValid) break;
-                  }
-                  
-                  // 如果这个矩形是连续的，且包含的剩余单元格数量更多，则更新最佳矩形
-                  if (testIsValid && (!bestRect || count > bestRect.count)) {
-                    bestRect = { minRow: testMinRow, maxRow: testMaxRow, minCol: testMinCol, maxCol: testMaxCol, count };
-                  }
-                }
-              }
-              
-              if (bestRect) {
-                // 使用找到的最佳矩形（包含最多剩余单元格的连续矩形）
-                const wasStartTopLeft = selection.start.row <= selection.end.row && selection.start.col <= selection.end.col;
-                const wasStartTopRight = selection.start.row <= selection.end.row && selection.start.col > selection.end.col;
-                const wasStartBottomLeft = selection.start.row > selection.end.row && selection.start.col <= selection.end.col;
-                
-                if (wasStartTopLeft) {
-                  setSelection({
-                    start: { row: bestRect.minRow, col: bestRect.minCol },
-                    end: { row: bestRect.maxRow, col: bestRect.maxCol }
-                  });
-                } else if (wasStartTopRight) {
-                  setSelection({
-                    start: { row: bestRect.minRow, col: bestRect.maxCol },
-                    end: { row: bestRect.maxRow, col: bestRect.minCol }
-                  });
-                } else if (wasStartBottomLeft) {
-                  setSelection({
-                    start: { row: bestRect.maxRow, col: bestRect.minCol },
-                    end: { row: bestRect.minRow, col: bestRect.maxCol }
-                  });
-                } else {
-                  setSelection({
-                    start: { row: bestRect.maxRow, col: bestRect.maxCol },
-                    end: { row: bestRect.minRow, col: bestRect.minCol }
-                  });
-                }
-              } else {
-                // 找不到任何连续矩形，尝试选择包含最多剩余单元格的单个单元格区域
-                // 对于单个单元格，每个单元格都是一个"矩形"，包含1个剩余单元格
-                // 所以应该选择第一个剩余单元格（因为所有单个单元格都包含相同数量的剩余单元格）
-                // 但为了更好的用户体验，我们选择最靠近原选择中心的剩余单元格
-                
-                // 计算原选择的中心点
-                const centerRow = Math.floor((minRow + maxRow) / 2);
-                const centerCol = Math.floor((minCol + maxCol) / 2);
-                
-                // 找到距离中心点最近的剩余单元格
-                let closestCell = remainingCells[0];
-                let minDistance = Math.abs(remainingCells[0].row - centerRow) + Math.abs(remainingCells[0].col - centerCol);
-                
-                for (let i = 1; i < remainingCells.length; i++) {
-                  const cell = remainingCells[i];
-                  const distance = Math.abs(cell.row - centerRow) + Math.abs(cell.col - centerCol);
-                  if (distance < minDistance) {
-                    minDistance = distance;
-                    closestCell = cell;
-                  }
-                }
-                
-                setSelection({
-                  start: closestCell,
-                  end: closestCell
-                });
-              }
-            } else {
-              // 剩余单元格连续，可以形成矩形选择
-              // 保持 start 和 end 的相对位置
-              const wasStartTopLeft = selection.start.row <= selection.end.row && selection.start.col <= selection.end.col;
-              const wasStartTopRight = selection.start.row <= selection.end.row && selection.start.col > selection.end.col;
-              const wasStartBottomLeft = selection.start.row > selection.end.row && selection.start.col <= selection.end.col;
-              
-              if (wasStartTopLeft) {
-                setSelection({
-                  start: { row: newMinRow, col: newMinCol },
-                  end: { row: newMaxRow, col: newMaxCol }
-                });
-              } else if (wasStartTopRight) {
-                setSelection({
-                  start: { row: newMinRow, col: newMaxCol },
-                  end: { row: newMaxRow, col: newMinCol }
-                });
-              } else if (wasStartBottomLeft) {
-                setSelection({
-                  start: { row: newMaxRow, col: newMinCol },
-                  end: { row: newMinRow, col: newMaxCol }
-                });
-              } else {
-                setSelection({
-                  start: { row: newMaxRow, col: newMaxCol },
-                  end: { row: newMinRow, col: newMinCol }
-                });
-              }
-            }
-          }
-        }
+        removeCellFromSelection(originalRowIndex, cellIndex);
       } else {
-        // 如果未选中，追加到已选择（扩展选择范围以包含这个单元格）
-        if (!selection) {
-          // 没有选择，创建新选择
-          setSelection({
-            start: clickedCell,
-            end: clickedCell
-          });
-        } else {
-          // 有选择，扩展选择范围以包含点击的单元格
-          const minRow = Math.min(selection.start.row, selection.end.row, originalRowIndex);
-          const maxRow = Math.max(selection.start.row, selection.end.row, originalRowIndex);
-          const minCol = Math.min(selection.start.col, selection.end.col, cellIndex);
-          const maxCol = Math.max(selection.start.col, selection.end.col, cellIndex);
-          
-          setSelection({
-            start: { row: minRow, col: minCol },
-            end: { row: maxRow, col: maxCol }
-          });
-        }
+        // 如果未选中，添加到选择中
+        addCellToSelection(originalRowIndex, cellIndex);
       }
       
       dragStartRef.current = null;
       setIsDragging(false);
     } else {
       // 普通点击：创建新选择
-      setSelection({
-        start: clickedCell,
-        end: clickedCell
-      });
+      setRectSelection(clickedCell, clickedCell);
       dragStartRef.current = clickedCell;
       setIsDragging(true);
     }
@@ -698,10 +510,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
     if (originalRowIndex === -1) return;
     
-    setSelection({
-      start: dragStartRef.current,
-      end: { row: originalRowIndex, col: cellIndex }
-    });
+    setRectSelection(dragStartRef.current, { row: originalRowIndex, col: cellIndex });
   };
 
   // 处理鼠标释放和移动
@@ -737,11 +546,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const handleBatchEdit = (value: string) => {
     if (!selection) return;
     
-    const minRow = Math.min(selection.start.row, selection.end.row);
-    const maxRow = Math.max(selection.start.row, selection.end.row);
-    const minCol = Math.min(selection.start.col, selection.end.col);
-    const maxCol = Math.max(selection.start.col, selection.end.col);
-    
     // 保存当前状态到历史栈（在修改之前）
     saveToHistory();
     
@@ -751,53 +555,53 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     
     let modifiedCount = 0;
     
-    for (let row = minRow; row <= maxRow; row++) {
-      for (let col = minCol; col <= maxCol; col++) {
-        // 获取原始值和当前编辑后的值
-        const originalValue = result.rows[row][col];
-        const currentValue = editedData.rows[row]?.[col];
-        
-        // 确定新值：如果当前值等于原始值，说明是第一次输入，直接设置；否则追加
-        let newValue: string | null;
-        if (value.trim() === "") {
-          newValue = null;
+    // 遍历所有选中的单元格
+    for (const cellKey of selection.cells) {
+      const [row, col] = cellKey.split('-').map(Number);
+      // 获取原始值和当前编辑后的值
+      const originalValue = result.rows[row]?.[col];
+      const currentValue = editedData.rows[row]?.[col];
+      
+      // 确定新值：如果当前值等于原始值，说明是第一次输入，直接设置；否则追加
+      let newValue: string | null;
+      if (value.trim() === "") {
+        newValue = null;
+      } else {
+        // 如果当前值等于原始值，说明是第一次输入，直接设置
+        // 否则，追加到当前值后面
+        if (currentValue === originalValue || String(currentValue) === String(originalValue)) {
+          newValue = value;
         } else {
-          // 如果当前值等于原始值，说明是第一次输入，直接设置
-          // 否则，追加到当前值后面
-          if (currentValue === originalValue || String(currentValue) === String(originalValue)) {
-            newValue = value;
-          } else {
-            // 追加模式：将新字符追加到当前值后面
-            const currentStr = currentValue === null || currentValue === undefined ? "" : String(currentValue);
-            newValue = currentStr + value;
-          }
+          // 追加模式：将新字符追加到当前值后面
+          const currentStr = currentValue === null || currentValue === undefined ? "" : String(currentValue);
+          newValue = currentStr + value;
         }
-        
-        // 如果值未改变，跳过（避免不必要的更新）
-        const oldValueForCompare = currentValue !== undefined ? currentValue : originalValue;
-        if (oldValueForCompare === newValue || String(oldValueForCompare) === String(newValue)) continue;
-        
-        // 更新编辑数据
-        if (!newEditedData.rows[row]) {
-          newEditedData.rows[row] = [...editedData.rows[row]];
-        }
-        newEditedData.rows[row] = [...newEditedData.rows[row]];
-        newEditedData.rows[row][col] = newValue;
-        
-        // 记录修改（使用原始值作为 oldValue，用于撤销）
-        const modKey = `${row}-${col}`;
-        const column = result.columns[col];
-        // 如果这个单元格还没有被修改过，使用原始值；否则使用之前的修改记录中的 oldValue
-        const modOldValue = newMods.has(modKey) ? newMods.get(modKey)!.oldValue : originalValue;
-        newMods.set(modKey, {
-          rowIndex: row,
-          column,
-          oldValue: modOldValue,
-          newValue
-        });
-        
-        modifiedCount++;
       }
+      
+      // 如果值未改变，跳过（避免不必要的更新）
+      const oldValueForCompare = currentValue !== undefined ? currentValue : originalValue;
+      if (oldValueForCompare === newValue || String(oldValueForCompare) === String(newValue)) continue;
+      
+      // 更新编辑数据
+      if (!newEditedData.rows[row]) {
+        newEditedData.rows[row] = [...editedData.rows[row]];
+      }
+      newEditedData.rows[row] = [...newEditedData.rows[row]];
+      newEditedData.rows[row][col] = newValue;
+      
+      // 记录修改（使用原始值作为 oldValue，用于撤销）
+      const modKey = `${row}-${col}`;
+      const column = result.columns[col];
+      // 如果这个单元格还没有被修改过，使用原始值；否则使用之前的修改记录中的 oldValue
+      const modOldValue = newMods.has(modKey) ? newMods.get(modKey)!.oldValue : originalValue;
+      newMods.set(modKey, {
+        rowIndex: row,
+        column,
+        oldValue: modOldValue,
+        newValue
+      });
+      
+      modifiedCount++;
     }
     
     if (modifiedCount > 0) {
@@ -811,25 +615,41 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const handleCopy = async () => {
     if (!selection) return;
     
-    const minRow = Math.min(selection.start.row, selection.end.row);
-    const maxRow = Math.max(selection.start.row, selection.end.row);
-    const minCol = Math.min(selection.start.col, selection.end.col);
-    const maxCol = Math.max(selection.start.col, selection.end.col);
-    
-    const rows: string[] = [];
-    
-    for (let row = minRow; row <= maxRow; row++) {
-      const cells: string[] = [];
-      for (let col = minCol; col <= maxCol; col++) {
-        const value = editedData.rows[row]?.[col];
-        cells.push(value === null || value === undefined ? '' : String(value));
+    // 按行分组选中的单元格
+    const cellsByRow = new Map<number, Map<number, any>>();
+    for (const cellKey of selection.cells) {
+      const [row, col] = cellKey.split('-').map(Number);
+      if (!cellsByRow.has(row)) {
+        cellsByRow.set(row, new Map());
       }
-      rows.push(cells.join('\t'));
+      const value = editedData.rows[row]?.[col];
+      cellsByRow.get(row)!.set(col, value === null || value === undefined ? '' : String(value));
     }
     
-    const text = rows.join('\n');
+    // 获取所有行和列的范围
+    const rows = Array.from(cellsByRow.keys()).sort((a, b) => a - b);
+    const allCols = new Set<number>();
+    for (const cols of cellsByRow.values()) {
+      for (const col of cols.keys()) {
+        allCols.add(col);
+      }
+    }
+    const sortedCols = Array.from(allCols).sort((a, b) => a - b);
+    
+    // 构建复制文本（按行和列的顺序）
+    const textRows: string[] = [];
+    for (const row of rows) {
+      const cells: string[] = [];
+      for (const col of sortedCols) {
+        const cols = cellsByRow.get(row);
+        cells.push(cols?.get(col) ?? '');
+      }
+      textRows.push(cells.join('\t'));
+    }
+    
+    const text = textRows.join('\n');
     await navigator.clipboard.writeText(text);
-    addLog(`已复制 ${rows.length} 行 ${maxCol - minCol + 1} 列`);
+    addLog(`已复制 ${textRows.length} 行 ${sortedCols.length} 列`);
   };
 
   // 粘贴数据
@@ -862,12 +682,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       // 保存当前状态到历史栈（在修改之前）
       saveToHistory();
       
-      // 计算选择区域的范围
-      const minRow = Math.min(selection.start.row, selection.end.row);
-      const maxRow = Math.max(selection.start.row, selection.end.row);
-      const minCol = Math.min(selection.start.col, selection.end.col);
-      const maxCol = Math.max(selection.start.col, selection.end.col);
-      
       const newEditedData = { ...editedData };
       newEditedData.rows = [...newEditedData.rows];
       const newMods = new Map(modifications);
@@ -878,10 +692,27 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       const isSingleValue = parsedLines.length === 1 && parsedLines[0].length === 1;
       const singleValue = isSingleValue ? (parsedLines[0][0].trim() === "" ? null : parsedLines[0][0].trim()) : null;
       
-      // 遍历选择区域内的所有单元格
-      for (let row = minRow; row <= maxRow; row++) {
+      // 将选中的单元格转换为有序数组（按行和列排序）
+      const selectedCells = Array.from(selection.cells)
+        .map(key => {
+          const [row, col] = key.split('-').map(Number);
+          return { row, col };
+        })
+        .sort((a, b) => {
+          if (a.row !== b.row) return a.row - b.row;
+          return a.col - b.col;
+        });
+      
+      // 计算选择区域的范围（用于粘贴时的位置计算）
+      const minRow = Math.min(...selectedCells.map(c => c.row));
+      const minCol = Math.min(...selectedCells.map(c => c.col));
+      
+      // 遍历所有选中的单元格
+      for (let i = 0; i < selectedCells.length; i++) {
+        const { row, col } = selectedCells[i];
+        
         // 如果超出数据范围，跳过
-        if (row >= newEditedData.rows.length) {
+        if (row >= newEditedData.rows.length || col >= result.columns.length) {
           continue;
         }
         
@@ -891,55 +722,48 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         }
         newEditedData.rows[row] = [...newEditedData.rows[row]];
         
-        for (let col = minCol; col <= maxCol; col++) {
-          // 如果超出列范围，跳过
-          if (col >= result.columns.length) {
-            continue;
-          }
+        // 获取粘贴值
+        let pasteValue = null;
+        
+        if (isSingleValue) {
+          // 单个值：应用到所有选中的单元格
+          pasteValue = singleValue;
+        } else {
+          // 多个值：按位置对应粘贴
+          const rowOffset = row - minRow;
+          const colOffset = col - minCol;
           
-          // 获取粘贴值
-          let pasteValue = null;
-          
-          if (isSingleValue) {
-            // 单个值：应用到所有选中的单元格
-            pasteValue = singleValue;
-          } else {
-            // 多个值：按位置对应粘贴
-            const rowOffset = row - minRow;
-            const colOffset = col - minCol;
-            
-            if (rowOffset < parsedLines.length) {
-              const pasteLine = parsedLines[rowOffset];
-              if (colOffset < pasteLine.length) {
-                const value = pasteLine[colOffset];
-                pasteValue = value.trim() === "" ? null : value.trim();
-              }
+          if (rowOffset < parsedLines.length) {
+            const pasteLine = parsedLines[rowOffset];
+            if (colOffset < pasteLine.length) {
+              const value = pasteLine[colOffset];
+              pasteValue = value.trim() === "" ? null : value.trim();
             }
           }
-          
-          // 如果 pasteValue 仍然是 null（且不是单个值的情况），跳过
-          if (pasteValue === null && !isSingleValue) {
-            continue;
-          }
-          
-          const oldValue = result.rows[row][col];
-          const newValue = pasteValue;
-          
-          // 更新单元格值
-          newEditedData.rows[row][col] = newValue;
-          
-          // 记录修改（即使值相同也记录，因为可能是从其他地方粘贴的）
-          if (oldValue !== newValue && String(oldValue) !== String(newValue)) {
-            const modKey = `${row}-${col}`;
-            const column = result.columns[col];
-            newMods.set(modKey, {
-              rowIndex: row,
-              column,
-              oldValue,
-              newValue
-            });
-            pastedCount++;
-          }
+        }
+        
+        // 如果 pasteValue 仍然是 null（且不是单个值的情况），跳过
+        if (pasteValue === null && !isSingleValue) {
+          continue;
+        }
+        
+        const oldValue = result.rows[row]?.[col];
+        const newValue = pasteValue;
+        
+        // 更新单元格值
+        newEditedData.rows[row][col] = newValue;
+        
+        // 记录修改（即使值相同也记录，因为可能是从其他地方粘贴的）
+        if (oldValue !== newValue && String(oldValue) !== String(newValue)) {
+          const modKey = `${row}-${col}`;
+          const column = result.columns[col];
+          newMods.set(modKey, {
+            rowIndex: row,
+            column,
+            oldValue,
+            newValue
+          });
+          pastedCount++;
         }
       }
       

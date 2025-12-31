@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import type { CellModification } from "../../hooks/useEditHistory";
+import type { CellSelection } from "../../hooks/useCellSelection";
 
 interface TableRowProps {
   row: any[];
@@ -10,7 +11,7 @@ interface TableRowProps {
   editingCell: { row: number; col: number } | null;
   editingValue: string;
   modifications: Map<string, CellModification>;
-  selection: { start: { row: number; col: number }; end: { row: number; col: number } } | null;
+  selection: CellSelection | null;
   isCellSelected: (row: number, col: number) => boolean;
   onCellMouseDown: (rowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
   onCellDoubleClick: (rowIndex: number, cellIndex: number) => void;
