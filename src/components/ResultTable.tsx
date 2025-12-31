@@ -572,8 +572,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       const [row, col] = cellKey.split('-').map(Number);
       const originalValue = result.rows[row]?.[col];
       const currentValue = editedData.rows[row]?.[col];
-      // 如果当前值等于原始值，说明未修改，使用空字符串作为标记
-      const valueStr = (currentValue === originalValue || String(currentValue) === String(originalValue))
+      // 检查是否在修改记录中（如果在修改记录中，说明已经被修改过）
+      const modKey = `${row}-${col}`;
+      const isModified = modifications.has(modKey);
+      
+      // 如果当前值等于原始值且不在修改记录中，说明未修改，使用空字符串作为标记
+      // 注意：即使字符串表示相同，如果已经在修改记录中，也应该使用当前值
+      const valueStr = (!isModified && (currentValue === originalValue || String(currentValue) === String(originalValue)))
         ? "" 
         : String(currentValue ?? "");
       currentValues.push(valueStr);
