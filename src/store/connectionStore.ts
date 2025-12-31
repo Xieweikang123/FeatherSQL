@@ -32,6 +32,8 @@ interface ConnectionState {
   sqlToLoad: string | null;
   savedSql: string | null;
   isQuerying: boolean;
+  // 方案8：将 columnFilters 提升到 store，避免组件重新挂载导致的状态丢失
+  columnFilters: Record<string, string>;
 
   setConnections: (connections: Connection[]) => void;
   setCurrentConnection: (id: string | null) => void;
@@ -45,6 +47,7 @@ interface ConnectionState {
   clearSqlToLoad: () => void;
   setSavedSql: (sql: string | null) => void;
   setIsQuerying: (isQuerying: boolean) => void;
+  setColumnFilters: (filters: Record<string, string>) => void;
   saveWorkspaceState: () => void;
   restoreWorkspaceState: () => WorkspaceState | null;
   saveWorkspaceHistory: (name?: string) => string | null;
@@ -65,6 +68,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   sqlToLoad: null,
   savedSql: null,
   isQuerying: false,
+  columnFilters: {}, // 方案8：将 columnFilters 提升到 store
 
   setConnections: (connections) => {
     set({ connections });
@@ -100,6 +104,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     // No auto-save on SQL editor content change (only save when explicitly loaded)
   },
   setIsQuerying: (isQuerying) => set({ isQuerying }),
+  setColumnFilters: (filters) => set({ columnFilters: filters }),
   saveWorkspaceState: () => {
     const state = get();
     const workspaceState: WorkspaceState = {

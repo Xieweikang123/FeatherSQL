@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { type QueryResult, executeSql } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
 import ConfirmDialog from "./ConfirmDialog";
@@ -32,10 +32,33 @@ interface EditHistoryState {
 }
 
 export default function ResultTable({ result, sql }: ResultTableProps) {
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:COMPONENT_RENDER',message:'Component rendering',data:{resultExists:!!result,resultColumnsLength:result?.columns?.length || 0,sql:sql?.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
+  
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  
+  // 保存原始 SQL（用于清除过滤时恢复）
+  const originalSqlRef = useRef<string | null>(sql || null);
+  // 保存原始列信息（当查询返回空结果时，保留列信息用于显示表头）
+  const originalColumnsRef = useRef<string[]>([]);
+  const debounceTimerRef = useRef<number | null>(null);
+  const [isFiltering, setIsFiltering] = useState(false);
+  // 使用 ref 保存 columnFilters，避免闭包问题
+  const columnFiltersRef = useRef<Record<string, string>>({});
+  // 方案7：使用一个持久化的 ref 保存最后一次的 filters，即使组件重新挂载也能恢复
+  const lastFiltersRef = useRef<Record<string, string>>({});
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:COMPONENT_RENDER:REFS',message:'Component refs initialized',data:{originalSql:originalSqlRef.current?.substring(0,50),originalColumnsLength:originalColumnsRef.current.length,columnFiltersRef:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
+  
+  // 初始化时保存列信息
+  if (result && result.columns.length > 0 && originalColumnsRef.current.length === 0) {
+    originalColumnsRef.current = result.columns;
+  }
   
   // 编辑相关状态
   const [editMode, setEditMode] = useState(false);
@@ -64,7 +87,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     connections, 
     addLog, 
     setQueryResult,
-    setIsQuerying 
+    setIsQuerying,
+    columnFilters, // 方案8：从 store 读取 columnFilters
+    setColumnFilters // 方案8：使用 store 的 setColumnFilters
   } = useConnectionStore();
   const currentConnection = connections.find(c => c.id === currentConnectionId);
   const [isSaving, setIsSaving] = useState(false);
@@ -74,9 +99,196 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     historyIndexRef.current = historyIndex;
   }, [historyIndex]);
 
+  // 保存原始 SQL
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:SQL',message:'SQL useEffect triggered',data:{sql:sql?.substring(0,50),originalSql:originalSqlRef.current?.substring(0,50),sqlChanged:sql && sql !== originalSqlRef.current,currentColumnFilters:columnFilters,refColumnFilters:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    
+    if (sql && sql !== originalSqlRef.current) {
+      // SQL 变化了，说明是新的查询，清空过滤条件
+      console.log('[ResultTable] SQL 变化，清空过滤条件', {
+        oldSql: originalSqlRef.current?.substring(0, 50),
+        newSql: sql.substring(0, 50)
+      });
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:SQL:CLEAR',message:'Clearing columnFilters due to SQL change',data:{oldSql:originalSqlRef.current?.substring(0,50),newSql:sql.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      
+      originalSqlRef.current = sql;
+      setColumnFilters({});
+      columnFiltersRef.current = {};
+    } else if (sql) {
+      originalSqlRef.current = sql;
+      // SQL 没有变化，但可能 columnFilters 状态和 ref 不同步，同步一下
+      // 优先使用 ref 的值，因为它总是最新的（在 executeFilteredSql 中会先更新 ref）
+      // 但如果 ref 为空而 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
+      // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复
+      const refHasFilters = Object.keys(columnFiltersRef.current).length > 0;
+      const stateHasFilters = Object.keys(columnFilters).length > 0;
+      const lastHasFilters = Object.keys(lastFiltersRef.current).length > 0;
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:SQL:CHECK_SYNC',message:'Checking if sync needed',data:{refHasFilters,stateHasFilters,lastHasFilters,refColumnFilters:columnFiltersRef.current,stateColumnFilters:columnFilters,lastFilters:lastFiltersRef.current,willSyncFromRef:refHasFilters && (!stateHasFilters || JSON.stringify(columnFiltersRef.current) !== JSON.stringify(columnFilters)),willSyncFromState:!refHasFilters && stateHasFilters,willSyncFromLast:!refHasFilters && !stateHasFilters && lastHasFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      
+      // 如果 ref 有值但 state 为空，同步 ref 到 state（避免状态丢失）
+      // 如果 ref 和 state 都有值但不一致，也同步 ref 到 state（ref 是权威来源）
+      if (refHasFilters && (!stateHasFilters || JSON.stringify(columnFiltersRef.current) !== JSON.stringify(columnFilters))) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:SQL:SYNC',message:'Syncing columnFilters from ref',data:{refColumnFilters:columnFiltersRef.current,stateColumnFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        setColumnFilters(columnFiltersRef.current);
+      } else if (!refHasFilters && stateHasFilters) {
+        // 如果 ref 为空但 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:SQL:SYNC_FROM_STATE',message:'Syncing columnFiltersRef from state (ref was cleared)',data:{stateColumnFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        columnFiltersRef.current = columnFilters;
+        lastFiltersRef.current = columnFilters;
+      } else if (!refHasFilters && !stateHasFilters && lastHasFilters) {
+        // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复（组件可能重新挂载了）
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:SQL:SYNC_FROM_LAST',message:'Syncing columnFilters from lastFiltersRef (component may have remounted)',data:{lastFilters:lastFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        columnFiltersRef.current = lastFiltersRef.current;
+        setColumnFilters(lastFiltersRef.current);
+      }
+    }
+  }, [sql]); // 移除 columnFilters 依赖，避免在状态更新时触发不必要的重新执行
+  
+  // 保存列信息（单独处理，避免与 SQL 变化逻辑冲突）
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:RESULT:ENTRY',message:'Result useEffect triggered',data:{resultExists:!!result,resultColumnsLength:result?.columns?.length || 0,originalColumnsLength:originalColumnsRef.current.length,currentColumnFilters:columnFilters,refColumnFilters:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C'})}).catch(()=>{});
+    // #endregion
+    
+    if (result && result.columns.length > 0) {
+      // 检查列是否发生变化（只有当列真正不同时才认为变化）
+      // 使用副本进行排序，避免修改原数组
+      const currentColumnsStr = JSON.stringify([...result.columns].sort());
+      const originalColumnsStr = JSON.stringify([...originalColumnsRef.current].sort());
+      const columnsChanged = currentColumnsStr !== originalColumnsStr;
+      const sqlMatches = sql === originalSqlRef.current;
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:RESULT:CHECK',message:'Checking column changes',data:{currentColumns:result.columns,originalColumns:originalColumnsRef.current,columnsChanged,sqlMatches,currentColumnFilters:columnFilters,refColumnFilters:columnFiltersRef.current,willClear:columnsChanged && originalColumnsRef.current.length > 0 && sqlMatches},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C,D'})}).catch(()=>{});
+      // #endregion
+      
+      console.log('[ResultTable] result 变化，检查列变化', {
+        currentColumns: result.columns,
+        originalColumns: originalColumnsRef.current,
+        columnsChanged,
+        sql: sql?.substring(0, 50),
+        originalSql: originalSqlRef.current?.substring(0, 50),
+        sqlMatches: sql === originalSqlRef.current
+      });
+      
+      // 如果列发生了变化，且之前有列信息，清空过滤条件（因为列名可能不同）
+      // 但只有在 SQL 没有变化时才清空（避免过滤查询时误判）
+      // 如果 SQL 变化了，上面的 useEffect 已经清空了，这里不需要再清空
+      if (columnsChanged && originalColumnsRef.current.length > 0 && sqlMatches) {
+        console.log('[ResultTable] 列变化且 SQL 未变化，清空过滤条件');
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:RESULT:CLEAR',message:'Clearing columnFilters due to column change',data:{columnsChanged,sqlMatches,currentColumnFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C,D'})}).catch(()=>{});
+        // #endregion
+        
+        setColumnFilters({});
+        columnFiltersRef.current = {};
+      } else if (!columnsChanged && sqlMatches) {
+        // 列没有变化且 SQL 匹配，可能是过滤查询的结果
+        // 优先使用 ref 的值，因为它总是最新的（在 executeFilteredSql 中会先更新 ref）
+        // 但如果 ref 为空而 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
+        // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复
+        const refHasFilters = Object.keys(columnFiltersRef.current).length > 0;
+        const stateHasFilters = Object.keys(columnFilters).length > 0;
+        const lastHasFilters = Object.keys(lastFiltersRef.current).length > 0;
+        
+        // 如果 ref 有值但 state 为空，同步 ref 到 state（避免状态丢失）
+        // 如果 ref 和 state 都有值但不一致，也同步 ref 到 state（ref 是权威来源）
+        if (refHasFilters && (!stateHasFilters || JSON.stringify(columnFiltersRef.current) !== JSON.stringify(columnFilters))) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:RESULT:SYNC',message:'Syncing columnFilters from ref after filter query',data:{refColumnFilters:columnFiltersRef.current,stateColumnFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C'})}).catch(()=>{});
+          // #endregion
+          setColumnFilters(columnFiltersRef.current);
+        } else if (!refHasFilters && stateHasFilters) {
+          // 如果 ref 为空但 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:RESULT:SYNC_FROM_STATE',message:'Syncing columnFiltersRef from state (ref was cleared)',data:{stateColumnFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C'})}).catch(()=>{});
+          // #endregion
+          columnFiltersRef.current = columnFilters;
+          lastFiltersRef.current = columnFilters;
+        } else if (!refHasFilters && !stateHasFilters && lastHasFilters) {
+          // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复（组件可能重新挂载了）
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:RESULT:SYNC_FROM_LAST',message:'Syncing columnFilters from lastFiltersRef (component may have remounted)',data:{lastFilters:lastFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C'})}).catch(()=>{});
+          // #endregion
+          columnFiltersRef.current = lastFiltersRef.current;
+          setColumnFilters(lastFiltersRef.current);
+        }
+      }
+      
+      // 更新列信息（即使没有变化也要更新，因为可能是过滤查询返回的结果）
+      // 但只有在列真正变化时才更新引用，避免不必要的更新
+      if (columnsChanged || originalColumnsRef.current.length === 0) {
+        originalColumnsRef.current = result.columns;
+      }
+    } else {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useEffect:RESULT:SKIP',message:'Skipping column check - no result or empty columns',data:{resultExists:!!result,resultColumnsLength:result?.columns?.length || 0,currentColumnFilters:columnFilters,refColumnFilters:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+    }
+  }, [result, sql]); // 移除 columnFilters 依赖，避免在状态更新时触发不必要的重新执行
+
+  // 方案4：使用 useLayoutEffect 在渲染前确保 ref 和 state 同步
+  // 这会在 DOM 更新之前执行，确保在渲染时 ref 和 state 是一致的
+  useLayoutEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useLayoutEffect:ENTRY',message:'useLayoutEffect triggered',data:{stateColumnFilters:columnFilters,refColumnFilters:columnFiltersRef.current,lastFilters:lastFiltersRef.current,resultExists:!!result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+    // #endregion
+    
+    // 如果 state 有值但 ref 为空，从 state 恢复 ref
+    const stateHasFilters = Object.keys(columnFilters).length > 0;
+    const refHasFilters = Object.keys(columnFiltersRef.current).length > 0;
+    const lastHasFilters = Object.keys(lastFiltersRef.current).length > 0;
+    
+    if (stateHasFilters && !refHasFilters) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useLayoutEffect:SYNC',message:'useLayoutEffect syncing ref from state',data:{stateColumnFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+      // #endregion
+      columnFiltersRef.current = columnFilters;
+      lastFiltersRef.current = columnFilters;
+    } else if (refHasFilters && !stateHasFilters) {
+      // 如果 ref 有值但 state 为空，从 ref 恢复 state
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useLayoutEffect:SYNC_STATE',message:'useLayoutEffect syncing state from ref',data:{refColumnFilters:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+      // #endregion
+      setColumnFilters(columnFiltersRef.current);
+    } else if (!refHasFilters && !stateHasFilters && lastHasFilters) {
+      // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复（组件可能重新挂载了）
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:useLayoutEffect:SYNC_FROM_LAST',message:'useLayoutEffect syncing from lastFiltersRef (component may have remounted)',data:{lastFilters:lastFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+      // #endregion
+      columnFiltersRef.current = lastFiltersRef.current;
+      setColumnFilters(lastFiltersRef.current);
+    }
+  }, [columnFilters, result]); // 依赖 columnFilters 和 result，确保在状态变化时同步
+
   // 当 result 变化时，重置编辑状态
   useEffect(() => {
-    setEditedData(result);
+    // 如果查询返回空结果但没有列信息，使用保存的列信息
+    if (result && result.columns.length === 0 && originalColumnsRef.current.length > 0) {
+      // 创建一个新的 result 对象，使用保存的列信息
+      const resultWithColumns = {
+        ...result,
+        columns: originalColumnsRef.current
+      };
+      setEditedData(resultWithColumns);
+    } else {
+      setEditedData(result);
+    }
     setModifications(new Map());
     setEditingCell(null);
     setSelection(null);
@@ -84,6 +296,226 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setHistoryIndex(-1);
     historyIndexRef.current = -1;
   }, [result]);
+
+  // 构建带 WHERE 条件的 SQL
+  const buildFilteredSql = (baseSql: string, filters: Record<string, string>): string => {
+    if (!baseSql) return baseSql;
+    
+    const activeFilters = Object.entries(filters).filter(([_, value]) => value.trim() !== "");
+    if (activeFilters.length === 0) return baseSql;
+
+    // 移除注释和多余空白
+    const cleaned = baseSql
+      .replace(/--.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .trim();
+
+    // 检查是否已经有 WHERE 子句
+    const hasWhere = /\bWHERE\b/i.test(cleaned);
+    
+    // 构建 WHERE 条件
+    const dbType = currentConnection?.type || 'sqlite';
+    const conditions: string[] = [];
+    
+    activeFilters.forEach(([columnName, filterValue]) => {
+      const escapedColumn = escapeIdentifier(columnName, dbType);
+      const escapedValue = escapeSqlValue(`%${filterValue}%`, dbType);
+      
+      // 使用 LIKE 进行模糊匹配（不区分大小写）
+      if (dbType === 'postgres') {
+        conditions.push(`LOWER(${escapedColumn}::text) LIKE LOWER(${escapedValue})`);
+      } else if (dbType === 'mssql') {
+        conditions.push(`${escapedColumn} LIKE ${escapedValue} COLLATE SQL_Latin1_General_CP1_CI_AS`);
+      } else {
+        // MySQL 和 SQLite
+        conditions.push(`LOWER(${escapedColumn}) LIKE LOWER(${escapedValue})`);
+      }
+    });
+
+    if (conditions.length === 0) return baseSql;
+
+    const whereClause = conditions.join(' AND ');
+    
+    if (hasWhere) {
+      // 如果已有 WHERE，在 WHERE 后面添加 AND 条件
+      // 找到 WHERE 关键字的位置
+      const whereMatch = cleaned.match(/\bWHERE\b/i);
+      if (whereMatch && whereMatch.index !== undefined) {
+        const whereIndex = whereMatch.index + whereMatch[0].length;
+        // 在 WHERE 后面添加 AND 条件
+        return cleaned.slice(0, whereIndex) + ` AND (${whereClause})` + cleaned.slice(whereIndex);
+      }
+      // 如果找不到 WHERE 位置，回退到简单替换
+      return cleaned.replace(/\bWHERE\b/i, `WHERE (${whereClause}) AND`);
+    } else {
+      // 如果没有 WHERE，添加 WHERE 子句
+      // 找到 ORDER BY, GROUP BY, LIMIT 等子句的位置
+      const orderByMatch = cleaned.match(/\bORDER\s+BY\b/i);
+      const groupByMatch = cleaned.match(/\bGROUP\s+BY\b/i);
+      const havingMatch = cleaned.match(/\bHAVING\b/i);
+      const limitMatch = cleaned.match(/\bLIMIT\b/i);
+      
+      let insertPosition = cleaned.length;
+      if (orderByMatch) insertPosition = Math.min(insertPosition, orderByMatch.index || cleaned.length);
+      if (groupByMatch) insertPosition = Math.min(insertPosition, groupByMatch.index || cleaned.length);
+      if (havingMatch) insertPosition = Math.min(insertPosition, havingMatch.index || cleaned.length);
+      if (limitMatch) insertPosition = Math.min(insertPosition, limitMatch.index || cleaned.length);
+      
+      return cleaned.slice(0, insertPosition).trim() + ` WHERE ${whereClause} ` + cleaned.slice(insertPosition);
+    }
+  };
+
+  // 执行带过滤的 SQL 查询
+  const executeFilteredSql = async (filters: Record<string, string>) => {
+    if (!currentConnectionId || !originalSqlRef.current) {
+      return;
+    }
+
+    const activeFilters = Object.entries(filters).filter(([_, value]) => value.trim() !== "");
+    
+    console.log('[ResultTable] executeFilteredSql 开始', {
+      filters,
+      activeFilters,
+      originalSql: originalSqlRef.current.substring(0, 50),
+      currentColumnFilters: columnFilters
+    });
+    
+    try {
+      setIsFiltering(true);
+      setIsQuerying(true);
+      
+      let sqlToExecute: string;
+      if (activeFilters.length === 0) {
+        // 没有过滤条件，使用原始 SQL
+        sqlToExecute = originalSqlRef.current;
+      } else {
+        // 构建带 WHERE 条件的 SQL
+        sqlToExecute = buildFilteredSql(originalSqlRef.current, filters);
+      }
+      
+      addLog(`执行过滤查询: ${sqlToExecute.substring(0, 100)}...`);
+      const newResult = await executeSql(
+        currentConnectionId,
+        sqlToExecute,
+        currentDatabase || undefined
+      );
+      
+      console.log('[ResultTable] executeFilteredSql 查询完成', {
+        resultColumns: newResult.columns,
+        resultRowsCount: newResult.rows.length,
+        originalColumns: originalColumnsRef.current,
+        currentColumnFilters: columnFilters,
+        filters: filters
+      });
+      
+      // 在 setQueryResult 之前，同步更新 ref 和 state
+      // 这样 useEffect 在重新渲染时能读取到最新的值
+      // 先更新 ref（同步操作）
+      columnFiltersRef.current = filters;
+      // 然后更新 store（方案8：使用 store 的 setColumnFilters）
+      const filtersMatch = JSON.stringify(filters) === JSON.stringify(columnFilters);
+      if (!filtersMatch) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:executeFilteredSql:BEFORE_SETQUERY:UPDATE_STATE',message:'Updating columnFilters state before setQueryResult',data:{filters,prevFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+        // #endregion
+      }
+      setColumnFilters(filters);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:executeFilteredSql:BEFORE_SETQUERY',message:'Before setQueryResult, updating ref and state',data:{filters,refFilters:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+      // #endregion
+      
+      // 重要：在 setQueryResult 之前，确保 ref 已经更新
+      // 因为 setQueryResult 会触发重新渲染，useEffect 会读取 ref 的值
+      // 我们使用 React.startTransition 来确保状态更新的优先级
+      
+      // 方案6：在 setQueryResult 之前，确保 ref 和 state 都已经更新
+      // 使用多个保护措施确保 ref 不会被清空
+      columnFiltersRef.current = filters;
+      lastFiltersRef.current = filters; // 保存到持久化 ref
+      setColumnFilters(filters);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:executeFilteredSql:BEFORE_SETQUERY:FINAL',message:'Final update before setQueryResult',data:{filters,refFilters:columnFiltersRef.current,lastFilters:lastFiltersRef.current,stateFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+      // #endregion
+      
+      // 如果查询返回空结果但没有列信息，尝试从保存的列信息中恢复
+      if (newResult.columns.length === 0 && originalColumnsRef.current.length > 0) {
+        // 保留列信息，只更新行数据
+        const resultWithColumns = {
+          ...newResult,
+          columns: originalColumnsRef.current
+        };
+        console.log('[ResultTable] 使用保存的列信息填充空结果', {
+          resultWithColumns,
+          filters: filters
+        });
+        setQueryResult(resultWithColumns);
+      } else {
+        console.log('[ResultTable] 直接设置查询结果', {
+          newResult,
+          filters: filters
+        });
+        setQueryResult(newResult);
+      }
+      
+      // 方案1：在 setQueryResult 之后，立即再次更新 ref，确保 ref 始终是最新值
+      // 使用 Object.assign 确保是同一个对象引用，避免被清空
+      Object.assign(columnFiltersRef.current, filters);
+      lastFiltersRef.current = filters; // 同时更新持久化 ref
+      
+      // 方案2：使用多个 setTimeout 确保在不同渲染周期都更新 ref
+      // 第一个 setTimeout：立即更新（当前渲染周期）
+      setTimeout(() => {
+        columnFiltersRef.current = filters;
+        lastFiltersRef.current = filters; // 同时更新持久化 ref
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:executeFilteredSql:AFTER_SETQUERY:SETTIMEOUT1',message:'After setQueryResult, setTimeout 1 updating ref',data:{filters,refFilters:columnFiltersRef.current,lastFilters:lastFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+        // #endregion
+      }, 0);
+      
+      // 第二个 setTimeout：在下一个事件循环更新（确保在所有 useEffect 执行后）
+      setTimeout(() => {
+        columnFiltersRef.current = filters;
+        lastFiltersRef.current = filters; // 同时更新持久化 ref
+        setColumnFilters(filters);
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:executeFilteredSql:AFTER_SETQUERY:SETTIMEOUT2',message:'After setQueryResult, setTimeout 2 updating ref and state',data:{filters,refFilters:columnFiltersRef.current,lastFilters:lastFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+        // #endregion
+      }, 10);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:executeFilteredSql:AFTER_SETQUERY',message:'After setQueryResult, ensuring ref is updated',data:{filters,refFilters:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+      // #endregion
+      
+      // 方案3：验证过滤条件是否正确保留（用于调试）
+      setTimeout(() => {
+        const filtersMatch = JSON.stringify(filters) === JSON.stringify(columnFilters);
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:executeFilteredSql:AFTER_QUERY',message:'After setQueryResult, verifying filters',data:{filters,columnFilters,filtersMatch,refFilters:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,E'})}).catch(()=>{});
+        // #endregion
+        
+        if (!filtersMatch) {
+          console.warn('[ResultTable] 过滤条件不匹配，尝试修复', {
+            filters,
+            columnFilters
+          });
+          // 如果仍然不匹配，再次更新（可能是由于其他状态更新导致）
+          setColumnFilters(filters);
+          columnFiltersRef.current = filters;
+        }
+      }, 50);
+      addLog(`过滤查询成功，返回 ${newResult.rows.length} 行`);
+    } catch (error) {
+      const errorMsg = String(error);
+      addLog(`过滤查询失败: ${errorMsg}`);
+      console.error("Filtered SQL execution error:", error);
+    } finally {
+      setIsFiltering(false);
+      setIsQuerying(false);
+    }
+  };
 
   // 保存当前状态到历史栈
   const saveToHistory = () => {
@@ -199,45 +631,139 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   }, [expandedSearchColumn]);
 
-  // 过滤行数据
+  // 计算显示的行数据（直接使用 result.rows，不再需要前端过滤）
   const filteredRows = useMemo(() => {
-    if (!result || result.rows.length === 0) return [];
-    
-    const activeFilters = Object.entries(columnFilters).filter(([_, value]) => value.trim() !== "");
-    if (activeFilters.length === 0) return result.rows;
+    return result?.rows || [];
+  }, [result]);
 
-    return result.rows.filter((row) => {
-      return activeFilters.every(([columnName, filterValue]) => {
-        const columnIndex = result.columns.indexOf(columnName);
-        if (columnIndex === -1) return true;
-
-        const cellValue = row[columnIndex];
-        const cellStr = cellValue === null || cellValue === undefined 
-          ? "" 
-          : typeof cellValue === "object" 
-          ? JSON.stringify(cellValue) 
-          : String(cellValue);
-
-        // 不区分大小写的模糊匹配
-        return cellStr.toLowerCase().includes(filterValue.toLowerCase());
-      });
-    });
-  }, [result, columnFilters]);
-
+  // 更新过滤值（不自动执行查询）
   const handleFilterChange = (columnName: string, value: string) => {
-    setColumnFilters((prev) => ({
-      ...prev,
+    const newFilters = {
+      ...columnFilters,
       [columnName]: value,
-    }));
+    };
+    
+    // 如果值为空，移除该过滤
+    if (value.trim() === "") {
+      delete newFilters[columnName];
+    }
+    
+    console.log('[ResultTable] handleFilterChange', {
+      columnName,
+      value,
+      newFilters,
+      oldFilters: columnFilters
+    });
+    
+    setColumnFilters(newFilters);
+    columnFiltersRef.current = newFilters;
+  };
+
+  // 手动触发查询（按 Enter 键时调用）
+  const handleFilterSearch = (columnName: string) => {
+    const filterValue = columnFilters[columnName] || "";
+    const newFilters = { ...columnFilters };
+    
+    // 如果值为空，移除该过滤
+    if (filterValue.trim() === "") {
+      delete newFilters[columnName];
+    }
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:handleFilterSearch:ENTRY',message:'handleFilterSearch called',data:{columnName,filterValue,newFilters,currentFilters:columnFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    
+    console.log('[ResultTable] handleFilterSearch', {
+      columnName,
+      filterValue,
+      newFilters,
+      currentFilters: columnFilters
+    });
+    
+    // 方案5：在 handleFilterSearch 中，同时更新 ref 和 state，并使用多个保护措施
+    // 先更新 ref（同步操作）
+    columnFiltersRef.current = newFilters;
+    
+    // 更新过滤条件状态，确保输入框中的值保留
+    setColumnFilters(newFilters);
+    
+    // 使用 setTimeout 确保在下一个事件循环中 ref 仍然是最新的
+    setTimeout(() => {
+      columnFiltersRef.current = newFilters;
+    }, 0);
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:handleFilterSearch:AFTER_SET',message:'setColumnFilters called',data:{newFilters,refUpdated:columnFiltersRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    
+    // 清除之前的定时器
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    
+    // 立即执行查询
+    executeFilteredSql(newFilters);
   };
 
   const handleClearFilter = (columnName: string) => {
-    setColumnFilters((prev) => {
-      const newFilters = { ...prev };
-      delete newFilters[columnName];
-      return newFilters;
-    });
+    const newFilters = { ...columnFilters };
+    delete newFilters[columnName];
+    setColumnFilters(newFilters);
+    columnFiltersRef.current = newFilters;
+    
+    // 清除之前的定时器
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    
+    // 立即执行（清除过滤不需要防抖）
+    executeFilteredSql(newFilters);
   };
+
+  // 清除所有过滤
+  const handleClearAllFilters = () => {
+    setColumnFilters({});
+    
+    // 清除之前的定时器
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    
+    // 立即执行原始 SQL
+    if (originalSqlRef.current && currentConnectionId) {
+      setIsFiltering(true);
+      setIsQuerying(true);
+      executeSql(
+        currentConnectionId,
+        originalSqlRef.current,
+        currentDatabase || undefined
+      )
+        .then((newResult) => {
+          setQueryResult(newResult);
+          addLog("已清除所有过滤条件");
+        })
+        .catch((error) => {
+          const errorMsg = String(error);
+          addLog(`恢复原始查询失败: ${errorMsg}`);
+        })
+        .finally(() => {
+          setIsFiltering(false);
+          setIsQuerying(false);
+        });
+    }
+  };
+
+  // 组件卸载时清除定时器
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleCopySql = async () => {
     if (!sql) return;
@@ -798,7 +1324,24 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   const hasActiveFilters = Object.values(columnFilters).some(v => v.trim() !== "");
 
-  if (!result || result.columns.length === 0) {
+  // 使用保存的列信息，如果当前 result 没有列但之前有列，使用之前的列
+  const displayColumns = (result && result.columns.length > 0) 
+    ? result.columns 
+    : originalColumnsRef.current;
+  const displayRows = result?.rows || [];
+
+  // 只有在完全没有 result 或完全没有列信息时才显示"无数据返回"
+  // 如果 result 存在但只是没有行数据，应该显示表格结构
+  if (!result) {
+    return (
+      <div className="p-4 text-center" style={{ color: 'var(--neu-text-light)' }}>
+        无数据返回
+      </div>
+    );
+  }
+  
+  // 如果完全没有列信息（包括保存的列信息），显示"无数据返回"
+  if (displayColumns.length === 0) {
     return (
       <div className="p-4 text-center" style={{ color: 'var(--neu-text-light)' }}>
         无数据返回
@@ -898,17 +1441,21 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         <div className="px-4 py-2.5 neu-flat flex items-center justify-between gap-3" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <span className="text-xs font-semibold flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>SQL:</span>
-            <code className="text-xs font-mono truncate flex-1" style={{ color: 'var(--neu-text)' }}>
-              {sql}
+            <code 
+              className="text-xs font-mono flex-1 break-all whitespace-pre-wrap" 
+              style={{ color: 'var(--neu-text)', wordBreak: 'break-word', overflowWrap: 'break-word' }}
+              title={hasActiveFilters ? buildFilteredSql(originalSqlRef.current || sql, columnFilters) : (originalSqlRef.current || sql)}
+            >
+              {hasActiveFilters ? buildFilteredSql(originalSqlRef.current || sql, columnFilters) : (originalSqlRef.current || sql)}
             </code>
             {hasActiveFilters && (
               <span className="text-xs flex-shrink-0" style={{ color: 'var(--neu-accent)' }}>
-                (已过滤: {filteredRows.length} / {result.rows.length})
+                {isFiltering ? "(过滤中...)" : `(已过滤: ${displayRows.length} 条)`}
               </span>
             )}
             {!hasActiveFilters && (
               <span className="text-xs flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>
-                (共 {result.rows.length} 条)
+                (共 {displayRows.length} 条)
               </span>
             )}
           </div>
@@ -925,12 +1472,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             )}
             {hasActiveFilters && (
               <button
-                onClick={() => setColumnFilters({})}
-                className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                onClick={handleClearAllFilters}
+                disabled={isFiltering}
+                className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ color: 'var(--neu-accent)' }}
                 title="清除所有过滤"
               >
-                清除过滤
+                {isFiltering ? "过滤中..." : "清除过滤"}
               </button>
             )}
             <button
@@ -949,7 +1497,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         <table className="w-full border-collapse text-sm">
           <thead className="neu-raised sticky top-0 z-10">
             <tr>
-              {result.columns.map((column, index) => {
+              {displayColumns.map((column, index) => {
                 const filterValue = columnFilters[column] || "";
                 const hasFilter = filterValue.trim() !== "";
                 const isExpanded = expandedSearchColumn === column;
@@ -1005,23 +1553,44 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                             onKeyDown={(e) => {
                               if (e.key === "Escape") {
                                 setExpandedSearchColumn(null);
+                              } else if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleFilterSearch(column);
                               }
                             }}
                           />
-                          <span className="absolute left-2 top-1.5 text-xs" style={{ color: 'var(--neu-text-light)' }}>🔍</span>
-                          {filterValue && (
-                            <button
-                              onClick={() => {
-                                handleClearFilter(column);
-                                setExpandedSearchColumn(null);
-                              }}
-                              className="absolute right-2 top-1.5 text-xs w-4 h-4 flex items-center justify-center rounded transition-all neu-flat hover:neu-hover"
-                              style={{ color: 'var(--neu-text-light)' }}
-                              title="清除"
-                            >
-                              ✕
-                            </button>
-                          )}
+                          <span className="absolute left-2 top-1.5 text-xs" style={{ color: 'var(--neu-text-light)' }}>
+                            🔍
+                          </span>
+                          <div className="absolute right-2 top-1 flex items-center gap-1">
+                            {filterValue && (
+                              <button
+                                onClick={() => {
+                                  handleFilterSearch(column);
+                                }}
+                                disabled={isFiltering}
+                                className="text-xs px-2 py-0.5 rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ color: 'var(--neu-accent)' }}
+                                title="搜索 (Enter)"
+                              >
+                                {isFiltering ? "⏳" : "搜索"}
+                              </button>
+                            )}
+                            {filterValue && (
+                              <button
+                                onClick={() => {
+                                  handleClearFilter(column);
+                                  setExpandedSearchColumn(null);
+                                }}
+                                disabled={isFiltering}
+                                className="text-xs w-4 h-4 flex items-center justify-center rounded transition-all neu-flat hover:neu-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ color: 'var(--neu-text-light)' }}
+                                title="清除"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -1034,7 +1603,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             {filteredRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={result.columns.length}
+                  colSpan={displayColumns.length}
                   className="px-4 py-12 text-center"
                   style={{ color: 'var(--neu-text-light)' }}
                 >
