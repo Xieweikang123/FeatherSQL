@@ -367,26 +367,86 @@ export default function ConnectionManager() {
             setEditingConnection(null);
             setShowForm(true);
           }}
-          className="w-full px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 neu-hover neu-active neu-raised"
-          style={{ color: 'var(--neu-accent-dark)' }}
+          className="w-full px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 neu-raised hover:neu-hover active:neu-active"
+          style={{ 
+            color: 'var(--neu-accent)',
+            boxShadow: '6px 6px 12px rgba(0, 0, 0, 0.6), -3px -3px 6px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+          }}
         >
-          <span className="inline-flex items-center gap-2">
-            <span className="text-base font-bold">+</span>
+          <span className="inline-flex items-center gap-2.5">
+            <span 
+              className="text-xl font-bold leading-none flex items-center justify-center w-6 h-6"
+              style={{ 
+                color: 'var(--neu-accent)',
+                textShadow: '0 0 10px rgba(91, 155, 213, 0.6), 0 0 20px rgba(91, 155, 213, 0.3)',
+                filter: 'drop-shadow(0 0 2px rgba(91, 155, 213, 0.8))'
+              }}
+            >
+              +
+            </span>
             <span>新建连接</span>
           </span>
         </button>
 
         <button
           onClick={() => setShowHistory(!showHistory)}
-          className="w-full px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 neu-hover neu-active neu-raised"
-          style={{ color: 'var(--neu-text)' }}
+          className="w-full px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 neu-raised hover:neu-hover active:neu-active"
+          style={{ 
+            color: 'var(--neu-text)',
+            boxShadow: '6px 6px 12px rgba(0, 0, 0, 0.6), -3px -3px 6px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+          }}
           title="查看工作历史"
         >
-          <span className="inline-flex items-center gap-1.5">
-            <span>📚</span>
+          <span className="inline-flex items-center gap-2.5">
+            {/* 三个重叠方块的图标 */}
+            <span className="relative flex-shrink-0" style={{ width: '18px', height: '18px' }}>
+              <span 
+                className="absolute rounded-sm"
+                style={{ 
+                  width: '12px',
+                  height: '12px',
+                  backgroundColor: '#66BB6A',
+                  boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.4), -1px -1px 2px rgba(255, 255, 255, 0.1)',
+                  transform: 'translate(4px, 4px)',
+                  zIndex: 1
+                }}
+              />
+              <span 
+                className="absolute rounded-sm"
+                style={{ 
+                  width: '12px',
+                  height: '12px',
+                  backgroundColor: '#EF5350',
+                  boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.4), -1px -1px 2px rgba(255, 255, 255, 0.1)',
+                  transform: 'translate(2px, 2px)',
+                  zIndex: 2
+                }}
+              />
+              <span 
+                className="absolute rounded-sm"
+                style={{ 
+                  width: '12px',
+                  height: '12px',
+                  backgroundColor: '#5B9BD5',
+                  boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.4), -1px -1px 2px rgba(255, 255, 255, 0.1)',
+                  transform: 'translate(0px, 0px)',
+                  zIndex: 3
+                }}
+              />
+            </span>
             <span>历史</span>
             {workspaceHistory.length > 0 && (
-              <span className="px-1.5 py-0.5 rounded text-xs neu-pressed" style={{ color: 'var(--neu-accent)' }}>
+              <span 
+                className="px-2 py-0.5 rounded-md text-xs font-semibold flex-shrink-0" 
+                style={{ 
+                  color: 'var(--neu-text)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                  minWidth: '22px',
+                  textAlign: 'center',
+                  boxShadow: 'inset 3px 3px 6px rgba(0, 0, 0, 0.6), inset -1px -1px 2px rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(0, 0, 0, 0.3)'
+                }}
+              >
                 {workspaceHistory.length}
               </span>
             )}

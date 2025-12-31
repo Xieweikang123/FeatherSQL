@@ -1,8 +1,15 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { type QueryResult, executeSql } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
 import ConfirmDialog from "./ConfirmDialog";
 import { extractTableInfo, escapeIdentifier, escapeSqlValue, buildTableName } from "../lib/utils";
+import { useColumnFilters } from "../hooks/useColumnFilters";
+import { useEditHistory, type CellModification } from "../hooks/useEditHistory";
+import { useCellSelection } from "../hooks/useCellSelection";
+import EditToolbar from "./ResultTable/EditToolbar";
+import SqlDisplayBar from "./ResultTable/SqlDisplayBar";
+import TableHeader from "./ResultTable/TableHeader";
+import TableRow from "./ResultTable/TableRow";
 
 interface ResultTableProps {
   result: QueryResult;
@@ -14,66 +21,20 @@ interface EditingCell {
   col: number;
 }
 
-interface CellModification {
-  rowIndex: number;
-  column: string;
-  oldValue: any;
-  newValue: any;
-}
-
-interface SelectionRange {
-  start: { row: number; col: number };
-  end: { row: number; col: number };
-}
-
-interface EditHistoryState {
-  editedData: QueryResult;
-  modifications: Map<string, CellModification>;
-}
-
 export default function ResultTable({ result, sql }: ResultTableProps) {
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [isFiltering, setIsFiltering] = useState(false);
+  const debounceTimerRef = useRef<number | null>(null);
   
-  // 保存原始 SQL（用于清除过滤时恢复）
-  const originalSqlRef = useRef<string | null>(sql || null);
   // 保存原始列信息（当查询返回空结果时，保留列信息用于显示表头）
   const originalColumnsRef = useRef<string[]>([]);
-  const debounceTimerRef = useRef<number | null>(null);
-  const [isFiltering, setIsFiltering] = useState(false);
-  // 使用 ref 保存 columnFilters，避免闭包问题
-  const columnFiltersRef = useRef<Record<string, string>>({});
-  // 方案7：使用一个持久化的 ref 保存最后一次的 filters，即使组件重新挂载也能恢复
-  const lastFiltersRef = useRef<Record<string, string>>({});
   
   // 初始化时保存列信息
-  // 如果当前有列信息，就保存（即使之前已经有列信息，也要更新，因为可能是新的查询）
   if (result && result.columns.length > 0) {
     originalColumnsRef.current = result.columns;
   }
   
-  // 编辑相关状态
-  const [editMode, setEditMode] = useState(false);
-  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
-  const [editedData, setEditedData] = useState<QueryResult>(result);
-  const [modifications, setModifications] = useState<Map<string, CellModification>>(new Map());
-  const [editingValue, setEditingValue] = useState<string>("");
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
-  
-  // 选择相关状态
-  const [selection, setSelection] = useState<SelectionRange | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef<{ row: number; col: number } | null>(null);
-  
-  // 撤销/重做历史栈
-  const [history, setHistory] = useState<EditHistoryState[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const historyIndexRef = useRef(-1); // 用于同步跟踪 historyIndex
-  const maxHistorySize = 50; // 最多保存50步历史
-  
-  // 获取连接信息
+  // 获取连接信息（需要在 useCellSelection 之前获取 editMode）
   const { 
     currentConnectionId, 
     currentDatabase, 
@@ -81,143 +42,37 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     addLog, 
     setQueryResult,
     setIsQuerying,
-    columnFilters, // 方案8：从 store 读取 columnFilters
-    setColumnFilters // 方案8：使用 store 的 setColumnFilters
+    editMode, // 从 store 读取 editMode
+    setEditMode // 使用 store 的 setEditMode
   } = useConnectionStore();
+  
+  // 使用自定义 hooks
+  const { columnFilters, updateFilters, originalSqlRef } = useColumnFilters(sql);
+  const { selection, setSelection, clearSelection, isDragging, setIsDragging, dragStartRef } = useCellSelection(editMode);
+  
+  // 编辑相关状态
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [editedData, setEditedData] = useState<QueryResult>(result);
+  const [modifications, setModifications] = useState<Map<string, CellModification>>(new Map());
+  const [editingValue, setEditingValue] = useState<string>("");
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  
+  // 使用编辑历史 hook
+  const editHistory = useEditHistory(editedData);
   const currentConnection = connections.find(c => c.id === currentConnectionId);
   const [isSaving, setIsSaving] = useState(false);
-  
-  // 同步 historyIndexRef 和 historyIndex
-  useEffect(() => {
-    historyIndexRef.current = historyIndex;
-  }, [historyIndex]);
 
-  // 保存原始 SQL
-  useEffect(() => {
-    if (sql && sql !== originalSqlRef.current) {
-      // SQL 变化了，说明是新的查询，清空过滤条件
-      console.log('[ResultTable] SQL 变化，清空过滤条件', {
-        oldSql: originalSqlRef.current?.substring(0, 50),
-        newSql: sql.substring(0, 50)
-      });
-      
-      originalSqlRef.current = sql;
-      setColumnFilters({});
-      columnFiltersRef.current = {};
-    } else if (sql) {
-      originalSqlRef.current = sql;
-      // SQL 没有变化，但可能 columnFilters 状态和 ref 不同步，同步一下
-      // 优先使用 ref 的值，因为它总是最新的（在 executeFilteredSql 中会先更新 ref）
-      // 但如果 ref 为空而 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
-      // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复
-      const refHasFilters = Object.keys(columnFiltersRef.current).length > 0;
-      const stateHasFilters = Object.keys(columnFilters).length > 0;
-      const lastHasFilters = Object.keys(lastFiltersRef.current).length > 0;
-      
-      // 如果 ref 有值但 state 为空，同步 ref 到 state（避免状态丢失）
-      // 如果 ref 和 state 都有值但不一致，也同步 ref 到 state（ref 是权威来源）
-      if (refHasFilters && (!stateHasFilters || JSON.stringify(columnFiltersRef.current) !== JSON.stringify(columnFilters))) {
-        setColumnFilters(columnFiltersRef.current);
-      } else if (!refHasFilters && stateHasFilters) {
-        // 如果 ref 为空但 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
-        columnFiltersRef.current = columnFilters;
-        lastFiltersRef.current = columnFilters;
-      } else if (!refHasFilters && !stateHasFilters && lastHasFilters) {
-        // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复（组件可能重新挂载了）
-        columnFiltersRef.current = lastFiltersRef.current;
-        setColumnFilters(lastFiltersRef.current);
-      }
-    }
-  }, [sql]); // 移除 columnFilters 依赖，避免在状态更新时触发不必要的重新执行
-  
-  // 保存列信息（单独处理，避免与 SQL 变化逻辑冲突）
+  // 保存列信息
   useEffect(() => {
     if (result && result.columns.length > 0) {
-      // 检查列是否发生变化（只有当列真正不同时才认为变化）
-      // 使用副本进行排序，避免修改原数组
-      const currentColumnsStr = JSON.stringify([...result.columns].sort());
-      const originalColumnsStr = JSON.stringify([...originalColumnsRef.current].sort());
-      const columnsChanged = currentColumnsStr !== originalColumnsStr;
-      const sqlMatches = sql === originalSqlRef.current;
-      
-      console.log('[ResultTable] result 变化，检查列变化', {
-        currentColumns: result.columns,
-        originalColumns: originalColumnsRef.current,
-        columnsChanged,
-        sql: sql?.substring(0, 50),
-        originalSql: originalSqlRef.current?.substring(0, 50),
-        sqlMatches: sql === originalSqlRef.current
-      });
-      
-      // 如果列发生了变化，且之前有列信息，清空过滤条件（因为列名可能不同）
-      // 但只有在 SQL 没有变化时才清空（避免过滤查询时误判）
-      // 如果 SQL 变化了，上面的 useEffect 已经清空了，这里不需要再清空
-      if (columnsChanged && originalColumnsRef.current.length > 0 && sqlMatches) {
-        console.log('[ResultTable] 列变化且 SQL 未变化，清空过滤条件');
-        
-        setColumnFilters({});
-        columnFiltersRef.current = {};
-      } else if (!columnsChanged && sqlMatches) {
-        // 列没有变化且 SQL 匹配，可能是过滤查询的结果
-        // 优先使用 ref 的值，因为它总是最新的（在 executeFilteredSql 中会先更新 ref）
-        // 但如果 ref 为空而 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
-        // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复
-        const refHasFilters = Object.keys(columnFiltersRef.current).length > 0;
-        const stateHasFilters = Object.keys(columnFilters).length > 0;
-        const lastHasFilters = Object.keys(lastFiltersRef.current).length > 0;
-        
-        // 如果 ref 有值但 state 为空，同步 ref 到 state（避免状态丢失）
-        // 如果 ref 和 state 都有值但不一致，也同步 ref 到 state（ref 是权威来源）
-        if (refHasFilters && (!stateHasFilters || JSON.stringify(columnFiltersRef.current) !== JSON.stringify(columnFilters))) {
-          setColumnFilters(columnFiltersRef.current);
-        } else if (!refHasFilters && stateHasFilters) {
-          // 如果 ref 为空但 state 有值，说明 ref 可能被意外清空了，需要从 state 恢复 ref
-          columnFiltersRef.current = columnFilters;
-          lastFiltersRef.current = columnFilters;
-        } else if (!refHasFilters && !stateHasFilters && lastHasFilters) {
-          // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复（组件可能重新挂载了）
-          columnFiltersRef.current = lastFiltersRef.current;
-          setColumnFilters(lastFiltersRef.current);
-        }
-      }
-      
-      // 更新列信息
-      // 如果查询返回了列信息，就更新保存的列信息（即使之前已经有列信息）
-      // 这样即使后续查询返回空结果，也能显示列头
-      if (result.columns.length > 0) {
-        originalColumnsRef.current = result.columns;
-      }
-      // 如果查询返回空结果但之前有保存的列信息，保留之前的列信息（不更新）
-    } else {
+      originalColumnsRef.current = result.columns;
     }
-  }, [result, sql]); // 移除 columnFilters 依赖，避免在状态更新时触发不必要的重新执行
-
-  // 方案4：使用 useLayoutEffect 在渲染前确保 ref 和 state 同步
-  // 这会在 DOM 更新之前执行，确保在渲染时 ref 和 state 是一致的
-  useLayoutEffect(() => {
-    // 如果 state 有值但 ref 为空，从 state 恢复 ref
-    const stateHasFilters = Object.keys(columnFilters).length > 0;
-    const refHasFilters = Object.keys(columnFiltersRef.current).length > 0;
-    const lastHasFilters = Object.keys(lastFiltersRef.current).length > 0;
-    
-    if (stateHasFilters && !refHasFilters) {
-      columnFiltersRef.current = columnFilters;
-      lastFiltersRef.current = columnFilters;
-    } else if (refHasFilters && !stateHasFilters) {
-      // 如果 ref 有值但 state 为空，从 ref 恢复 state
-      setColumnFilters(columnFiltersRef.current);
-    } else if (!refHasFilters && !stateHasFilters && lastHasFilters) {
-      // 方案7：如果 ref 和 state 都为空，尝试从 lastFiltersRef 恢复（组件可能重新挂载了）
-      columnFiltersRef.current = lastFiltersRef.current;
-      setColumnFilters(lastFiltersRef.current);
-    }
-  }, [columnFilters, result]); // 依赖 columnFilters 和 result，确保在状态变化时同步
+  }, [result]);
 
   // 当 result 变化时，重置编辑状态
   useEffect(() => {
     // 如果查询返回空结果但没有列信息，使用保存的列信息
     if (result && result.columns.length === 0 && originalColumnsRef.current.length > 0) {
-      // 创建一个新的 result 对象，使用保存的列信息
       const resultWithColumns = {
         ...result,
         columns: originalColumnsRef.current
@@ -228,11 +83,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
     setModifications(new Map());
     setEditingCell(null);
-    setSelection(null);
-    setHistory([]);
-    setHistoryIndex(-1);
-    historyIndexRef.current = -1;
-  }, [result]);
+    clearSelection();
+    editHistory.reset();
+  }, [result, clearSelection, editHistory]);
 
   // 构建带 WHERE 条件的 SQL
   const buildFilteredSql = (baseSql: string, filters: Record<string, string>): string => {
@@ -345,79 +198,19 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         filters: filters
       });
       
-      // 在 setQueryResult 之前，同步更新 ref 和 state
-      // 这样 useEffect 在重新渲染时能读取到最新的值
-      // 先更新 ref（同步操作）
-      columnFiltersRef.current = filters;
-      // 然后更新 store（方案8：使用 store 的 setColumnFilters）
-      const filtersMatch = JSON.stringify(filters) === JSON.stringify(columnFilters);
-      if (!filtersMatch) {
-      }
-      setColumnFilters(filters);
-      
-      // 重要：在 setQueryResult 之前，确保 ref 已经更新
-      // 因为 setQueryResult 会触发重新渲染，useEffect 会读取 ref 的值
-      // 我们使用 React.startTransition 来确保状态更新的优先级
-      
-      // 方案6：在 setQueryResult 之前，确保 ref 和 state 都已经更新
-      // 使用多个保护措施确保 ref 不会被清空
-      columnFiltersRef.current = filters;
-      lastFiltersRef.current = filters; // 保存到持久化 ref
-      setColumnFilters(filters);
+      // 更新过滤器状态
+      updateFilters(filters);
       
       // 如果查询返回空结果但没有列信息，尝试从保存的列信息中恢复
       if (newResult.columns.length === 0 && originalColumnsRef.current.length > 0) {
-        // 保留列信息，只更新行数据
         const resultWithColumns = {
           ...newResult,
           columns: originalColumnsRef.current
         };
-        console.log('[ResultTable] 使用保存的列信息填充空结果', {
-          resultWithColumns,
-          filters: filters
-        });
         setQueryResult(resultWithColumns);
       } else {
-        console.log('[ResultTable] 直接设置查询结果', {
-          newResult,
-          filters: filters
-        });
         setQueryResult(newResult);
       }
-      
-      // 方案1：在 setQueryResult 之后，立即再次更新 ref，确保 ref 始终是最新值
-      // 使用 Object.assign 确保是同一个对象引用，避免被清空
-      Object.assign(columnFiltersRef.current, filters);
-      lastFiltersRef.current = filters; // 同时更新持久化 ref
-      
-      // 方案2：使用多个 setTimeout 确保在不同渲染周期都更新 ref
-      // 第一个 setTimeout：立即更新（当前渲染周期）
-      setTimeout(() => {
-        columnFiltersRef.current = filters;
-        lastFiltersRef.current = filters; // 同时更新持久化 ref
-      }, 0);
-      
-      // 第二个 setTimeout：在下一个事件循环更新（确保在所有 useEffect 执行后）
-      setTimeout(() => {
-        columnFiltersRef.current = filters;
-        lastFiltersRef.current = filters; // 同时更新持久化 ref
-        setColumnFilters(filters);
-      }, 10);
-      
-      // 方案3：验证过滤条件是否正确保留（用于调试）
-      setTimeout(() => {
-        const filtersMatch = JSON.stringify(filters) === JSON.stringify(columnFilters);
-        
-        if (!filtersMatch) {
-          console.warn('[ResultTable] 过滤条件不匹配，尝试修复', {
-            filters,
-            columnFilters
-          });
-          // 如果仍然不匹配，再次更新（可能是由于其他状态更新导致）
-          setColumnFilters(filters);
-          columnFiltersRef.current = filters;
-        }
-      }, 50);
       addLog(`过滤查询成功，返回 ${newResult.rows.length} 行`);
     } catch (error) {
       const errorMsg = String(error);
@@ -430,226 +223,102 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   };
 
   // 保存当前状态到历史栈
-  const saveToHistory = () => {
-    const currentState: EditHistoryState = {
-      editedData: JSON.parse(JSON.stringify(editedData)), // 深拷贝
-      modifications: new Map(modifications)
-    };
-    
-    // 使用 ref 获取最新的 historyIndex，确保同步
-    const currentIndex = historyIndexRef.current;
-    
-    setHistory(prevHistory => {
-      // 如果当前不在历史栈的末尾，删除后面的历史
-      const newHistory = prevHistory.slice(0, currentIndex + 1);
-      // 添加新状态
-      newHistory.push(currentState);
-      // 限制历史栈大小
-      if (newHistory.length > maxHistorySize) {
-        return newHistory.slice(-maxHistorySize);
-      }
-      return newHistory;
-    });
-    
-    const newIndex = currentIndex + 1;
-    const finalIndex = newIndex >= maxHistorySize ? maxHistorySize - 1 : newIndex;
-    setHistoryIndex(finalIndex);
-    historyIndexRef.current = finalIndex;
-  };
+  const saveToHistory = useCallback(() => {
+    editHistory.saveToHistory(editedData, modifications);
+  }, [editHistory, editedData, modifications]);
 
   // 撤销
-  const handleUndo = () => {
-    const currentIndex = historyIndexRef.current;
-    if (currentIndex < 0) {
-      addLog("没有可撤销的操作");
-      return;
-    }
-    
-    const previousState = history[currentIndex];
+  const handleUndo = useCallback(() => {
+    const previousState = editHistory.undo();
     if (previousState) {
       setEditedData(previousState.editedData);
       setModifications(previousState.modifications);
-      const newIndex = currentIndex - 1;
-      setHistoryIndex(newIndex);
-      historyIndexRef.current = newIndex;
       addLog("已撤销上一步操作");
+    } else {
+      addLog("没有可撤销的操作");
     }
-  };
+  }, [editHistory, addLog]);
 
   // 重做
-  const handleRedo = () => {
-    const currentIndex = historyIndexRef.current;
-    if (currentIndex >= history.length - 1) {
-      addLog("没有可重做的操作");
-      return;
-    }
-    
-    const nextState = history[currentIndex + 1];
+  const handleRedo = useCallback(() => {
+    const nextState = editHistory.redo();
     if (nextState) {
       setEditedData(nextState.editedData);
       setModifications(nextState.modifications);
-      const newIndex = currentIndex + 1;
-      setHistoryIndex(newIndex);
-      historyIndexRef.current = newIndex;
       addLog("已重做操作");
+    } else {
+      addLog("没有可重做的操作");
     }
-  };
+  }, [editHistory, addLog]);
 
-  // 点击表格外部时清除选择
-  useEffect(() => {
-    if (!editMode) return;
 
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      // 如果点击的不是表格单元格，清除选择
-      if (!target.closest('td') && !target.closest('input')) {
-        setSelection(null);
-      }
-    };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [editMode]);
 
-  // 点击外部关闭搜索框
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!expandedSearchColumn) return;
-      
-      const searchBox = searchBoxRefs.current[expandedSearchColumn];
-      const target = event.target as HTMLElement;
-      
-      // 检查是否点击在搜索框内或表头按钮上
-      if (searchBox && !searchBox.contains(target)) {
-        const isHeaderButton = target.closest('th')?.querySelector('button');
-        if (!isHeaderButton || !isHeaderButton.contains(target)) {
-          setExpandedSearchColumn(null);
-        }
-      }
-    };
-
-    if (expandedSearchColumn) {
-      // 使用 setTimeout 避免立即触发（因为点击按钮的事件会先触发）
-      const timer = setTimeout(() => {
-        document.addEventListener('mousedown', handleClickOutside);
-      }, 0);
-      
-      return () => {
-        clearTimeout(timer);
-        document.removeEventListener('mousedown', handleClickOutside);
-      };
-    }
-  }, [expandedSearchColumn]);
-
-  // 当进入编辑模式时，聚焦输入框
-  useEffect(() => {
-    if (editingCell && inputRef.current) {
-      // 使用 requestAnimationFrame 确保 DOM 已更新
-      requestAnimationFrame(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          // 不自动选中文本，让用户可以继续输入
-        }
-      });
-    }
-  }, [editingCell]);
-
+  // 使用保存的列信息，如果当前 result 没有列但之前有列，使用之前的列
+  const displayColumns = useMemo(() => 
+    (result && result.columns.length > 0) 
+      ? result.columns 
+      : originalColumnsRef.current,
+    [result]
+  );
+  
+  const displayRows = useMemo(() => result?.rows || [], [result]);
+  
   // 计算显示的行数据（直接使用 result.rows，不再需要前端过滤）
-  const filteredRows = useMemo(() => {
-    return result?.rows || [];
-  }, [result]);
+  const filteredRows = useMemo(() => displayRows, [displayRows]);
 
   // 更新过滤值（不自动执行查询）
-  const handleFilterChange = (columnName: string, value: string) => {
+  const handleFilterChange = useCallback((columnName: string, value: string) => {
     const newFilters = {
       ...columnFilters,
       [columnName]: value,
     };
     
-    // 如果值为空，移除该过滤
     if (value.trim() === "") {
       delete newFilters[columnName];
     }
     
-    console.log('[ResultTable] handleFilterChange', {
-      columnName,
-      value,
-      newFilters,
-      oldFilters: columnFilters
-    });
-    
-    setColumnFilters(newFilters);
-    columnFiltersRef.current = newFilters;
-  };
+    updateFilters(newFilters);
+  }, [columnFilters, updateFilters]);
 
   // 手动触发查询（按 Enter 键时调用）
-  const handleFilterSearch = (columnName: string) => {
+  const handleFilterSearch = useCallback((columnName: string) => {
     const filterValue = columnFilters[columnName] || "";
     const newFilters = { ...columnFilters };
     
-    // 如果值为空，移除该过滤
     if (filterValue.trim() === "") {
       delete newFilters[columnName];
     }
     
-    console.log('[ResultTable] handleFilterSearch', {
-      columnName,
-      filterValue,
-      newFilters,
-      currentFilters: columnFilters
-    });
-    
-    // 方案5：在 handleFilterSearch 中，同时更新 ref 和 state，并使用多个保护措施
-    // 先更新 ref（同步操作）
-    columnFiltersRef.current = newFilters;
-    
-    // 更新过滤条件状态，确保输入框中的值保留
-    setColumnFilters(newFilters);
-    
-    // 使用 setTimeout 确保在下一个事件循环中 ref 仍然是最新的
-    setTimeout(() => {
-      columnFiltersRef.current = newFilters;
-    }, 0);
-    
-    // 清除之前的定时器
     if (debounceTimerRef.current !== null) {
       window.clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
     
-    // 立即执行查询
     executeFilteredSql(newFilters);
-  };
+  }, [columnFilters]);
 
-  const handleClearFilter = (columnName: string) => {
+  const handleClearFilter = useCallback((columnName: string) => {
     const newFilters = { ...columnFilters };
     delete newFilters[columnName];
-    setColumnFilters(newFilters);
-    columnFiltersRef.current = newFilters;
     
-    // 清除之前的定时器
     if (debounceTimerRef.current !== null) {
       window.clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
     
-    // 立即执行（清除过滤不需要防抖）
     executeFilteredSql(newFilters);
-  };
+  }, [columnFilters]);
 
   // 清除所有过滤
-  const handleClearAllFilters = () => {
-    setColumnFilters({});
+  const handleClearAllFilters = useCallback(() => {
+    updateFilters({});
     
-    // 清除之前的定时器
     if (debounceTimerRef.current !== null) {
       window.clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
     
-    // 立即执行原始 SQL
     if (originalSqlRef.current && currentConnectionId) {
       setIsFiltering(true);
       setIsQuerying(true);
@@ -671,7 +340,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
           setIsQuerying(false);
         });
     }
-  };
+  }, [updateFilters, originalSqlRef, currentConnectionId, currentDatabase, setQueryResult, addLog, setIsQuerying]);
 
   // 组件卸载时清除定时器
   useEffect(() => {
@@ -682,16 +351,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     };
   }, []);
 
-  const handleCopySql = async () => {
-    if (!sql) return;
-    try {
-      await navigator.clipboard.writeText(sql);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error("Failed to copy SQL:", error);
-    }
-  };
 
   // 编辑相关处理函数
   const handleCellDoubleClick = (filteredRowIndex: number, cellIndex: number) => {
@@ -803,19 +462,219 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     // 如果正在编辑，不处理选择
     if (editingCell) return;
     
+    const clickedCell = { row: originalRowIndex, col: cellIndex };
+    const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+    const isCurrentlySelected = selection && isCellSelected(originalRowIndex, cellIndex);
+    
     if (e.shiftKey && selection) {
-      // Shift+点击：扩展选择范围
+      // Shift+点击：扩展选择范围（从 start 到点击位置）
       setSelection({
         start: selection.start,
-        end: { row: originalRowIndex, col: cellIndex }
+        end: clickedCell
       });
+    } else if (isCtrlOrCmd) {
+      // Ctrl+点击：只影响点击的那个单元格
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (isCurrentlySelected) {
+        // 如果已选中，只取消选中点击的这个单元格，保留其他选中的单元格
+        const minRow = Math.min(selection.start.row, selection.end.row);
+        const maxRow = Math.max(selection.start.row, selection.end.row);
+        const minCol = Math.min(selection.start.col, selection.end.col);
+        const maxCol = Math.max(selection.start.col, selection.end.col);
+        
+        // 如果选择区域是单个单元格，清除选择
+        if (minRow === maxRow && minCol === maxCol) {
+          setSelection(null);
+        } else {
+          // 收集所有选中的单元格（排除点击的单元格）
+          const remainingCells: Array<{ row: number; col: number }> = [];
+          for (let row = minRow; row <= maxRow; row++) {
+            for (let col = minCol; col <= maxCol; col++) {
+              if (row !== originalRowIndex || col !== cellIndex) {
+                remainingCells.push({ row, col });
+              }
+            }
+          }
+          
+          // 如果没有剩余的单元格，清除选择
+          if (remainingCells.length === 0) {
+            setSelection(null);
+          } else {
+            // 计算剩余单元格的最小和最大行列，形成新的矩形选择范围
+            const newMinRow = Math.min(...remainingCells.map(c => c.row));
+            const newMaxRow = Math.max(...remainingCells.map(c => c.row));
+            const newMinCol = Math.min(...remainingCells.map(c => c.col));
+            const newMaxCol = Math.max(...remainingCells.map(c => c.col));
+            
+            // 验证新的矩形范围是否只包含剩余单元格（检查是否连续）
+            const remainingCellsSet = new Set(remainingCells.map(c => `${c.row}-${c.col}`));
+            let isValidRect = true;
+            for (let row = newMinRow; row <= newMaxRow; row++) {
+              for (let col = newMinCol; col <= newMaxCol; col++) {
+                if (!remainingCellsSet.has(`${row}-${col}`)) {
+                  isValidRect = false;
+                  break;
+                }
+              }
+              if (!isValidRect) break;
+            }
+            
+            if (!isValidRect) {
+              // 剩余单元格不连续，找到包含最多剩余单元格的连续矩形区域
+              let bestRect: { minRow: number; maxRow: number; minCol: number; maxCol: number; count: number } | null = null;
+              
+              // 尝试所有可能的矩形组合（任意两个剩余单元格作为对角）
+              for (let i = 0; i < remainingCells.length; i++) {
+                for (let j = i; j < remainingCells.length; j++) {
+                  const cell1 = remainingCells[i];
+                  const cell2 = remainingCells[j];
+                  const testMinRow = Math.min(cell1.row, cell2.row);
+                  const testMaxRow = Math.max(cell1.row, cell2.row);
+                  const testMinCol = Math.min(cell1.col, cell2.col);
+                  const testMaxCol = Math.max(cell1.col, cell2.col);
+                  
+                  // 检查这个矩形是否只包含剩余单元格（连续矩形）
+                  let testIsValid = true;
+                  let count = 0;
+                  for (let row = testMinRow; row <= testMaxRow; row++) {
+                    for (let col = testMinCol; col <= testMaxCol; col++) {
+                      if (remainingCellsSet.has(`${row}-${col}`)) {
+                        count++;
+                      } else {
+                        // 矩形中包含非剩余单元格，不连续
+                        testIsValid = false;
+                        break;
+                      }
+                    }
+                    if (!testIsValid) break;
+                  }
+                  
+                  // 如果这个矩形是连续的，且包含的剩余单元格数量更多，则更新最佳矩形
+                  if (testIsValid && (!bestRect || count > bestRect.count)) {
+                    bestRect = { minRow: testMinRow, maxRow: testMaxRow, minCol: testMinCol, maxCol: testMaxCol, count };
+                  }
+                }
+              }
+              
+              if (bestRect) {
+                // 使用找到的最佳矩形（包含最多剩余单元格的连续矩形）
+                const wasStartTopLeft = selection.start.row <= selection.end.row && selection.start.col <= selection.end.col;
+                const wasStartTopRight = selection.start.row <= selection.end.row && selection.start.col > selection.end.col;
+                const wasStartBottomLeft = selection.start.row > selection.end.row && selection.start.col <= selection.end.col;
+                
+                if (wasStartTopLeft) {
+                  setSelection({
+                    start: { row: bestRect.minRow, col: bestRect.minCol },
+                    end: { row: bestRect.maxRow, col: bestRect.maxCol }
+                  });
+                } else if (wasStartTopRight) {
+                  setSelection({
+                    start: { row: bestRect.minRow, col: bestRect.maxCol },
+                    end: { row: bestRect.maxRow, col: bestRect.minCol }
+                  });
+                } else if (wasStartBottomLeft) {
+                  setSelection({
+                    start: { row: bestRect.maxRow, col: bestRect.minCol },
+                    end: { row: bestRect.minRow, col: bestRect.maxCol }
+                  });
+                } else {
+                  setSelection({
+                    start: { row: bestRect.maxRow, col: bestRect.maxCol },
+                    end: { row: bestRect.minRow, col: bestRect.minCol }
+                  });
+                }
+              } else {
+                // 找不到任何连续矩形，尝试选择包含最多剩余单元格的单个单元格区域
+                // 对于单个单元格，每个单元格都是一个"矩形"，包含1个剩余单元格
+                // 所以应该选择第一个剩余单元格（因为所有单个单元格都包含相同数量的剩余单元格）
+                // 但为了更好的用户体验，我们选择最靠近原选择中心的剩余单元格
+                
+                // 计算原选择的中心点
+                const centerRow = Math.floor((minRow + maxRow) / 2);
+                const centerCol = Math.floor((minCol + maxCol) / 2);
+                
+                // 找到距离中心点最近的剩余单元格
+                let closestCell = remainingCells[0];
+                let minDistance = Math.abs(remainingCells[0].row - centerRow) + Math.abs(remainingCells[0].col - centerCol);
+                
+                for (let i = 1; i < remainingCells.length; i++) {
+                  const cell = remainingCells[i];
+                  const distance = Math.abs(cell.row - centerRow) + Math.abs(cell.col - centerCol);
+                  if (distance < minDistance) {
+                    minDistance = distance;
+                    closestCell = cell;
+                  }
+                }
+                
+                setSelection({
+                  start: closestCell,
+                  end: closestCell
+                });
+              }
+            } else {
+              // 剩余单元格连续，可以形成矩形选择
+              // 保持 start 和 end 的相对位置
+              const wasStartTopLeft = selection.start.row <= selection.end.row && selection.start.col <= selection.end.col;
+              const wasStartTopRight = selection.start.row <= selection.end.row && selection.start.col > selection.end.col;
+              const wasStartBottomLeft = selection.start.row > selection.end.row && selection.start.col <= selection.end.col;
+              
+              if (wasStartTopLeft) {
+                setSelection({
+                  start: { row: newMinRow, col: newMinCol },
+                  end: { row: newMaxRow, col: newMaxCol }
+                });
+              } else if (wasStartTopRight) {
+                setSelection({
+                  start: { row: newMinRow, col: newMaxCol },
+                  end: { row: newMaxRow, col: newMinCol }
+                });
+              } else if (wasStartBottomLeft) {
+                setSelection({
+                  start: { row: newMaxRow, col: newMinCol },
+                  end: { row: newMinRow, col: newMaxCol }
+                });
+              } else {
+                setSelection({
+                  start: { row: newMaxRow, col: newMaxCol },
+                  end: { row: newMinRow, col: newMinCol }
+                });
+              }
+            }
+          }
+        }
+      } else {
+        // 如果未选中，追加到已选择（扩展选择范围以包含这个单元格）
+        if (!selection) {
+          // 没有选择，创建新选择
+          setSelection({
+            start: clickedCell,
+            end: clickedCell
+          });
+        } else {
+          // 有选择，扩展选择范围以包含点击的单元格
+          const minRow = Math.min(selection.start.row, selection.end.row, originalRowIndex);
+          const maxRow = Math.max(selection.start.row, selection.end.row, originalRowIndex);
+          const minCol = Math.min(selection.start.col, selection.end.col, cellIndex);
+          const maxCol = Math.max(selection.start.col, selection.end.col, cellIndex);
+          
+          setSelection({
+            start: { row: minRow, col: minCol },
+            end: { row: maxRow, col: maxCol }
+          });
+        }
+      }
+      
+      dragStartRef.current = null;
+      setIsDragging(false);
     } else {
-      // 普通点击或 Ctrl+点击：新选择
+      // 普通点击：创建新选择
       setSelection({
-        start: { row: originalRowIndex, col: cellIndex },
-        end: { row: originalRowIndex, col: cellIndex }
+        start: clickedCell,
+        end: clickedCell
       });
-      dragStartRef.current = { row: originalRowIndex, col: cellIndex };
+      dragStartRef.current = clickedCell;
       setIsDragging(true);
     }
   };
@@ -963,17 +822,39 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 粘贴数据
   const handlePaste = async () => {
-    if (!selection) return;
+    if (!selection) {
+      addLog('粘贴失败: 没有选中单元格');
+      return;
+    }
     
     try {
       const text = await navigator.clipboard.readText();
-      const lines = text.split('\n').map(line => line.split('\t'));
+      if (!text || text.trim() === '') {
+        addLog('粘贴失败: 剪贴板为空');
+        return;
+      }
+      
+      // 处理粘贴内容：按行分割，每行按制表符或逗号分割
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+      const parsedLines = lines.map(line => {
+        // 如果包含制表符，按制表符分割；否则按逗号分割；如果都没有，整行作为一个值
+        if (line.includes('\t')) {
+          return line.split('\t');
+        } else if (line.includes(',')) {
+          return line.split(',').map(v => v.trim());
+        } else {
+          return [line];
+        }
+      });
       
       // 保存当前状态到历史栈（在修改之前）
       saveToHistory();
       
-      const startRow = selection.start.row;
-      const startCol = selection.start.col;
+      // 计算选择区域的范围
+      const minRow = Math.min(selection.start.row, selection.end.row);
+      const maxRow = Math.max(selection.start.row, selection.end.row);
+      const minCol = Math.min(selection.start.col, selection.end.col);
+      const maxCol = Math.max(selection.start.col, selection.end.col);
       
       const newEditedData = { ...editedData };
       newEditedData.rows = [...newEditedData.rows];
@@ -981,43 +862,86 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       
       let pastedCount = 0;
       
-      lines.forEach((line, rowOffset) => {
-        line.forEach((value, colOffset) => {
-          const row = startRow + rowOffset;
-          const col = startCol + colOffset;
+      // 判断是否为单个值粘贴（只有一行一列）
+      const isSingleValue = parsedLines.length === 1 && parsedLines[0].length === 1;
+      const singleValue = isSingleValue ? (parsedLines[0][0].trim() === "" ? null : parsedLines[0][0].trim()) : null;
+      
+      // 遍历选择区域内的所有单元格
+      for (let row = minRow; row <= maxRow; row++) {
+        // 如果超出数据范围，跳过
+        if (row >= newEditedData.rows.length) {
+          continue;
+        }
+        
+        // 确保行数据存在
+        if (!newEditedData.rows[row]) {
+          newEditedData.rows[row] = [...editedData.rows[row]];
+        }
+        newEditedData.rows[row] = [...newEditedData.rows[row]];
+        
+        for (let col = minCol; col <= maxCol; col++) {
+          // 如果超出列范围，跳过
+          if (col >= result.columns.length) {
+            continue;
+          }
           
-          if (row < newEditedData.rows.length && col < result.columns.length) {
-            const oldValue = result.rows[row][col];
-            const newValue = value.trim() === "" ? null : value;
+          // 获取粘贴值
+          let pasteValue = null;
+          
+          if (isSingleValue) {
+            // 单个值：应用到所有选中的单元格
+            pasteValue = singleValue;
+          } else {
+            // 多个值：按位置对应粘贴
+            const rowOffset = row - minRow;
+            const colOffset = col - minCol;
             
-            if (!newEditedData.rows[row]) {
-              newEditedData.rows[row] = [...editedData.rows[row]];
-            }
-            newEditedData.rows[row] = [...newEditedData.rows[row]];
-            newEditedData.rows[row][col] = newValue;
-            
-            if (oldValue !== newValue && String(oldValue) !== String(newValue)) {
-              const modKey = `${row}-${col}`;
-              const column = result.columns[col];
-              newMods.set(modKey, {
-                rowIndex: row,
-                column,
-                oldValue,
-                newValue
-              });
-              pastedCount++;
+            if (rowOffset < parsedLines.length) {
+              const pasteLine = parsedLines[rowOffset];
+              if (colOffset < pasteLine.length) {
+                const value = pasteLine[colOffset];
+                pasteValue = value.trim() === "" ? null : value.trim();
+              }
             }
           }
-        });
-      });
+          
+          // 如果 pasteValue 仍然是 null（且不是单个值的情况），跳过
+          if (pasteValue === null && !isSingleValue) {
+            continue;
+          }
+          
+          const oldValue = result.rows[row][col];
+          const newValue = pasteValue;
+          
+          // 更新单元格值
+          newEditedData.rows[row][col] = newValue;
+          
+          // 记录修改（即使值相同也记录，因为可能是从其他地方粘贴的）
+          if (oldValue !== newValue && String(oldValue) !== String(newValue)) {
+            const modKey = `${row}-${col}`;
+            const column = result.columns[col];
+            newMods.set(modKey, {
+              rowIndex: row,
+              column,
+              oldValue,
+              newValue
+            });
+            pastedCount++;
+          }
+        }
+      }
       
       if (pastedCount > 0) {
         setEditedData(newEditedData);
         setModifications(newMods);
         addLog(`已粘贴 ${pastedCount} 个单元格`);
+      } else {
+        addLog(`粘贴完成，但没有单元格被修改（可能是值相同）`);
       }
     } catch (error) {
-      addLog(`粘贴失败: ${error}`);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      addLog(`粘贴失败: ${errorMsg}`);
+      console.error('粘贴错误:', error);
     }
   };
 
@@ -1073,6 +997,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
         handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && selection) {
+        e.preventDefault();
+        handlePaste();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selection) {
+        e.preventDefault();
+        handleCopy();
       }
     };
 
@@ -1080,7 +1010,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [editMode, historyIndex, history, handleUndo, handleRedo, editingCell, selection, filteredRows, result.rows, editedData]);
+  }, [editMode, handleUndo, handleRedo, handlePaste, handleCopy, editingCell, selection, filteredRows, result.rows, editedData]);
 
   const handleExitEditMode = () => {
     if (modifications.size > 0) {
@@ -1092,18 +1022,15 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   };
 
-  const doExitEditMode = () => {
-    // 还原所有未保存的修改
+  const doExitEditMode = useCallback(() => {
     setEditedData(result);
     setModifications(new Map());
     setEditMode(false);
     setEditingCell(null);
     setEditingValue("");
-    setSelection(null);
+    clearSelection();
     setShowExitConfirm(false);
-    setIsDragging(false);
-    dragStartRef.current = null;
-  };
+  }, [result, setEditMode, clearSelection]);
 
   const handleConfirmExit = () => {
     doExitEditMode();
@@ -1266,13 +1193,15 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   };
 
-  const hasActiveFilters = Object.values(columnFilters).some(v => v.trim() !== "");
-
-  // 使用保存的列信息，如果当前 result 没有列但之前有列，使用之前的列
-  const displayColumns = (result && result.columns.length > 0) 
-    ? result.columns 
-    : originalColumnsRef.current;
-  const displayRows = result?.rows || [];
+  const hasActiveFilters = useMemo(() => 
+    Object.values(columnFilters).some(v => v.trim() !== ""), 
+    [columnFilters]
+  );
+  
+  const filteredSql = useMemo(() => {
+    if (!hasActiveFilters || !sql) return sql;
+    return buildFilteredSql(originalSqlRef.current || sql, columnFilters);
+  }, [hasActiveFilters, sql, columnFilters]);
 
   // 只有在完全没有 result 或完全没有列信息时才显示"无数据返回"
   // 如果 result 存在但只是没有行数据，应该显示表格结构
@@ -1308,241 +1237,47 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       />
 
       <div className="h-full flex flex-col">
-        {/* 编辑工具栏 */}
         {editMode && (
-        <div className="px-4 py-2 neu-flat flex items-center gap-3" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
-          <div className="flex items-center gap-2 flex-1">
-            <span className="text-xs font-semibold" style={{ color: 'var(--neu-accent)' }}>编辑模式</span>
-            {modifications.size > 0 && (
-              <span className="text-xs" style={{ color: 'var(--neu-warning)' }}>
-                ({modifications.size} 个未保存的修改)
-              </span>
-            )}
-            {selection && (
-              <span className="text-xs" style={{ color: 'var(--neu-accent-light)' }}>
-                (已选择: {
-                  Math.abs(selection.end.row - selection.start.row) + 1
-                } 行 × {
-                  Math.abs(selection.end.col - selection.start.col) + 1
-                } 列)
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleUndo}
-              disabled={historyIndex < 0}
-              className="px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:hover:neu-flat"
-              style={{ color: 'var(--neu-text)' }}
-              title="撤销 (Ctrl+Z)"
-            >
-              ↶ 撤销
-            </button>
-            <button
-              onClick={handleRedo}
-              disabled={historyIndex >= history.length - 1}
-              className="px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:hover:neu-flat"
-              style={{ color: 'var(--neu-text)' }}
-              title="重做 (Ctrl+Y 或 Ctrl+Shift+Z)"
-            >
-              ↷ 重做
-            </button>
-            {selection && (
-              <button
-                onClick={() => setSelection(null)}
-                className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
-                style={{ color: 'var(--neu-text)' }}
-                title="清除选择"
-              >
-                ✕
-              </button>
-            )}
-            {modifications.size > 0 && (
-              <button
-                onClick={handleSaveChanges}
-                disabled={isSaving || !currentConnectionId}
-                className="px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-raised hover:neu-hover active:neu-active disabled:hover:neu-raised font-medium"
-                style={{ color: 'var(--neu-success)' }}
-                title="保存所有修改到数据库"
-              >
-                {isSaving ? "保存中..." : `💾 保存 (${modifications.size})`}
-              </button>
-            )}
-            <button
-              onClick={handleExitEditMode}
-              className="px-3 py-1.5 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
-              style={{ color: 'var(--neu-text)' }}
-              title="退出编辑模式"
-            >
-              退出编辑
-            </button>
-          </div>
-        </div>
-      )}
+          <EditToolbar
+            modificationsCount={modifications.size}
+            selection={selection}
+            canUndo={editHistory.canUndo}
+            canRedo={editHistory.canRedo}
+            isSaving={isSaving}
+            hasConnection={!!currentConnectionId}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onClearSelection={clearSelection}
+            onSave={handleSaveChanges}
+            onExit={handleExitEditMode}
+          />
+        )}
 
-      {/* SQL 显示栏 */}
-      {sql && (
-        <div className="px-4 py-2.5 neu-flat flex items-center justify-between gap-3" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-xs font-semibold flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>SQL:</span>
-            <code 
-              className="text-xs font-mono flex-1 break-all whitespace-pre-wrap" 
-              style={{ color: 'var(--neu-text)', wordBreak: 'break-word', overflowWrap: 'break-word' }}
-              title={hasActiveFilters ? buildFilteredSql(originalSqlRef.current || sql, columnFilters) : (originalSqlRef.current || sql)}
-            >
-              {hasActiveFilters ? buildFilteredSql(originalSqlRef.current || sql, columnFilters) : (originalSqlRef.current || sql)}
-            </code>
-            {hasActiveFilters && (
-              <span className="text-xs flex-shrink-0" style={{ color: 'var(--neu-accent)' }}>
-                {isFiltering ? "(过滤中...)" : `(已过滤: ${displayRows.length} 条)`}
-              </span>
-            )}
-            {!hasActiveFilters && (
-              <span className="text-xs flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>
-                (共 {displayRows.length} 条)
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {!editMode && (
-              <button
-                onClick={() => setEditMode(true)}
-                className="px-3 py-1.5 text-xs rounded transition-all neu-raised hover:neu-hover active:neu-active font-medium"
-                style={{ color: 'var(--neu-success)' }}
-                title="进入编辑模式（双击单元格可编辑）"
-              >
-                ✏️ 编辑模式
-              </button>
-            )}
-            {hasActiveFilters && (
-              <button
-                onClick={handleClearAllFilters}
-                disabled={isFiltering}
-                className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ color: 'var(--neu-accent)' }}
-                title="清除所有过滤"
-              >
-                {isFiltering ? "过滤中..." : "清除过滤"}
-              </button>
-            )}
-            <button
-              onClick={handleCopySql}
-              className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
-              style={{ color: 'var(--neu-text-light)' }}
-              title="复制 SQL"
-            >
-              {copied ? "✓ 已复制" : "📋 复制"}
-            </button>
-          </div>
-        </div>
-      )}
+        {sql && (
+          <SqlDisplayBar
+            sql={sql}
+            filteredSql={filteredSql || null}
+            hasActiveFilters={hasActiveFilters}
+            isFiltering={isFiltering}
+            rowCount={displayRows.length}
+            editMode={editMode}
+            onEnterEditMode={() => setEditMode(true)}
+            onClearFilters={handleClearAllFilters}
+          />
+        )}
 
       <div className="flex-1 overflow-auto">
         <table className="w-full border-collapse text-sm">
-          <thead className="neu-raised sticky top-0 z-10">
-            <tr>
-              {displayColumns.map((column, index) => {
-                const filterValue = columnFilters[column] || "";
-                const hasFilter = filterValue.trim() !== "";
-                const isExpanded = expandedSearchColumn === column;
-
-                return (
-                  <th
-                    key={index}
-                    className="px-4 py-3 text-left font-semibold uppercase text-xs tracking-wider relative group"
-                    style={{ 
-                      minWidth: "120px",
-                      borderBottom: '1px solid var(--neu-dark)',
-                      color: 'var(--neu-text)'
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="flex-1 truncate">{column}</span>
-                      {hasFilter && (
-                        <span className="flex-shrink-0 w-2 h-2 bg-blue-500 rounded-full" title="已应用过滤"></span>
-                      )}
-                      <button
-                        onClick={() => setExpandedSearchColumn(isExpanded ? null : column)}
-                        className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active ${
-                          isExpanded || hasFilter
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100"
-                        }`}
-                        style={{ color: isExpanded || hasFilter ? 'var(--neu-accent)' : 'var(--neu-text-light)' }}
-                        title="搜索此列"
-                      >
-                        <span className="text-xs">🔍</span>
-                      </button>
-                    </div>
-                    
-                    {/* 搜索输入框 */}
-                    {isExpanded && (
-                      <div 
-                        ref={(el) => { searchBoxRefs.current[column] = el; }}
-                        className="absolute top-full left-0 right-0 mt-1 p-2 neu-raised rounded-lg z-20"
-                      >
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={filterValue}
-                            onChange={(e) => handleFilterChange(column, e.target.value)}
-                            placeholder={`搜索 ${column}...`}
-                            className="w-full px-2.5 py-1.5 pl-7 neu-pressed rounded text-sm focus:outline-none transition-all"
-                            style={{ 
-                              color: 'var(--neu-text)',
-                              '--placeholder-color': 'var(--neu-text-light)'
-                            } as React.CSSProperties}
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                setExpandedSearchColumn(null);
-                              } else if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleFilterSearch(column);
-                              }
-                            }}
-                          />
-                          <span className="absolute left-2 top-1.5 text-xs" style={{ color: 'var(--neu-text-light)' }}>
-                            🔍
-                          </span>
-                          <div className="absolute right-2 top-1 flex items-center gap-1">
-                            {filterValue && (
-                              <button
-                                onClick={() => {
-                                  handleFilterSearch(column);
-                                }}
-                                disabled={isFiltering}
-                                className="text-xs px-2 py-0.5 rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
-                                style={{ color: 'var(--neu-accent)' }}
-                                title="搜索 (Enter)"
-                              >
-                                {isFiltering ? "⏳" : "搜索"}
-                              </button>
-                            )}
-                            {filterValue && (
-                              <button
-                                onClick={() => {
-                                  handleClearFilter(column);
-                                  setExpandedSearchColumn(null);
-                                }}
-                                disabled={isFiltering}
-                                className="text-xs w-4 h-4 flex items-center justify-center rounded transition-all neu-flat hover:neu-hover disabled:opacity-50 disabled:cursor-not-allowed"
-                                style={{ color: 'var(--neu-text-light)' }}
-                                title="清除"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
+          <TableHeader
+            columns={displayColumns}
+            columnFilters={columnFilters}
+            expandedSearchColumn={expandedSearchColumn}
+            isFiltering={isFiltering}
+            onFilterChange={handleFilterChange}
+            onFilterSearch={handleFilterSearch}
+            onClearFilter={handleClearFilter}
+            onExpandSearch={setExpandedSearchColumn}
+          />
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
@@ -1561,96 +1296,32 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               </tr>
             ) : (
               filteredRows.map((row, rowIndex) => {
-                // 找到原始行索引
-                // 注意：filteredRows 就是 result.rows 的引用，所以 rowIndex 就是 originalRowIndex
-                // 但为了兼容性，仍然尝试查找，如果找不到则使用 rowIndex
                 let originalRowIndex = result.rows.findIndex((r) => r === row);
                 if (originalRowIndex === -1) {
-                  // 如果找不到（可能是引用变化），使用 rowIndex 作为后备
                   originalRowIndex = rowIndex;
                 }
                 const displayRow = originalRowIndex < editedData.rows.length ? editedData.rows[originalRowIndex] : row;
                 
                 return (
-                  <tr
+                  <TableRow
                     key={rowIndex}
-                    className="transition-colors duration-150 group neu-flat"
-                    style={{ borderBottom: '1px solid var(--neu-dark)' }}
-                  >
-                    {displayRow.map((cell, cellIndex) => {
-                      const isEditing = editingCell?.row === originalRowIndex && editingCell?.col === cellIndex;
-                      const modKey = `${originalRowIndex}-${cellIndex}`;
-                      const isModified = modifications.has(modKey);
-                      const isSelected = isCellSelected(originalRowIndex, cellIndex);
-                      
-                      return (
-                        <td
-                          key={cellIndex}
-                          data-row-index={rowIndex}
-                          data-cell-index={cellIndex}
-                          className={`
-                            px-4 py-2.5 relative
-                            ${isEditing ? 'neu-pressed' : ''}
-                            ${isSelected && !isEditing ? 'neu-raised' : ''}
-                            ${isModified && !isEditing && !isSelected ? '' : ''}
-                            ${editMode ? 'cursor-cell hover:neu-hover' : 'max-w-xs truncate'}
-                            select-none
-                          `}
-                          style={{
-                            color: isEditing ? 'var(--neu-accent-dark)' : isSelected ? 'var(--neu-accent-dark)' : isModified ? 'var(--neu-warning)' : 'var(--neu-text)',
-                            borderLeft: isModified && !isEditing && !isSelected ? '2px solid var(--neu-warning)' : 'none'
-                          }}
-                          title={!isEditing ? String(cell ?? "") : undefined}
-                          onMouseDown={(e) => handleCellMouseDown(rowIndex, cellIndex, e)}
-                          onDoubleClick={() => handleCellDoubleClick(rowIndex, cellIndex)}
-                          onKeyDown={(e) => handleKeyDown(e, rowIndex, cellIndex)}
-                          tabIndex={editMode ? 0 : -1}
-                        >
-                          {isEditing ? (
-                            <input
-                              key={`edit-${originalRowIndex}-${cellIndex}`}
-                              ref={inputRef}
-                              type="text"
-                              value={editingValue}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                handleCellInputChange(e.target.value);
-                              }}
-                              onBlur={() => handleCellSave(originalRowIndex, cellIndex)}
-                              onKeyDown={(e) => {
-                                e.stopPropagation();
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  handleCellSave(originalRowIndex, cellIndex);
-                                } else if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  handleCellCancel();
-                                }
-                              }}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full neu-pressed px-2 py-1 rounded text-xs font-mono focus:outline-none transition-all"
-                              style={{ color: 'var(--neu-text)' }}
-                              autoFocus
-                            />
-                          ) : (
-                            <>
-                              {cell === null || cell === undefined
-                                ? (
-                                  <span className="italic font-mono text-xs" style={{ color: 'var(--neu-text-light)' }}>NULL</span>
-                                )
-                                : typeof cell === "object"
-                                ? <span className="font-mono text-xs" style={{ color: 'var(--neu-text-light)' }}>{JSON.stringify(cell)}</span>
-                                : <span className="font-mono text-xs">{String(cell)}</span>}
-                              {isModified && (
-                                <span className="absolute top-1 right-1 text-xs" style={{ color: 'var(--neu-warning)' }} title="已修改">●</span>
-                              )}
-                            </>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
+                    row={displayRow}
+                    rowIndex={rowIndex}
+                    originalRowIndex={originalRowIndex}
+                    columns={displayColumns}
+                    editMode={editMode}
+                    editingCell={editingCell}
+                    editingValue={editingValue}
+                    modifications={modifications}
+                    selection={selection}
+                    isCellSelected={isCellSelected}
+                    onCellMouseDown={handleCellMouseDown}
+                    onCellDoubleClick={handleCellDoubleClick}
+                    onCellKeyDown={handleKeyDown}
+                    onCellInputChange={handleCellInputChange}
+                    onCellSave={handleCellSave}
+                    onCellCancel={handleCellCancel}
+                  />
                 );
               })
             )}

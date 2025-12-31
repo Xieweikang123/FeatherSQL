@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useConnectionStore } from "../store/connectionStore";
 import { listTables, executeSql } from "../lib/commands";
 import { buildTableName } from "../lib/utils";
+import TableStructure from "./TableStructure";
 
 export default function TableView() {
   const {
@@ -20,6 +21,7 @@ export default function TableView() {
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [viewingStructure, setViewingStructure] = useState<string | null>(null);
 
   const currentConnection = connections.find(c => c.id === currentConnectionId);
   const connectionType = currentConnection?.type;
@@ -57,9 +59,15 @@ export default function TableView() {
     }
   }, [currentConnectionId, currentDatabase, connectionType]);
 
-  const handleTableClick = async (tableName: string) => {
+  const handleTableClick = async (tableName: string, showStructure: boolean = false) => {
     if (!currentConnectionId || !currentConnection) {
       addLog("请先选择连接");
+      return;
+    }
+
+    // If right-click or Ctrl+click, show structure instead
+    if (showStructure) {
+      setViewingStructure(tableName);
       return;
     }
 
@@ -68,7 +76,10 @@ export default function TableView() {
 
     // Build escaped table name with database prefix if needed
     const escapedTableName = buildTableName(tableName, currentConnection.type, currentDatabase);
-    const sql = `SELECT * FROM ${escapedTableName} LIMIT 100`;
+    // Use TOP for MSSQL, LIMIT for other databases
+    const sql = currentConnection.type === "mssql" 
+      ? `SELECT TOP 100 * FROM ${escapedTableName}`
+      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
 
     // Load SQL into editor
     loadSql(sql);
@@ -127,6 +138,16 @@ export default function TableView() {
   const filteredTables = tables.filter(table =>
     table.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // If viewing structure, show structure view
+  if (viewingStructure) {
+    return (
+      <TableStructure
+        tableName={viewingStructure}
+        onClose={() => setViewingStructure(null)}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -196,8 +217,12 @@ export default function TableView() {
               <div
                 key={table}
                 onClick={() => handleTableClick(table)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  handleTableClick(table, true);
+                }}
                 className="group relative rounded-lg p-4 cursor-pointer transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
-                title={`点击查询表: ${table}`}
+                title={`左键点击查询表，右键点击查看结构: ${table}`}
               >
                 <div className="flex items-center gap-2.5">
                   <span className="text-xl transition-transform duration-200 group-hover:scale-110">📄</span>
@@ -205,6 +230,17 @@ export default function TableView() {
                     {table}
                   </span>
                 </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTableClick(table, true);
+                  }}
+                  className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active opacity-0 group-hover:opacity-100"
+                  style={{ color: 'var(--neu-text-light)' }}
+                  title="查看表结构"
+                >
+                  <span className="text-xs">🔍</span>
+                </button>
               </div>
             ))}
           </div>
@@ -214,12 +250,27 @@ export default function TableView() {
               <div
                 key={table}
                 onClick={() => handleTableClick(table)}
-                className="text-sm py-2.5 px-3.5 rounded-lg cursor-pointer transition-all duration-200 truncate flex items-center gap-2.5 neu-flat hover:neu-hover active:neu-active"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  handleTableClick(table, true);
+                }}
+                className="group text-sm py-2.5 px-3.5 rounded-lg cursor-pointer transition-all duration-200 truncate flex items-center gap-2.5 neu-flat hover:neu-hover active:neu-active"
                 style={{ color: 'var(--neu-text)' }}
-                title={`点击查询表: ${table}`}
+                title={`左键点击查询表，右键点击查看结构: ${table}`}
               >
                 <span className="text-base">📄</span>
-                <span className="font-medium">{table}</span>
+                <span className="font-medium flex-1">{table}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTableClick(table, true);
+                  }}
+                  className="w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active opacity-0 group-hover:opacity-100"
+                  style={{ color: 'var(--neu-text-light)' }}
+                  title="查看表结构"
+                >
+                  <span className="text-xs">🔍</span>
+                </button>
               </div>
             ))}
           </div>

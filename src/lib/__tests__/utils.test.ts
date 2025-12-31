@@ -46,8 +46,8 @@ describe("buildTableName", () => {
     expect(buildTableName("users", "postgres", "mydb")).toBe('"mydb"."users"');
   });
 
-  it("should build table name with database prefix for MSSQL", () => {
-    expect(buildTableName("users", "mssql", "mydb")).toBe("[mydb].[users]");
+  it("should not add database prefix for MSSQL (database is set in connection context)", () => {
+    expect(buildTableName("users", "mssql", "mydb")).toBe("[users]");
   });
 
   it("should not add database prefix for SQLite", () => {

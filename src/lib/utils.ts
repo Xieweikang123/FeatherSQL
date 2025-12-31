@@ -26,7 +26,10 @@ export function escapeIdentifier(identifier: string, dbType: string): string {
 export function buildTableName(tableName: string, dbType: string, database?: string | null): string {
   const escapedTableName = escapeIdentifier(tableName, dbType);
   
-  if (database && dbType !== "sqlite") {
+  // For MSSQL, if database is provided, it will be set as the connection context,
+  // so we don't need to prefix the table name with database name
+  // For other databases (MySQL, PostgreSQL), we add database prefix when provided
+  if (database && dbType !== "sqlite" && dbType !== "mssql") {
     const escapedDb = escapeIdentifier(database, dbType);
     return `${escapedDb}.${escapedTableName}`;
   }

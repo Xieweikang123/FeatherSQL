@@ -846,3 +846,267 @@ pub async fn list_tables(
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ColumnInfo {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+    pub default: Option<String>,
+    pub primary_key: bool,
+    pub auto_increment: bool,
+}
+
+#[tauri::command]
+pub async fn describe_table(
+    connection_id: String,
+    table_name: String,
+    database: Option<String>,
+    app: tauri::AppHandle,
+    pool_manager: State<'_, PoolManager>,
+) -> Result<Vec<ColumnInfo>, String> {
+    let connections = load_connections(&app);
+    let connection = connections
+        .into_iter()
+        .find(|c| c.id == connection_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    // Handle MSSQL separately since it uses tiberius instead of sqlx
+    if connection.db_type == "mssql" {
+        match &connection.config {
+            ConnectionConfig::Mssql {
+                host,
+                port,
+                user,
+                password,
+                database: config_db,
+                ssl: _,
+            } => {
+                let db_name = database.as_deref().or(config_db.as_deref());
+                let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, *port, user, password, db_name).await?;
+                
+                // Escape table name
+                let escaped_table = table_name.replace("'", "''");
+                let escaped_db = db_name.map(|d| d.replace("'", "''"));
+                
+                // Query column information from information_schema
+                let query = if let Some(db) = &escaped_db {
+                    format!(
+                        "SELECT 
+                            COLUMN_NAME,
+                            DATA_TYPE,
+                            IS_NULLABLE,
+                            COLUMN_DEFAULT,
+                            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY,
+                            CASE WHEN COLUMNPROPERTY(OBJECT_ID('{}'), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END AS IS_IDENTITY
+                        FROM INFORMATION_SCHEMA.COLUMNS c
+                        LEFT JOIN (
+                            SELECT ku.TABLE_CATALOG, ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+                            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
+                            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS ku
+                                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY' 
+                                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                        ) pk ON c.TABLE_CATALOG = pk.TABLE_CATALOG 
+                            AND c.TABLE_SCHEMA = pk.TABLE_SCHEMA 
+                            AND c.TABLE_NAME = pk.TABLE_NAME 
+                            AND c.COLUMN_NAME = pk.COLUMN_NAME
+                        WHERE c.TABLE_CATALOG = '{}' AND c.TABLE_NAME = '{}'
+                        ORDER BY c.ORDINAL_POSITION",
+                        table_name.replace("'", "''"),
+                        db,
+                        escaped_table
+                    )
+                } else {
+                    format!(
+                        "SELECT 
+                            COLUMN_NAME,
+                            DATA_TYPE,
+                            IS_NULLABLE,
+                            COLUMN_DEFAULT,
+                            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY,
+                            CASE WHEN COLUMNPROPERTY(OBJECT_ID('{}'), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END AS IS_IDENTITY
+                        FROM INFORMATION_SCHEMA.COLUMNS c
+                        LEFT JOIN (
+                            SELECT ku.TABLE_CATALOG, ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+                            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
+                            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS ku
+                                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY' 
+                                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                        ) pk ON c.TABLE_CATALOG = pk.TABLE_CATALOG 
+                            AND c.TABLE_SCHEMA = pk.TABLE_SCHEMA 
+                            AND c.TABLE_NAME = pk.TABLE_NAME 
+                            AND c.COLUMN_NAME = pk.COLUMN_NAME
+                        WHERE c.TABLE_NAME = '{}'
+                        ORDER BY c.ORDINAL_POSITION",
+                        table_name.replace("'", "''"),
+                        escaped_table
+                    )
+                };
+                
+                let mut stream: tiberius::QueryStream<'_> = client.query(&query, &[])
+                    .await
+                    .map_err(|e| format!("查询表结构失败: {}", e))?;
+                
+                let mut columns = Vec::new();
+                while let Some(item) = stream.try_next().await
+                    .map_err(|e| format!("读取结果失败: {}", e))? {
+                    if let QueryItem::Row(row) = item {
+                        let name = row.try_get::<&str, _>(0).ok().flatten()
+                            .ok_or_else(|| "无法获取列名".to_string())?
+                            .to_string();
+                        let data_type = row.try_get::<&str, _>(1).ok().flatten()
+                            .unwrap_or("")
+                            .to_string();
+                        let nullable_str = row.try_get::<&str, _>(2).ok().flatten().unwrap_or("NO");
+                        let nullable = nullable_str == "YES";
+                        let default = row.try_get::<&str, _>(3).ok().flatten().map(|s| s.to_string());
+                        let is_pk = row.try_get::<i32, _>(4).ok().flatten().unwrap_or(0) == 1;
+                        let is_identity = row.try_get::<i32, _>(5).ok().flatten().unwrap_or(0) == 1;
+                        
+                        columns.push(ColumnInfo {
+                            name,
+                            data_type,
+                            nullable,
+                            default,
+                            primary_key: is_pk,
+                            auto_increment: is_identity,
+                        });
+                    }
+                }
+                
+                return Ok(columns);
+            }
+            _ => return Err("无效的 MSSQL 配置".to_string()),
+        }
+    }
+
+    // Get or create pool (with database if specified)
+    let pool = pool_manager.get_or_create_pool(&connection, database.as_deref()).await?;
+
+    // Query table structure
+    match pool {
+        DatabasePool::Sqlite(p) => {
+            // Use PRAGMA table_info for SQLite
+            let query = format!("PRAGMA table_info(`{}`)", table_name.replace("`", "``"));
+            let result = sqlx::query(&query)
+                .fetch_all(&p)
+                .await
+                .map_err(|e| format!("查询表结构失败: {}", e))?;
+            
+            let columns: Vec<ColumnInfo> = result
+                .into_iter()
+                .map(|row| {
+                    let cid: i64 = row.get(0);
+                    let name: String = row.get(1);
+                    let data_type: String = row.get(2);
+                    let notnull: i64 = row.get(3);
+                    let default: Option<String> = row.get(4);
+                    let pk: i64 = row.get(5);
+                    
+                    ColumnInfo {
+                        name,
+                        data_type,
+                        nullable: notnull == 0,
+                        default,
+                        primary_key: pk == 1,
+                        auto_increment: false, // SQLite doesn't have auto_increment in PRAGMA, would need separate check
+                    }
+                })
+                .collect();
+            
+            Ok(columns)
+        }
+        DatabasePool::Mysql(p) => {
+            // Use SHOW COLUMNS for MySQL
+            let escaped_table = table_name.replace("`", "``");
+            let query = if let Some(db) = database.as_ref() {
+                let escaped_db = db.replace("`", "``");
+                format!("SHOW COLUMNS FROM `{}`.`{}`", escaped_db, escaped_table)
+            } else {
+                format!("SHOW COLUMNS FROM `{}`", escaped_table)
+            };
+            
+            let result = sqlx::query(&query)
+                .fetch_all(&p)
+                .await
+                .map_err(|e| format!("查询表结构失败: {}", e))?;
+            
+            let columns: Vec<ColumnInfo> = result
+                .into_iter()
+                .map(|row| {
+                    let field: String = row.get(0);
+                    let type_str: String = row.get(1);
+                    let null: String = row.get(2);
+                    let key: String = row.get(3);
+                    let default: Option<String> = row.get(4);
+                    let extra: String = row.get(5);
+                    
+                    ColumnInfo {
+                        name: field,
+                        data_type: type_str,
+                        nullable: null == "YES",
+                        default,
+                        primary_key: key == "PRI",
+                        auto_increment: extra.contains("auto_increment"),
+                    }
+                })
+                .collect();
+            
+            Ok(columns)
+        }
+        DatabasePool::Postgres(p) => {
+            // Use information_schema for PostgreSQL
+            let escaped_table = table_name.replace("'", "''");
+            let query = format!(
+                "SELECT 
+                    column_name,
+                    data_type,
+                    is_nullable,
+                    column_default,
+                    CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key,
+                    CASE WHEN column_default LIKE 'nextval%' THEN true ELSE false END AS is_auto_increment
+                FROM information_schema.columns c
+                LEFT JOIN (
+                    SELECT ku.table_schema, ku.table_name, ku.column_name
+                    FROM information_schema.table_constraints AS tc
+                    INNER JOIN information_schema.key_column_usage AS ku
+                        ON tc.constraint_type = 'PRIMARY KEY' 
+                        AND tc.constraint_name = ku.constraint_name
+                ) pk ON c.table_schema = pk.table_schema 
+                    AND c.table_name = pk.table_name 
+                    AND c.column_name = pk.column_name
+                WHERE c.table_schema = 'public' AND c.table_name = '{}'
+                ORDER BY c.ordinal_position",
+                escaped_table
+            );
+            
+            let result = sqlx::query(&query)
+                .fetch_all(&p)
+                .await
+                .map_err(|e| format!("查询表结构失败: {}", e))?;
+            
+            let columns: Vec<ColumnInfo> = result
+                .into_iter()
+                .map(|row| {
+                    let name: String = row.get(0);
+                    let data_type: String = row.get(1);
+                    let is_nullable: String = row.get(2);
+                    let default: Option<String> = row.get(3);
+                    let is_pk: bool = row.get(4);
+                    let is_auto: bool = row.get(5);
+                    
+                    ColumnInfo {
+                        name,
+                        data_type,
+                        nullable: is_nullable == "YES",
+                        default,
+                        primary_key: is_pk,
+                        auto_increment: is_auto,
+                    }
+                })
+                .collect();
+            
+            Ok(columns)
+        }
+    }
+}
+

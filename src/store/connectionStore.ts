@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Connection, QueryResult } from "../lib/commands";
 
 const WORKSPACE_HISTORY_KEY = "feathersql_workspace_history";
+const EDIT_MODE_KEY = "feathersql_edit_mode";
 const MAX_HISTORY_COUNT = 20; // 最多保存20个历史记录
 
 export interface WorkspaceHistory {
@@ -34,6 +35,8 @@ interface ConnectionState {
   isQuerying: boolean;
   // 方案8：将 columnFilters 提升到 store，避免组件重新挂载导致的状态丢失
   columnFilters: Record<string, string>;
+  // 编辑模式状态（持久化）
+  editMode: boolean;
 
   setConnections: (connections: Connection[]) => void;
   setCurrentConnection: (id: string | null) => void;
@@ -48,6 +51,7 @@ interface ConnectionState {
   setSavedSql: (sql: string | null) => void;
   setIsQuerying: (isQuerying: boolean) => void;
   setColumnFilters: (filters: Record<string, string>) => void;
+  setEditMode: (editMode: boolean) => void;
   saveWorkspaceState: () => void;
   restoreWorkspaceState: () => WorkspaceState | null;
   saveWorkspaceHistory: (name?: string) => string | null;
@@ -56,6 +60,19 @@ interface ConnectionState {
   deleteWorkspaceHistory: (id: string) => void;
   clearWorkspaceHistory: () => void;
 }
+
+// 从 localStorage 加载编辑模式状态
+const loadEditMode = (): boolean => {
+  try {
+    const saved = localStorage.getItem(EDIT_MODE_KEY);
+    if (saved !== null) {
+      return JSON.parse(saved) as boolean;
+    }
+  } catch (error) {
+    console.error("Failed to load edit mode:", error);
+  }
+  return false; // 默认关闭
+};
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connections: [],
@@ -69,6 +86,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   savedSql: null,
   isQuerying: false,
   columnFilters: {}, // 方案8：将 columnFilters 提升到 store
+  editMode: loadEditMode(), // 从 localStorage 加载编辑模式状态
 
   setConnections: (connections) => {
     set({ connections });
@@ -105,6 +123,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
   setIsQuerying: (isQuerying) => set({ isQuerying }),
   setColumnFilters: (filters) => set({ columnFilters: filters }),
+  setEditMode: (editMode) => {
+    set({ editMode });
+    // 持久化编辑模式状态到 localStorage
+    try {
+      localStorage.setItem(EDIT_MODE_KEY, JSON.stringify(editMode));
+    } catch (error) {
+      console.error("Failed to save edit mode:", error);
+    }
+  },
   saveWorkspaceState: () => {
     const state = get();
     const workspaceState: WorkspaceState = {

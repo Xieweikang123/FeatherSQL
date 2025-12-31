@@ -78,6 +78,24 @@ export async function listTables(connectionId: string, database?: string): Promi
   return await invoke("list_tables", { connectionId, database });
 }
 
+// Table structure command
+export interface ColumnInfo {
+  name: string;
+  data_type: string;
+  nullable: boolean;
+  default: string | null;
+  primary_key: boolean;
+  auto_increment: boolean;
+}
+
+export async function describeTable(
+  connectionId: string,
+  tableName: string,
+  database?: string
+): Promise<ColumnInfo[]> {
+  return await invoke("describe_table", { connectionId, tableName, database });
+}
+
 // SQL History commands
 export interface SqlHistory {
   id: string;

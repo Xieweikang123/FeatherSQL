@@ -408,6 +408,59 @@ async fn execute_sql_postgres(
     }
 }
 
+/// Convert LIMIT clause to TOP clause for MSSQL compatibility
+/// Handles patterns like: SELECT ... LIMIT n or SELECT ... LIMIT offset, n
+fn convert_limit_to_top(sql: &str) -> String {
+    let sql_upper = sql.to_uppercase();
+    
+    // Find LIMIT keyword (case-insensitive)
+    if let Some(limit_pos) = sql_upper.rfind(" LIMIT ") {
+        let sql_before_limit = sql[..limit_pos].trim_end();
+        
+        // Check if it's a SELECT statement
+        if sql_before_limit.trim().to_uppercase().starts_with("SELECT") {
+            // Extract the LIMIT clause
+            let limit_clause = sql[limit_pos + 7..].trim_start(); // +7 for " LIMIT "
+            
+            // Parse LIMIT value(s)
+            let limit_value = if let Some(comma_pos) = limit_clause.find(',') {
+                // LIMIT offset, count -> use count as TOP value
+                limit_clause[comma_pos + 1..].trim().split_whitespace().next().unwrap_or("100")
+            } else {
+                // LIMIT count -> use count as TOP value
+                limit_clause.split_whitespace().next().unwrap_or("100")
+                    .trim_end_matches(';')
+            };
+            
+            // Find position after SELECT (handle SELECT DISTINCT/ALL) - case insensitive
+            let sql_before_upper = sql_before_limit.to_uppercase();
+            let after_select = if sql_before_upper.starts_with("SELECT DISTINCT ") {
+                16 // "SELECT DISTINCT ".len()
+            } else if sql_before_upper.starts_with("SELECT ALL ") {
+                11 // "SELECT ALL ".len()
+            } else if sql_before_upper.starts_with("SELECT ") {
+                7 // "SELECT ".len()
+            } else {
+                // Fallback - find SELECT case-insensitively
+                sql_before_upper.find("SELECT").map(|i| i + 7).unwrap_or(0)
+            };
+            
+            // Insert TOP n right after SELECT
+            format!("{}TOP {} {}", 
+                &sql_before_limit[..after_select],
+                limit_value,
+                &sql_before_limit[after_select..]
+            )
+        } else {
+            // Not a SELECT statement, return as-is
+            sql.to_string()
+        }
+    } else {
+        // No LIMIT clause found, return as-is
+        sql.to_string()
+    }
+}
+
 async fn execute_sql_mssql(
     host: &str,
     port: u16,
@@ -416,11 +469,14 @@ async fn execute_sql_mssql(
     database: Option<&str>,
     sql: &str,
 ) -> Result<QueryResult, String> {
+    // Convert LIMIT to TOP for MSSQL compatibility
+    let converted_sql = convert_limit_to_top(sql);
+    
     // Create client connection using helper function
     let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, port, user, password, database).await?;
     
     // Execute query
-    let mut stream: tiberius::QueryStream<'_> = client.query(sql, &[])
+    let mut stream: tiberius::QueryStream<'_> = client.query(&converted_sql, &[])
         .await
         .map_err(|e| format!("SQL 执行失败: {}", e))?;
     
