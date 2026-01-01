@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, memo } from "react";
 
 interface SortConfig {
   column: string;
@@ -18,7 +18,7 @@ interface TableHeaderProps {
   onSort: (column: string, e: React.MouseEvent) => void;
 }
 
-export default function TableHeader({
+function TableHeader({
   columns,
   columnFilters,
   expandedSearchColumn,
@@ -250,4 +250,16 @@ export default function TableHeader({
     </thead>
   );
 }
+
+// 使用 memo 优化，避免不必要的重渲染
+export default memo(TableHeader, (prevProps, nextProps) => {
+  // 自定义比较函数，只在关键属性变化时重新渲染
+  return (
+    prevProps.columns === nextProps.columns &&
+    JSON.stringify(prevProps.columnFilters) === JSON.stringify(nextProps.columnFilters) &&
+    prevProps.expandedSearchColumn === nextProps.expandedSearchColumn &&
+    prevProps.isFiltering === nextProps.isFiltering &&
+    JSON.stringify(prevProps.sortConfig) === JSON.stringify(nextProps.sortConfig)
+  );
+});
 

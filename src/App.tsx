@@ -4,6 +4,7 @@ import SqlEditor from "./components/SqlEditor";
 import ResultTable from "./components/ResultTable";
 import SqlHistory from "./components/SqlHistory";
 import TableView from "./components/TableView";
+import TabBar from "./components/TabBar";
 import { useConnectionStore } from "./store/connectionStore";
 import { getConnections } from "./lib/commands";
 
@@ -14,14 +15,18 @@ function App() {
     setConnections, 
     currentConnectionId, 
     currentDatabase, 
-    selectedTable, 
-    queryResult, 
-    error, 
+    getCurrentTab,
     logs, 
     clearLogs,
-    isQuerying,
-    savedSql,
   } = useConnectionStore();
+  
+  // 获取当前标签页状态
+  const currentTab = getCurrentTab();
+  const selectedTable = currentTab?.selectedTable || null;
+  const queryResult = currentTab?.queryResult || null;
+  const error = currentTab?.error || null;
+  const isQuerying = currentTab?.isQuerying || false;
+  const savedSql = currentTab?.sql || null;
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
@@ -187,6 +192,9 @@ function App() {
           {selectedTable ? (
             // 选中表时：只显示 SQL 编辑器（不显示数据表视图）
             <>
+              {/* Tab Bar */}
+              <TabBar />
+              
               {/* SQL Editor */}
               <div 
                 className="flex flex-col min-h-0"

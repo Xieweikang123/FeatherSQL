@@ -22,35 +22,52 @@ interface WorkspaceState {
   sql: string | null;
 }
 
+// 标签页状态
+export interface TabState {
+  id: string;
+  name: string;
+  sql: string;
+  queryResult: QueryResult | null;
+  error: string | null;
+  isQuerying: boolean;
+  selectedTable: string | null;
+  columnFilters: Record<string, string>;
+  sqlToLoad: string | null;
+}
+
 interface ConnectionState {
   connections: Connection[];
   currentConnectionId: string | null;
   currentDatabase: string | null;
-  selectedTable: string | null;
-  queryResult: QueryResult | null;
-  error: string | null;
+  // 标签页相关
+  tabs: TabState[];
+  currentTabId: string | null;
+  // 全局状态
   logs: string[];
-  sqlToLoad: string | null;
-  savedSql: string | null;
-  isQuerying: boolean;
-  // 方案8：将 columnFilters 提升到 store，避免组件重新挂载导致的状态丢失
-  columnFilters: Record<string, string>;
   // 编辑模式状态（持久化）
   editMode: boolean;
 
   setConnections: (connections: Connection[]) => void;
   setCurrentConnection: (id: string | null) => void;
   setCurrentDatabase: (database: string | null) => void;
+  // 标签页操作
+  createTab: (name?: string) => string;
+  closeTab: (tabId: string) => void;
+  setCurrentTab: (tabId: string) => void;
+  updateTab: (tabId: string, updates: Partial<TabState>) => void;
+  getCurrentTab: () => TabState | null;
+  // 向后兼容的方法（操作当前标签页）
   setSelectedTable: (table: string | null) => void;
   setQueryResult: (result: QueryResult | null) => void;
   setError: (error: string | null) => void;
-  addLog: (message: string) => void;
-  clearLogs: () => void;
   loadSql: (sql: string) => void;
   clearSqlToLoad: () => void;
   setSavedSql: (sql: string | null) => void;
   setIsQuerying: (isQuerying: boolean) => void;
   setColumnFilters: (filters: Record<string, string>) => void;
+  // 全局方法
+  addLog: (message: string) => void;
+  clearLogs: () => void;
   setEditMode: (editMode: boolean) => void;
   saveWorkspaceState: () => void;
   restoreWorkspaceState: () => WorkspaceState | null;
@@ -74,19 +91,31 @@ const loadEditMode = (): boolean => {
   return false; // 默认关闭
 };
 
-export const useConnectionStore = create<ConnectionState>((set, get) => ({
-  connections: [],
-  currentConnectionId: null,
-  currentDatabase: null,
-  selectedTable: null,
+// 创建默认标签页
+const createDefaultTab = (name: string = "新查询"): TabState => ({
+  id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+  name,
+  sql: "",
   queryResult: null,
   error: null,
-  logs: [],
-  sqlToLoad: null,
-  savedSql: null,
   isQuerying: false,
-  columnFilters: {}, // 方案8：将 columnFilters 提升到 store
-  editMode: loadEditMode(), // 从 localStorage 加载编辑模式状态
+  selectedTable: null,
+  columnFilters: {},
+  sqlToLoad: null,
+});
+
+export const useConnectionStore = create<ConnectionState>((set, get) => {
+  // 初始化时创建一个默认标签页
+  const initialTab = createDefaultTab();
+  
+  return {
+    connections: [],
+    currentConnectionId: null,
+    currentDatabase: null,
+    tabs: [initialTab],
+    currentTabId: initialTab.id,
+    logs: [],
+    editMode: loadEditMode(), // 从 localStorage 加载编辑模式状态
 
   setConnections: (connections) => {
     set({ connections });
@@ -97,32 +126,157 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     // No auto-save on connection change
   },
   setCurrentDatabase: (database) => {
-    set({ currentDatabase: database, selectedTable: null });
+    set((state) => {
+      // 更新所有标签页的 selectedTable 为 null（当数据库改变时）
+      const updatedTabs = state.tabs.map(tab => ({
+        ...tab,
+        selectedTable: null,
+      }));
+      return { currentDatabase: database, tabs: updatedTabs };
+    });
     // No auto-save on database change
   },
-  setSelectedTable: (table) => {
-    set({ selectedTable: table });
-    // No auto-save on table selection
+  // 标签页操作方法
+  createTab: (name) => {
+    const newTab = createDefaultTab(name);
+    set((state) => ({
+      tabs: [...state.tabs, newTab],
+      currentTabId: newTab.id,
+    }));
+    return newTab.id;
   },
-  setQueryResult: (result) => set({ queryResult: result, error: null }),
-  setError: (error) => set({ error, queryResult: null }),
+  closeTab: (tabId) => {
+    set((state) => {
+      const tabs = state.tabs.filter(tab => tab.id !== tabId);
+      if (tabs.length === 0) {
+        // 如果关闭了所有标签页，创建一个新的
+        const newTab = createDefaultTab();
+        return { tabs: [newTab], currentTabId: newTab.id };
+      }
+      // 如果关闭的是当前标签页，切换到其他标签页
+      let newCurrentTabId = state.currentTabId;
+      if (state.currentTabId === tabId) {
+        const currentIndex = state.tabs.findIndex(tab => tab.id === tabId);
+        if (currentIndex > 0) {
+          newCurrentTabId = tabs[currentIndex - 1].id;
+        } else {
+          newCurrentTabId = tabs[0].id;
+        }
+      }
+      return { tabs, currentTabId: newCurrentTabId };
+    });
+  },
+  setCurrentTab: (tabId) => {
+    set({ currentTabId: tabId });
+  },
+  updateTab: (tabId, updates) => {
+    set((state) => {
+      const updatedTabs = state.tabs.map(tab => {
+        if (tab.id === tabId) {
+          const updatedTab = { ...tab, ...updates };
+          // 如果更新了 selectedTable，自动更新标签页名称
+          if (updates.selectedTable !== undefined && updates.selectedTable) {
+            let tabName = updates.selectedTable;
+            if (state.currentConnectionId) {
+              const connection = state.connections.find(c => c.id === state.currentConnectionId);
+              if (connection) {
+                const parts: string[] = [];
+                if (state.currentDatabase && state.currentDatabase !== "") {
+                  parts.push(state.currentDatabase);
+                } else if (connection.type === "sqlite") {
+                  parts.push("SQLite");
+                }
+                parts.push(updates.selectedTable);
+                tabName = parts.join(".");
+              }
+            }
+            updatedTab.name = tabName;
+          }
+          return updatedTab;
+        }
+        return tab;
+      });
+      return { tabs: updatedTabs };
+    });
+  },
+  getCurrentTab: () => {
+    const state = get();
+    if (!state.currentTabId) return null;
+    return state.tabs.find(tab => tab.id === state.currentTabId) || null;
+  },
+  // 向后兼容的方法（操作当前标签页）
+  setSelectedTable: (table) => {
+    const state = get();
+    const currentTab = state.getCurrentTab();
+    if (currentTab) {
+      // 自动更新标签页名称
+      let tabName = table || "新查询";
+      if (table && state.currentConnectionId) {
+        const connection = state.connections.find(c => c.id === state.currentConnectionId);
+        if (connection) {
+          const parts: string[] = [];
+          if (state.currentDatabase && state.currentDatabase !== "") {
+            parts.push(state.currentDatabase);
+          } else if (connection.type === "sqlite") {
+            parts.push("SQLite");
+          }
+          parts.push(table);
+          tabName = parts.join(".");
+        }
+      }
+      state.updateTab(currentTab.id, { selectedTable: table, name: tabName });
+    }
+  },
+  setQueryResult: (result) => {
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { queryResult: result, error: null });
+    }
+  },
+  setError: (error) => {
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { error, queryResult: null });
+    }
+  },
+  loadSql: (sql) => {
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { sqlToLoad: sql, sql });
+      // Only save when SQL is loaded
+      get().saveWorkspaceState();
+    }
+  },
+  clearSqlToLoad: () => {
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { sqlToLoad: null });
+    }
+  },
+  setSavedSql: (sql) => {
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { sql: sql || "" });
+    }
+  },
+  setIsQuerying: (isQuerying) => {
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { isQuerying });
+    }
+  },
+  setColumnFilters: (filters) => {
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { columnFilters: filters });
+    }
+  },
+  // 全局方法
   addLog: (message) =>
     set((state) => ({
       logs: [...state.logs, `${new Date().toLocaleTimeString()}: ${message}`],
     })),
   clearLogs: () => set({ logs: [] }),
-  loadSql: (sql) => {
-    set({ sqlToLoad: sql, savedSql: sql });
-    // Only save when SQL is loaded
-    get().saveWorkspaceState();
-  },
-  clearSqlToLoad: () => set({ sqlToLoad: null }),
-  setSavedSql: (sql) => {
-    set({ savedSql: sql });
-    // No auto-save on SQL editor content change (only save when explicitly loaded)
-  },
-  setIsQuerying: (isQuerying) => set({ isQuerying }),
-  setColumnFilters: (filters) => set({ columnFilters: filters }),
   setEditMode: (editMode) => {
     set({ editMode });
     // 持久化编辑模式状态到 localStorage
@@ -134,11 +288,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
   saveWorkspaceState: () => {
     const state = get();
+    const currentTab = state.getCurrentTab();
     const workspaceState: WorkspaceState = {
       connectionId: state.currentConnectionId,
       database: state.currentDatabase,
-      table: state.selectedTable,
-      sql: state.savedSql,
+      table: currentTab?.selectedTable || null,
+      sql: currentTab?.sql || null,
     };
     try {
       // Generate descriptive name for auto-save
@@ -239,6 +394,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       return null;
     }
 
+    const currentTab = state.getCurrentTab();
+    if (!currentTab) {
+      return null;
+    }
+
     // Generate name if not provided
     let historyName = name;
     if (!historyName) {
@@ -248,8 +408,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       } else if (connection.type === "sqlite") {
         parts.push("SQLite");
       }
-      if (state.selectedTable) {
-        parts.push(state.selectedTable);
+      if (currentTab.selectedTable) {
+        parts.push(currentTab.selectedTable);
       }
       historyName = parts.join(" → ");
     }
@@ -259,8 +419,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       name: historyName,
       connectionId: state.currentConnectionId,
       database: state.currentDatabase,
-      table: state.selectedTable,
-      sql: state.savedSql,
+      table: currentTab.selectedTable,
+      sql: currentTab.sql,
       savedAt: new Date().toISOString(),
     };
 
@@ -349,5 +509,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       console.error("Failed to clear workspace history:", error);
     }
   },
-}));
+  };
+});
 

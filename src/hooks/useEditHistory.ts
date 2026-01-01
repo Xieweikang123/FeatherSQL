@@ -16,6 +16,17 @@ interface EditHistoryState {
 const MAX_HISTORY_SIZE = 50;
 
 /**
+ * 高效的深拷贝函数，专门用于 QueryResult 结构
+ * 比 JSON.parse(JSON.stringify()) 更快，特别是对于大数据集
+ */
+function deepCopyQueryResult(data: QueryResult): QueryResult {
+  return {
+    columns: [...data.columns],
+    rows: data.rows.map(row => [...row]),
+  };
+}
+
+/**
  * Hook to manage edit history (undo/redo) for table editing
  */
 export function useEditHistory(initialData: QueryResult) {
@@ -30,7 +41,7 @@ export function useEditHistory(initialData: QueryResult) {
 
   const saveToHistory = (editedData: QueryResult, modifications: Map<string, CellModification>) => {
     const currentState: EditHistoryState = {
-      editedData: JSON.parse(JSON.stringify(editedData)), // Deep copy
+      editedData: deepCopyQueryResult(editedData), // 使用优化的深拷贝
       modifications: new Map(modifications),
     };
 

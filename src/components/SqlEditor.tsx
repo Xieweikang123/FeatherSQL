@@ -23,8 +23,21 @@ export default function SqlEditor() {
   const monacoEditorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const isEditorMountedRef = useRef<boolean>(false);
-  const { connections, currentConnectionId, currentDatabase, selectedTable, setSelectedTable, setQueryResult, setError, addLog, sqlToLoad, clearSqlToLoad, setSavedSql, setIsQuerying, saveWorkspaceState } =
-    useConnectionStore();
+  const { 
+    connections, 
+    currentConnectionId, 
+    currentDatabase, 
+    getCurrentTab,
+    updateTab,
+    setSelectedTable, 
+    addLog, 
+    saveWorkspaceState 
+  } = useConnectionStore();
+  
+  // 获取当前标签页
+  const currentTab = getCurrentTab();
+  const sqlToLoad = currentTab?.sqlToLoad || null;
+  const selectedTable = currentTab?.selectedTable || null;
   
   // Schema cache for autocomplete
   const [tables, setTables] = useState<string[]>([]);
@@ -66,6 +79,17 @@ export default function SqlEditor() {
 
     loadTables();
   }, [currentConnectionId, currentDatabase, currentConnection?.type]);
+
+  // Update editor content when tab changes
+  useEffect(() => {
+    if (!currentTab || !monacoEditorRef.current) return;
+    
+    const currentSql = currentTab.sql || "";
+    if (editorRef.current !== currentSql) {
+      monacoEditorRef.current.setValue(currentSql);
+      editorRef.current = currentSql;
+    }
+  }, [currentTab?.id, currentTab?.sql]);
   
   // Load columns for a specific table
   const loadTableColumns = async (tableName: string) => {
@@ -109,20 +133,22 @@ export default function SqlEditor() {
 
   // Load SQL from history when sqlToLoad changes
   useEffect(() => {
-    if (!sqlToLoad) return;
+    if (!sqlToLoad || !currentTab) return;
 
     // If editor is already mounted, load immediately
     if (isEditorMountedRef.current && monacoEditorRef.current) {
       monacoEditorRef.current.setValue(sqlToLoad);
       editorRef.current = sqlToLoad;
-      clearSqlToLoad();
+      updateTab(currentTab.id, { sqlToLoad: null, sql: sqlToLoad });
     }
     // If editor is not mounted yet, wait for onMount event to handle it
-  }, [sqlToLoad, clearSqlToLoad]);
+  }, [sqlToLoad, currentTab, updateTab]);
 
   const handleExecute = async () => {
-    if (!currentConnectionId) {
-      setError("请先选择一个连接");
+    if (!currentConnectionId || !currentTab) {
+      if (currentTab) {
+        updateTab(currentTab.id, { error: "请先选择一个连接" });
+      }
       addLog("执行失败: 未选择连接");
       return;
     }
@@ -144,40 +170,47 @@ export default function SqlEditor() {
 
     sql = sql.trim();
     if (!sql) {
-      setError("SQL 查询不能为空");
+      updateTab(currentTab.id, { error: "SQL 查询不能为空" });
       return;
     }
 
-    setError(null);
-    setIsQuerying(true);
+    updateTab(currentTab.id, { error: null, isQuerying: true });
     addLog(`执行 SQL: ${sql.substring(0, 50)}...`);
 
     try {
       const result = await executeSql(currentConnectionId, sql, currentDatabase || undefined);
-      setQueryResult(result);
+      updateTab(currentTab.id, { 
+        queryResult: result, 
+        error: null, 
+        isQuerying: false,
+        sql: sql 
+      });
       addLog(`查询成功，返回 ${result.rows.length} 行`);
       // Save current SQL to workspace state after successful execution
-      setSavedSql(sql);
       saveWorkspaceState();
       // History is automatically saved by the backend
     } catch (error) {
       const errorMsg = String(error);
-      setError(errorMsg);
+      updateTab(currentTab.id, { 
+        error: errorMsg, 
+        queryResult: null,
+        isQuerying: false,
+        sql: sql 
+      });
       addLog(`执行失败: ${errorMsg}`);
       // Save current SQL to workspace state even on error (user might want to retry)
-      setSavedSql(sql);
       saveWorkspaceState();
       // History is automatically saved by the backend
-    } finally {
-      setIsQuerying(false);
     }
   };
 
   const handleEditorChange = (value: string | undefined) => {
     const sql = value || "";
     editorRef.current = sql;
-    // Save SQL to store for workspace state persistence
-    setSavedSql(sql);
+    // Save SQL to current tab
+    if (currentTab) {
+      updateTab(currentTab.id, { sql });
+    }
   };
 
   const handleEditorMount = (editor: any, monaco: any) => {
@@ -426,13 +459,18 @@ export default function SqlEditor() {
       completionProvider
     );
     
-    // Load SQL if there's one to load
-    // Get the latest sqlToLoad from store to avoid closure issues
+    // Load SQL from current tab
     const store = useConnectionStore.getState();
-    if (store.sqlToLoad) {
-      editor.setValue(store.sqlToLoad);
-      editorRef.current = store.sqlToLoad;
-      store.clearSqlToLoad();
+    const currentTab = store.getCurrentTab();
+    if (currentTab) {
+      const sqlToLoad = currentTab.sqlToLoad || currentTab.sql;
+      if (sqlToLoad) {
+        editor.setValue(sqlToLoad);
+        editorRef.current = sqlToLoad;
+        if (currentTab.sqlToLoad) {
+          store.updateTab(currentTab.id, { sqlToLoad: null });
+        }
+      }
     }
 
     // Return cleanup function

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, memo } from "react";
 import type { CellModification } from "../../hooks/useEditHistory";
 import type { CellSelection } from "../../hooks/useCellSelection";
 
@@ -25,7 +25,7 @@ interface TableRowProps {
   rowNumber: number;
 }
 
-export default function TableRow({
+function TableRow({
   row,
   rowIndex,
   originalRowIndex,
@@ -192,4 +192,79 @@ export default function TableRow({
     </tr>
   );
 }
+
+// 使用 memo 优化，避免不必要的重渲染
+export default memo(TableRow, (prevProps, nextProps) => {
+  // 自定义比较函数，只在关键属性变化时重新渲染
+  // 注意：对于引用类型（row, modifications, selection），需要更仔细的比较
+  
+  // 比较基本属性
+  if (
+    prevProps.rowIndex !== nextProps.rowIndex ||
+    prevProps.originalRowIndex !== nextProps.originalRowIndex ||
+    prevProps.columns !== nextProps.columns ||
+    prevProps.editMode !== nextProps.editMode ||
+    prevProps.editingValue !== nextProps.editingValue ||
+    prevProps.isRowSelected !== nextProps.isRowSelected ||
+    prevProps.rowNumber !== nextProps.rowNumber
+  ) {
+    return false;
+  }
+  
+  // 比较 editingCell
+  const prevEditing = prevProps.editingCell;
+  const nextEditing = nextProps.editingCell;
+  if (prevEditing?.row !== nextEditing?.row || prevEditing?.col !== nextEditing?.col) {
+    return false;
+  }
+  
+  // 比较 row 数组（浅比较每个元素）
+  if (prevProps.row.length !== nextProps.row.length) {
+    return false;
+  }
+  for (let i = 0; i < prevProps.row.length; i++) {
+    if (prevProps.row[i] !== nextProps.row[i]) {
+      return false;
+    }
+  }
+  
+  // 比较 modifications Map（检查当前行相关的修改）
+  const prevMods = prevProps.modifications;
+  const nextMods = nextProps.modifications;
+  if (prevMods.size !== nextMods.size) {
+    return false;
+  }
+  // 只检查当前行的修改
+  const rowIndex = prevProps.originalRowIndex;
+  for (let col = 0; col < prevProps.columns.length; col++) {
+    const key = `${rowIndex}-${col}`;
+    const prevMod = prevMods.get(key);
+    const nextMod = nextMods.get(key);
+    if (prevMod !== nextMod) {
+      return false;
+    }
+  }
+  
+  // 比较 selection（检查当前行是否被选中）
+  const prevSelection = prevProps.selection;
+  const nextSelection = nextProps.selection;
+  if (prevSelection === nextSelection) {
+    return true; // 相同引用，无需进一步比较
+  }
+  if (!prevSelection && !nextSelection) {
+    return true; // 都为null
+  }
+  if (!prevSelection || !nextSelection) {
+    return false; // 一个为null，另一个不是
+  }
+  // 检查当前行的单元格是否在选择中
+  for (let col = 0; col < prevProps.columns.length; col++) {
+    const key = `${rowIndex}-${col}`;
+    if (prevSelection.cells.has(key) !== nextSelection.cells.has(key)) {
+      return false;
+    }
+  }
+  
+  return true;
+});
 

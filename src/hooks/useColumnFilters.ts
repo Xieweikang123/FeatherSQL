@@ -4,11 +4,21 @@ import { useConnectionStore } from "../store/connectionStore";
 /**
  * Hook to manage column filters with synchronization between ref and state
  */
-export function useColumnFilters(sql: string | null | undefined) {
-  const { columnFilters, setColumnFilters } = useConnectionStore();
-  const columnFiltersRef = useRef<Record<string, string>>({});
-  const lastFiltersRef = useRef<Record<string, string>>({});
+export function useColumnFilters(sql: string | null | undefined, initialFilters?: Record<string, string>) {
+  const { setColumnFilters } = useConnectionStore();
+  const [columnFilters, setColumnFiltersState] = useState<Record<string, string>>(initialFilters || {});
+  const columnFiltersRef = useRef<Record<string, string>>(initialFilters || {});
+  const lastFiltersRef = useRef<Record<string, string>>(initialFilters || {});
   const originalSqlRef = useRef<string | null>(sql || null);
+
+  // Sync with initial filters
+  useEffect(() => {
+    if (initialFilters && JSON.stringify(initialFilters) !== JSON.stringify(columnFilters)) {
+      setColumnFiltersState(initialFilters);
+      columnFiltersRef.current = initialFilters;
+      lastFiltersRef.current = initialFilters;
+    }
+  }, [initialFilters]);
 
   // Sync ref and state on mount and when SQL changes
   useEffect(() => {
@@ -16,6 +26,7 @@ export function useColumnFilters(sql: string | null | undefined) {
       // SQL changed, clear filters
       originalSqlRef.current = sql;
       setColumnFilters({});
+      setColumnFiltersState({});
       columnFiltersRef.current = {};
     } else if (sql) {
       originalSqlRef.current = sql;
@@ -33,12 +44,14 @@ export function useColumnFilters(sql: string | null | undefined) {
 
     if (refHasFilters && (!stateHasFilters || JSON.stringify(columnFiltersRef.current) !== JSON.stringify(columnFilters))) {
       setColumnFilters(columnFiltersRef.current);
+      setColumnFiltersState(columnFiltersRef.current);
     } else if (!refHasFilters && stateHasFilters) {
       columnFiltersRef.current = columnFilters;
       lastFiltersRef.current = columnFilters;
     } else if (!refHasFilters && !stateHasFilters && lastHasFilters) {
       columnFiltersRef.current = lastFiltersRef.current;
       setColumnFilters(lastFiltersRef.current);
+      setColumnFiltersState(lastFiltersRef.current);
     }
   };
 
@@ -53,6 +66,7 @@ export function useColumnFilters(sql: string | null | undefined) {
     columnFiltersRef.current = filters;
     lastFiltersRef.current = filters;
     setColumnFilters(filters);
+    setColumnFiltersState(filters);
   };
 
   return {

@@ -6,8 +6,20 @@ import { useConnectionStore } from "../../store/connectionStore";
 describe("useColumnFilters", () => {
   beforeEach(() => {
     // Reset store state
-    useConnectionStore.setState({
+    const newTab = {
+      id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: "新查询",
+      sql: "",
+      queryResult: null,
+      error: null,
+      isQuerying: false,
+      selectedTable: null,
       columnFilters: {},
+      sqlToLoad: null,
+    };
+    useConnectionStore.setState({
+      tabs: [newTab],
+      currentTabId: newTab.id,
     });
     vi.clearAllMocks();
   });
@@ -40,7 +52,7 @@ describe("useColumnFilters", () => {
       });
 
       expect(result.current.columnFilters).toEqual({ name: "test", age: "25" });
-      expect(useConnectionStore.getState().columnFilters).toEqual({
+      expect(useConnectionStore.getState().getCurrentTab()?.columnFilters).toEqual({
         name: "test",
         age: "25",
       });
@@ -122,7 +134,10 @@ describe("useColumnFilters", () => {
       act(() => {
         result.current.columnFiltersRef.current = { name: "test" };
         // Trigger sync by updating state
-        useConnectionStore.setState({ columnFilters: {} });
+        const currentTab = useConnectionStore.getState().getCurrentTab();
+        if (currentTab) {
+          useConnectionStore.getState().updateTab(currentTab.id, { columnFilters: {} });
+        }
       });
 
       // Wait for layout effect to sync
@@ -135,7 +150,10 @@ describe("useColumnFilters", () => {
       const { result } = renderHook(() => useColumnFilters("SELECT * FROM users"));
 
       act(() => {
-        useConnectionStore.setState({ columnFilters: { name: "test" } });
+        const currentTab = useConnectionStore.getState().getCurrentTab();
+        if (currentTab) {
+          useConnectionStore.getState().updateTab(currentTab.id, { columnFilters: { name: "test" } });
+        }
       });
 
       waitFor(() => {
@@ -154,7 +172,10 @@ describe("useColumnFilters", () => {
       // Clear both
       act(() => {
         result.current.columnFiltersRef.current = {};
-        useConnectionStore.setState({ columnFilters: {} });
+        const currentTab = useConnectionStore.getState().getCurrentTab();
+        if (currentTab) {
+          useConnectionStore.getState().updateTab(currentTab.id, { columnFilters: {} });
+        }
       });
 
       // Should restore from lastFiltersRef

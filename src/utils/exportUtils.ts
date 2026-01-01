@@ -8,9 +8,9 @@ export interface ExportData {
 }
 
 /**
- * 导出数据为 CSV 格式
+ * 生成 CSV 内容
  */
-export function exportToCsv(data: ExportData, filename: string = 'export'): void {
+export function generateCsvContent(data: ExportData): string {
   const { columns, rows } = data;
   
   // 构建 CSV 内容
@@ -24,7 +24,14 @@ export function exportToCsv(data: ExportData, filename: string = 'export'): void
     csvRows.push(row.map(cell => escapeCsvValue(cell)).join(','));
   }
   
-  const csvContent = csvRows.join('\n');
+  return csvRows.join('\n');
+}
+
+/**
+ * 导出数据为 CSV 格式
+ */
+export function exportToCsv(data: ExportData, filename: string = 'export'): void {
+  const csvContent = generateCsvContent(data);
   
   // 添加 BOM 以支持中文
   const bom = '\uFEFF';
@@ -53,9 +60,9 @@ export function exportToJson(data: ExportData, filename: string = 'export'): voi
 }
 
 /**
- * 导出数据为 Excel 格式
+ * 生成 Excel 文件缓冲区
  */
-export function exportToExcel(data: ExportData, filename: string = 'export'): void {
+export function generateExcelBuffer(data: ExportData): Uint8Array {
   const { columns, rows } = data;
   
   // 创建工作簿
@@ -85,8 +92,33 @@ export function exportToExcel(data: ExportData, filename: string = 'export'): vo
   // 将工作表添加到工作簿
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   
-  // 导出文件
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+  // 生成 Excel 文件数据
+  const excelBuffer = XLSX.write(wb, { 
+    bookType: 'xlsx', 
+    type: 'array',
+    compression: true
+  });
+  
+  return excelBuffer;
+}
+
+/**
+ * 导出数据为 Excel 格式
+ */
+export function exportToExcel(data: ExportData, filename: string = 'export'): void {
+  try {
+    const excelBuffer = generateExcelBuffer(data);
+    
+    // 使用 Blob 下载方式
+    const blob = new Blob([excelBuffer], { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+    });
+    
+    downloadBlob(blob, `${filename}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  } catch (error) {
+    console.error('Excel export error:', error);
+    throw new Error(`无法导出 Excel 文件: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**

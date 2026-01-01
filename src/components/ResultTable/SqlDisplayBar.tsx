@@ -13,7 +13,7 @@ interface SqlDisplayBarProps {
   onEnterEditMode: () => void;
   onClearFilters: () => void;
   onViewStructure?: () => void;
-  onExport?: (format: ExportFormat, exportSelected: boolean) => void;
+  onExport?: (format: ExportFormat, exportSelected: boolean) => Promise<void>;
   hasSelectedRows?: boolean;
 }
 
@@ -33,6 +33,7 @@ export default function SqlDisplayBar({
 }: SqlDisplayBarProps) {
   const [copied, setCopied] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   const handleCopySql = async () => {
@@ -64,11 +65,27 @@ export default function SqlDisplayBar({
     }
   }, [showExportMenu]);
 
-  const handleExport = (format: ExportFormat, exportSelected: boolean) => {
+  const handleExport = async (format: ExportFormat, exportSelected: boolean) => {
     if (onExport) {
-      onExport(format, exportSelected);
+      setShowExportMenu(false);
+      try {
+        await onExport(format, exportSelected);
+        // 显示成功提示
+        const formatNames: Record<ExportFormat, string> = {
+          csv: 'CSV',
+          json: 'JSON',
+          excel: 'Excel'
+        };
+        const exportType = exportSelected ? '选中行' : '全部数据';
+        setExportSuccess(`已导出 ${formatNames[format]} (${exportType})`);
+        setTimeout(() => setExportSuccess(null), 3000);
+      } catch (error) {
+        console.error('Export error:', error);
+        // 错误信息已经在 onExport 中通过 addLog 记录
+      }
+    } else {
+      setShowExportMenu(false);
     }
-    setShowExportMenu(false);
   };
 
   if (!sql) return null;
@@ -129,8 +146,23 @@ export default function SqlDisplayBar({
               style={{ color: "var(--neu-text-light)" }}
               title="导出数据"
             >
-              📥 导出
+              {exportSuccess ? "✓ 已导出" : "📥 导出"}
             </button>
+            {exportSuccess && (
+              <div
+                className="absolute right-0 mt-1 px-3 py-2 text-xs rounded-lg shadow-lg z-50 neu-raised"
+                style={{
+                  backgroundColor: 'var(--neu-success)',
+                  color: '#fff',
+                  minWidth: '150px',
+                  whiteSpace: 'nowrap',
+                  animation: 'fadeIn 0.3s ease-in',
+                  fontWeight: '500'
+                }}
+              >
+                ✓ {exportSuccess}
+              </div>
+            )}
             {showExportMenu && (
               <div
                 className="absolute right-0 mt-1 neu-raised rounded-lg shadow-lg py-1 z-50"

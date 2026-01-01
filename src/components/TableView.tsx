@@ -3,18 +3,18 @@ import { useConnectionStore } from "../store/connectionStore";
 import { listTables, executeSql } from "../lib/commands";
 import { buildTableName } from "../lib/utils";
 import TableStructure from "./TableStructure";
+import ImportDialog from "./ImportDialog";
 
 export default function TableView() {
   const {
     connections,
     currentConnectionId,
     currentDatabase,
+    getCurrentTab,
+    updateTab,
     setSelectedTable,
-    setQueryResult,
-    setError,
     addLog,
     loadSql,
-    setIsQuerying,
   } = useConnectionStore();
   
   const [tables, setTables] = useState<string[]>([]);
@@ -22,6 +22,7 @@ export default function TableView() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [viewingStructure, setViewingStructure] = useState<string | null>(null);
+  const [importingTable, setImportingTable] = useState<string | null>(null);
 
   const currentConnection = connections.find(c => c.id === currentConnectionId);
   const connectionType = currentConnection?.type;
@@ -87,19 +88,19 @@ export default function TableView() {
     addLog(`查询表: ${tableName}${dbName ? ` (数据库: ${dbName})` : ""}`);
 
     // Execute query
-    setError(null);
-    setIsQuerying(true);
+    const currentTab = getCurrentTab();
+    if (!currentTab) return;
+    
+    updateTab(currentTab.id, { error: null, isQuerying: true });
     try {
       const dbParam = currentConnection.type === "sqlite" ? "" : (currentDatabase || undefined);
       const result = await executeSql(currentConnectionId, sql, dbParam);
-      setQueryResult(result);
+      updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
       addLog(`查询成功，返回 ${result.rows.length} 行`);
     } catch (error) {
       const errorMsg = String(error);
-      setError(errorMsg);
+      updateTab(currentTab.id, { error: errorMsg, queryResult: null, isQuerying: false });
       addLog(`查询失败: ${errorMsg}`);
-    } finally {
-      setIsQuerying(false);
     }
   };
 
@@ -161,14 +162,16 @@ export default function TableView() {
               <span className="font-normal" style={{ color: 'var(--neu-accent)' }}>({currentDatabase})</span>
             ) : null}
           </h2>
-          <button
-            onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
-            style={{ color: 'var(--neu-text)' }}
-            title={viewMode === 'list' ? '切换到网格视图' : '切换到列表视图'}
-          >
-            <span className="text-sm">{viewMode === 'list' ? '⊞' : '☰'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
+              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+              style={{ color: 'var(--neu-text)' }}
+              title={viewMode === 'list' ? '切换到网格视图' : '切换到列表视图'}
+            >
+              <span className="text-sm">{viewMode === 'list' ? '⊞' : '☰'}</span>
+            </button>
+          </div>
         </div>
         
         {/* Search box */}
@@ -230,17 +233,30 @@ export default function TableView() {
                     {table}
                   </span>
                 </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleTableClick(table, true);
-                  }}
-                  className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active opacity-0 group-hover:opacity-100"
-                  style={{ color: 'var(--neu-text-light)' }}
-                  title="查看表结构"
-                >
-                  <span className="text-xs">🔍</span>
-                </button>
+                <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImportingTable(table);
+                    }}
+                    className="w-6 h-6 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                    style={{ color: 'var(--neu-accent)' }}
+                    title="导入数据"
+                  >
+                    <span className="text-xs">📥</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTableClick(table, true);
+                    }}
+                    className="w-6 h-6 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                    style={{ color: 'var(--neu-text-light)' }}
+                    title="查看表结构"
+                  >
+                    <span className="text-xs">🔍</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -260,22 +276,50 @@ export default function TableView() {
               >
                 <span className="text-base">📄</span>
                 <span className="font-medium flex-1">{table}</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleTableClick(table, true);
-                  }}
-                  className="w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active opacity-0 group-hover:opacity-100"
-                  style={{ color: 'var(--neu-text-light)' }}
-                  title="查看表结构"
-                >
-                  <span className="text-xs">🔍</span>
-                </button>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImportingTable(table);
+                    }}
+                    className="w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                    style={{ color: 'var(--neu-accent)' }}
+                    title="导入数据"
+                  >
+                    <span className="text-xs">📥</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTableClick(table, true);
+                    }}
+                    className="w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                    style={{ color: 'var(--neu-text-light)' }}
+                    title="查看表结构"
+                  >
+                    <span className="text-xs">🔍</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Import Dialog */}
+      {importingTable && (
+        <ImportDialog
+          tableName={importingTable}
+          onClose={() => setImportingTable(null)}
+          onSuccess={() => {
+            // 如果当前选中的表就是导入的表，刷新查询结果
+            if (selectedTable === importingTable) {
+              handleTableClick(importingTable);
+            }
+            setImportingTable(null);
+          }}
+        />
+      )}
     </div>
   );
 }

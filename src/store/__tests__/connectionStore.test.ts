@@ -5,18 +5,25 @@ import type { Connection, QueryResult } from "../../lib/commands";
 describe("connectionStore", () => {
   beforeEach(() => {
     // Reset store state before each test
+    const newTab = {
+      id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: "新查询",
+      sql: "",
+      queryResult: null,
+      error: null,
+      isQuerying: false,
+      selectedTable: null,
+      columnFilters: {},
+      sqlToLoad: null,
+    };
     useConnectionStore.setState({
       connections: [],
       currentConnectionId: null,
       currentDatabase: null,
-      selectedTable: null,
-      queryResult: null,
-      error: null,
+      tabs: [newTab],
+      currentTabId: newTab.id,
       logs: [],
-      sqlToLoad: null,
-      savedSql: null,
-      isQuerying: false,
-      columnFilters: {},
+      editMode: false,
     });
     // Clear localStorage
     localStorage.clear();
@@ -46,12 +53,12 @@ describe("connectionStore", () => {
       useConnectionStore.getState().setCurrentDatabase("mydb");
       expect(useConnectionStore.getState().currentDatabase).toBe("mydb");
       // Setting database should clear selected table
-      expect(useConnectionStore.getState().selectedTable).toBeNull();
+      expect(useConnectionStore.getState().getCurrentTab()?.selectedTable).toBeNull();
     });
 
     it("should set selected table", () => {
       useConnectionStore.getState().setSelectedTable("users");
-      expect(useConnectionStore.getState().selectedTable).toBe("users");
+      expect(useConnectionStore.getState().getCurrentTab()?.selectedTable).toBe("users");
     });
 
     it("should set query result", () => {
@@ -61,14 +68,14 @@ describe("connectionStore", () => {
       };
 
       useConnectionStore.getState().setQueryResult(result);
-      expect(useConnectionStore.getState().queryResult).toEqual(result);
-      expect(useConnectionStore.getState().error).toBeNull();
+      expect(useConnectionStore.getState().getCurrentTab()?.queryResult).toEqual(result);
+      expect(useConnectionStore.getState().getCurrentTab()?.error).toBeNull();
     });
 
     it("should set error", () => {
       useConnectionStore.getState().setError("Test error");
-      expect(useConnectionStore.getState().error).toBe("Test error");
-      expect(useConnectionStore.getState().queryResult).toBeNull();
+      expect(useConnectionStore.getState().getCurrentTab()?.error).toBe("Test error");
+      expect(useConnectionStore.getState().getCurrentTab()?.queryResult).toBeNull();
     });
 
     it("should add log message", () => {
@@ -86,33 +93,33 @@ describe("connectionStore", () => {
 
     it("should set isQuerying", () => {
       useConnectionStore.getState().setIsQuerying(true);
-      expect(useConnectionStore.getState().isQuerying).toBe(true);
+      expect(useConnectionStore.getState().getCurrentTab()?.isQuerying).toBe(true);
     });
 
     it("should set column filters", () => {
       const filters = { name: "test", age: "25" };
       useConnectionStore.getState().setColumnFilters(filters);
-      expect(useConnectionStore.getState().columnFilters).toEqual(filters);
+      expect(useConnectionStore.getState().getCurrentTab()?.columnFilters).toEqual(filters);
     });
   });
 
   describe("SQL loading", () => {
     it("should load SQL", () => {
       useConnectionStore.getState().loadSql("SELECT * FROM users");
-      expect(useConnectionStore.getState().sqlToLoad).toBe("SELECT * FROM users");
-      expect(useConnectionStore.getState().savedSql).toBe("SELECT * FROM users");
+      expect(useConnectionStore.getState().getCurrentTab()?.sqlToLoad).toBe("SELECT * FROM users");
+      expect(useConnectionStore.getState().getCurrentTab()?.sql).toBe("SELECT * FROM users");
     });
 
     it("should clear SQL to load", () => {
       useConnectionStore.getState().loadSql("SELECT * FROM users");
       useConnectionStore.getState().clearSqlToLoad();
-      expect(useConnectionStore.getState().sqlToLoad).toBeNull();
-      expect(useConnectionStore.getState().savedSql).toBe("SELECT * FROM users");
+      expect(useConnectionStore.getState().getCurrentTab()?.sqlToLoad).toBeNull();
+      expect(useConnectionStore.getState().getCurrentTab()?.sql).toBe("SELECT * FROM users");
     });
 
     it("should set saved SQL", () => {
       useConnectionStore.getState().setSavedSql("SELECT * FROM users");
-      expect(useConnectionStore.getState().savedSql).toBe("SELECT * FROM users");
+      expect(useConnectionStore.getState().getCurrentTab()?.sql).toBe("SELECT * FROM users");
     });
   });
 
