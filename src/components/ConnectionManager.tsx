@@ -367,84 +367,102 @@ export default function ConnectionManager() {
             setEditingConnection(null);
             setShowForm(true);
           }}
-          className="w-full px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 neu-raised hover:neu-hover active:neu-active"
+          className="w-full px-4 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 neu-raised hover:neu-hover active:neu-active group"
           style={{ 
             color: 'var(--neu-accent)',
-            boxShadow: '6px 6px 12px rgba(0, 0, 0, 0.6), -3px -3px 6px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+            letterSpacing: '0.01em',
           }}
         >
-          <span className="inline-flex items-center gap-2.5">
+          <span className="inline-flex items-center w-full gap-2.5">
             <span 
-              className="text-xl font-bold leading-none flex items-center justify-center w-6 h-6"
+              className="relative flex items-center justify-center w-6 h-6 rounded-full transition-all duration-200 group-hover:scale-110 group-active:scale-95 flex-shrink-0"
               style={{ 
-                color: 'var(--neu-accent)',
-                textShadow: '0 0 8px rgba(91, 155, 213, 0.5), 0 0 16px rgba(91, 155, 213, 0.25)',
-                filter: 'drop-shadow(0 0 2px rgba(91, 155, 213, 0.6))'
+                background: 'linear-gradient(135deg, rgba(91, 155, 213, 0.15) 0%, rgba(91, 155, 213, 0.05) 100%)',
+                border: '1px solid rgba(91, 155, 213, 0.2)',
               }}
             >
-              +
+              <span 
+                className="text-base font-light leading-none"
+                style={{ 
+                  color: 'var(--neu-accent)',
+                  transform: 'translateY(-0.5px)',
+                }}
+              >
+                +
+              </span>
             </span>
-            <span>新建连接</span>
+            <span className="transition-all duration-200 group-hover:translate-x-0.5 flex-shrink-0" style={{ fontWeight: 500 }}>新建连接</span>
           </span>
         </button>
 
         <button
           onClick={() => setShowHistory(!showHistory)}
-          className="w-full px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 neu-raised hover:neu-hover active:neu-active"
+          className={`w-full px-4 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 neu-raised hover:neu-hover active:neu-active group ${
+            showHistory ? 'neu-pressed' : ''
+          }`}
           style={{ 
             color: 'var(--neu-text)',
-            boxShadow: '6px 6px 12px rgba(0, 0, 0, 0.6), -3px -3px 6px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+            letterSpacing: '0.01em',
           }}
           title="查看工作历史"
         >
-          <span className="inline-flex items-center gap-2.5">
-            {/* 三个重叠方块的图标 */}
-            <span className="relative flex-shrink-0" style={{ width: '18px', height: '18px' }}>
+          <span className="inline-flex items-center w-full gap-2.5">
+            <span 
+              className="relative flex items-center justify-center w-6 h-6 rounded transition-all duration-200 group-hover:scale-110 flex-shrink-0"
+              style={{ 
+                width: '24px',
+                height: '24px',
+              }}
+            >
+              {/* 三个重叠方块的图标 */}
               <span 
-                className="absolute rounded-sm"
+                className="absolute rounded transition-all duration-200"
                 style={{ 
-                  width: '12px',
-                  height: '12px',
+                  width: '11px',
+                  height: '11px',
                   backgroundColor: '#66BB6A',
-                  boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.4), -1px -1px 2px rgba(255, 255, 255, 0.1)',
-                  transform: 'translate(4px, 4px)',
-                  zIndex: 1
+                  boxShadow: '1px 1px 3px rgba(0, 0, 0, 0.3), -0.5px -0.5px 1px rgba(255, 255, 255, 0.08)',
+                  transform: 'translate(6px, 6px)',
+                  zIndex: 1,
+                  border: '0.5px solid rgba(0, 0, 0, 0.1)',
                 }}
               />
               <span 
-                className="absolute rounded-sm"
+                className="absolute rounded transition-all duration-200"
                 style={{ 
-                  width: '12px',
-                  height: '12px',
+                  width: '11px',
+                  height: '11px',
                   backgroundColor: '#EF5350',
-                  boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.4), -1px -1px 2px rgba(255, 255, 255, 0.1)',
-                  transform: 'translate(2px, 2px)',
-                  zIndex: 2
+                  boxShadow: '1px 1px 3px rgba(0, 0, 0, 0.3), -0.5px -0.5px 1px rgba(255, 255, 255, 0.08)',
+                  transform: 'translate(4px, 4px)',
+                  zIndex: 2,
+                  border: '0.5px solid rgba(0, 0, 0, 0.1)',
                 }}
               />
               <span 
-                className="absolute rounded-sm"
+                className="absolute rounded transition-all duration-200"
                 style={{ 
-                  width: '12px',
-                  height: '12px',
+                  width: '11px',
+                  height: '11px',
                   backgroundColor: '#5B9BD5',
-                  boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.4), -1px -1px 2px rgba(255, 255, 255, 0.1)',
-                  transform: 'translate(0px, 0px)',
-                  zIndex: 3
+                  boxShadow: '1px 1px 3px rgba(0, 0, 0, 0.3), -0.5px -0.5px 1px rgba(255, 255, 255, 0.08)',
+                  transform: 'translate(2px, 2px)',
+                  zIndex: 3,
+                  border: '0.5px solid rgba(0, 0, 0, 0.1)',
                 }}
               />
             </span>
-            <span>历史</span>
+            <span className="transition-all duration-200 group-hover:translate-x-0.5 flex-shrink-0" style={{ fontWeight: 500 }}>历史</span>
             {workspaceHistory.length > 0 && (
               <span 
-                className="px-2 py-0.5 rounded-md text-xs font-semibold flex-shrink-0" 
+                className="px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 transition-all duration-200 group-hover:scale-110 ml-auto" 
                 style={{ 
                   color: 'var(--neu-text)',
-                  backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.25)',
                   minWidth: '22px',
                   textAlign: 'center',
-                  boxShadow: 'inset 3px 3px 6px rgba(0, 0, 0, 0.6), inset -1px -1px 2px rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(0, 0, 0, 0.3)'
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  letterSpacing: '0.02em',
                 }}
               >
                 {workspaceHistory.length}

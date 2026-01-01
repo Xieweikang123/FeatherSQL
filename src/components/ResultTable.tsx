@@ -11,6 +11,9 @@ import SqlDisplayBar from "./ResultTable/SqlDisplayBar";
 import TableHeader from "./ResultTable/TableHeader";
 import TableRow from "./ResultTable/TableRow";
 import TableStructure from "./TableStructure";
+import ContextMenu from "./ResultTable/ContextMenu";
+import { exportToCsv, exportToJson, exportToExcel, type ExportFormat } from "../utils/exportUtils";
+import Pagination from "./ResultTable/Pagination";
 
 interface ResultTableProps {
   result: QueryResult;
@@ -68,6 +71,15 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [editingValue, setEditingValue] = useState<string>("");
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [viewingStructure, setViewingStructure] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  
+  // 排序状态
+  const [sortConfig, setSortConfig] = useState<Array<{ column: string; direction: 'asc' | 'desc' }>>([]);
   
   // 使用编辑历史 hook
   const editHistory = useEditHistory(editedData);
@@ -91,7 +103,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     resetHistoryRef.current = editHistory.reset;
   }, [clearSelection, editHistory.reset]);
   
-  // 当 result 变化时，重置编辑状态
+  // 当 result 变化时，重置编辑状态和分页
   useEffect(() => {
     // 如果查询返回空结果但没有列信息，使用保存的列信息
     if (result && result.columns.length === 0 && originalColumnsRef.current.length > 0) {
@@ -107,6 +119,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setEditingCell(null);
     clearSelectionRef.current();
     resetHistoryRef.current();
+    setSelectedRows(new Set());
+    setContextMenu(null);
+    // 重置到第一页
+    setCurrentPage(1);
+    setSortConfig([]); // 重置排序
   }, [result]);
 
   // 构建带 WHERE 条件的 SQL
@@ -233,6 +250,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       } else {
         setQueryResult(newResult);
       }
+      // 过滤后重置到第一页
+      setCurrentPage(1);
       addLog(`过滤查询成功，返回 ${newResult.rows.length} 行`);
     } catch (error) {
       const errorMsg = String(error);
@@ -279,6 +298,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setModifications(new Map());
     editHistory.reset();
     clearSelection();
+    setSelectedRows(new Set());
     setEditingCell(null);
     setEditingValue("");
     addLog("已撤销所有改动");
@@ -297,9 +317,72 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   
   const displayRows = useMemo(() => result?.rows || [], [result]);
   
-  // 计算显示的行数据（直接使用 result.rows，不再需要前端过滤）
-  const filteredRows = useMemo(() => displayRows, [displayRows]);
-
+  // 计算显示的行数据（应用排序）
+  const filteredRows = useMemo(() => {
+    if (sortConfig.length === 0) {
+      return displayRows;
+    }
+    
+    // 创建行数据的副本以便排序
+    const sortedRows = [...displayRows];
+    
+    // 多列排序：从第一个排序配置开始，第一个是最主要的排序
+    sortedRows.sort((a, b) => {
+      for (let i = 0; i < sortConfig.length; i++) {
+        const { column, direction } = sortConfig[i];
+        const columnIndex = displayColumns.indexOf(column);
+        
+        if (columnIndex === -1) continue;
+        
+        const aValue = a[columnIndex];
+        const bValue = b[columnIndex];
+        
+        // 处理 null/undefined 值
+        if (aValue === null || aValue === undefined) {
+          if (bValue === null || bValue === undefined) continue;
+          return direction === 'asc' ? -1 : 1;
+        }
+        if (bValue === null || bValue === undefined) {
+          return direction === 'asc' ? 1 : -1;
+        }
+        
+        // 比较值
+        let comparison = 0;
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+          comparison = aValue - bValue;
+        } else if (typeof aValue === 'string' && typeof bValue === 'string') {
+          comparison = aValue.localeCompare(bValue, undefined, { numeric: true, sensitivity: 'base' });
+        } else {
+          // 混合类型，转换为字符串比较
+          comparison = String(aValue).localeCompare(String(bValue), undefined, { numeric: true, sensitivity: 'base' });
+        }
+        
+        if (comparison !== 0) {
+          return direction === 'asc' ? comparison : -comparison;
+        }
+      }
+      return 0;
+    });
+    
+    return sortedRows;
+  }, [displayRows, sortConfig, displayColumns]);
+  
+  // 分页计算
+  const totalRows = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const paginatedRows = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredRows.slice(startIndex, endIndex);
+  }, [filteredRows, currentPage, pageSize]);
+  
+  // 当页码超出范围时，调整到有效范围
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+  
   // 更新过滤值（不自动执行查询）
   const handleFilterChange = useCallback((columnName: string, value: string) => {
     const newFilters = {
@@ -900,6 +983,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setEditingCell(null);
     setEditingValue("");
     clearSelection();
+    setSelectedRows(new Set());
     setShowExitConfirm(false);
   }, [result, setEditMode, clearSelection]);
 
@@ -1090,6 +1174,301 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   };
 
+  // 处理列头排序
+  const handleSort = useCallback((column: string, e: React.MouseEvent) => {
+    const isShiftKey = e.shiftKey;
+    
+    setSortConfig(prev => {
+      // 查找该列是否已存在排序配置
+      const existingIndex = prev.findIndex(s => s.column === column);
+      
+      if (isShiftKey) {
+        // Shift+点击：添加或更新多列排序
+        if (existingIndex !== -1) {
+          // 如果已存在，切换排序方向
+          const newConfig = [...prev];
+          newConfig[existingIndex] = {
+            column,
+            direction: newConfig[existingIndex].direction === 'asc' ? 'desc' : 'asc'
+          };
+          return newConfig;
+        } else {
+          // 如果不存在，添加新的排序
+          return [...prev, { column, direction: 'asc' }];
+        }
+      } else {
+        // 普通点击：单列排序，清除其他排序
+        if (existingIndex !== -1 && prev.length === 1) {
+          // 如果只有这一列且已存在，切换方向
+          return [{
+            column,
+            direction: prev[existingIndex].direction === 'asc' ? 'desc' : 'asc'
+          }];
+        } else {
+          // 否则，设置为新的单列排序
+          return [{ column, direction: 'asc' }];
+        }
+      }
+    });
+    
+    // 排序改变时重置到第一页
+    setCurrentPage(1);
+  }, []);
+
+  // 处理序号列点击，选中整行
+  const handleRowNumberClick = useCallback((filteredRowIndex: number, e: React.MouseEvent) => {
+    if (!editMode) return;
+    
+    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
+    if (originalRowIndex === -1) return;
+    
+    const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
+    
+    if (isShift && selectedRows.size > 0) {
+      // Shift+点击：选择从上次选中的行到当前行的范围
+      const lastSelected = Math.max(...Array.from(selectedRows));
+      const minRow = Math.min(lastSelected, originalRowIndex);
+      const maxRow = Math.max(lastSelected, originalRowIndex);
+      const newSelectedRows = new Set(selectedRows);
+      for (let i = minRow; i <= maxRow; i++) {
+        newSelectedRows.add(i);
+      }
+      setSelectedRows(newSelectedRows);
+      
+      // 同时选中这些行的所有单元格
+      const newSelection: Set<string> = new Set();
+      for (let row = minRow; row <= maxRow; row++) {
+        for (let col = 0; col < displayColumns.length; col++) {
+          newSelection.add(`${row}-${col}`);
+        }
+      }
+      setRectSelection(
+        { row: minRow, col: 0 },
+        { row: maxRow, col: displayColumns.length - 1 }
+      );
+    } else if (isCtrlOrCmd) {
+      // Ctrl+点击：切换行选择
+      const newSelectedRows = new Set(selectedRows);
+      if (newSelectedRows.has(originalRowIndex)) {
+        newSelectedRows.delete(originalRowIndex);
+        // 取消选中该行的所有单元格
+        for (let col = 0; col < displayColumns.length; col++) {
+          removeCellFromSelection(originalRowIndex, col);
+        }
+      } else {
+        newSelectedRows.add(originalRowIndex);
+        // 选中该行的所有单元格
+        for (let col = 0; col < displayColumns.length; col++) {
+          addCellToSelection(originalRowIndex, col);
+        }
+      }
+      setSelectedRows(newSelectedRows);
+    } else {
+      // 普通点击：只选中当前行
+      setSelectedRows(new Set([originalRowIndex]));
+      // 选中该行的所有单元格
+      setRectSelection(
+        { row: originalRowIndex, col: 0 },
+        { row: originalRowIndex, col: displayColumns.length - 1 }
+      );
+    }
+  }, [editMode, selectedRows, displayColumns.length, getOriginalRowIndex, setRectSelection, addCellToSelection, removeCellFromSelection]);
+
+  // 处理右键菜单
+  const handleRowContextMenu = useCallback((filteredRowIndex: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
+    if (originalRowIndex === -1) return;
+    
+    // 如果右键点击的行不在选中列表中，先选中它
+    if (!selectedRows.has(originalRowIndex)) {
+      setSelectedRows(new Set([originalRowIndex]));
+      setRectSelection(
+        { row: originalRowIndex, col: 0 },
+        { row: originalRowIndex, col: displayColumns.length - 1 }
+      );
+    }
+    
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      rowIndex: originalRowIndex,
+    });
+  }, [selectedRows, displayColumns.length, getOriginalRowIndex, setRectSelection]);
+
+  // 生成 INSERT 语句
+  const generateInsertSql = useCallback((): string | null => {
+    if (!sql || !currentConnection || selectedRows.size === 0) return null;
+    
+    const tableInfo = extractTableInfo(sql);
+    if (!tableInfo || !tableInfo.tableName) {
+      addLog("错误: 无法从 SQL 中提取表名");
+      return null;
+    }
+    
+    const dbType = currentConnection.type;
+    const databaseToUse = tableInfo.database || currentDatabase;
+    const escapedTableName = buildTableName(tableInfo.tableName, dbType, databaseToUse);
+    
+    // 获取所有选中的行
+    const selectedRowIndices = Array.from(selectedRows).sort((a, b) => a - b);
+    
+    if (selectedRowIndices.length === 0) return null;
+    
+    // 构建列名列表
+    const columnNames = displayColumns.map(col => escapeIdentifier(col, dbType));
+    const columnsClause = columnNames.join(', ');
+    
+    // 为每行生成 VALUES 子句
+    const valuesClauses: string[] = [];
+    for (const rowIndex of selectedRowIndices) {
+      if (rowIndex >= editedData.rows.length) continue;
+      
+      const row = editedData.rows[rowIndex];
+      const values = row.map(val => escapeSqlValue(val, dbType));
+      valuesClauses.push(`(${values.join(', ')})`);
+    }
+    
+    if (valuesClauses.length === 0) return null;
+    
+    const sql = `INSERT INTO ${escapedTableName} (${columnsClause}) VALUES\n${valuesClauses.join(',\n')};`;
+    return sql;
+  }, [sql, currentConnection, selectedRows, displayColumns, currentDatabase, editedData.rows, addLog]);
+
+  // 生成 UPDATE 语句（基于选中的行）
+  const generateUpdateSqlForRows = useCallback((): string | null => {
+    if (!sql || !currentConnection || selectedRows.size === 0) return null;
+    
+    const tableInfo = extractTableInfo(sql);
+    if (!tableInfo || !tableInfo.tableName) {
+      addLog("错误: 无法从 SQL 中提取表名");
+      return null;
+    }
+    
+    const dbType = currentConnection.type;
+    const databaseToUse = tableInfo.database || currentDatabase;
+    const escapedTableName = buildTableName(tableInfo.tableName, dbType, databaseToUse);
+    
+    // 获取所有选中的行
+    const selectedRowIndices = Array.from(selectedRows).sort((a, b) => a - b);
+    
+    if (selectedRowIndices.length === 0) return null;
+    
+    // 为每行生成 UPDATE 语句
+    const sqls: string[] = [];
+    
+    for (const rowIndex of selectedRowIndices) {
+      if (rowIndex >= editedData.rows.length) continue;
+      
+      const row = editedData.rows[rowIndex];
+      const originalRow = result.rows[rowIndex];
+      
+      // 构建 SET 子句（使用当前行的所有值）
+      const setClause = displayColumns.map((col, colIndex) => {
+        const escapedCol = escapeIdentifier(col, dbType);
+        const val = row[colIndex];
+        const escapedVal = escapeSqlValue(val, dbType);
+        return `${escapedCol} = ${escapedVal}`;
+      }).join(', ');
+      
+      // 构建 WHERE 子句（使用原始行的所有值来定位）
+      const whereConditions: string[] = [];
+      displayColumns.forEach((col, colIndex) => {
+        const escapedCol = escapeIdentifier(col, dbType);
+        const originalValue = originalRow[colIndex];
+        
+        if (originalValue === null || originalValue === undefined) {
+          whereConditions.push(`${escapedCol} IS NULL`);
+        } else {
+          const escapedVal = escapeSqlValue(originalValue, dbType);
+          whereConditions.push(`${escapedCol} = ${escapedVal}`);
+        }
+      });
+      
+      const whereClause = whereConditions.join(' AND ');
+      sqls.push(`UPDATE ${escapedTableName} SET ${setClause} WHERE ${whereClause};`);
+    }
+    
+    return sqls.join('\n\n');
+  }, [sql, currentConnection, selectedRows, displayColumns, currentDatabase, editedData.rows, result.rows, addLog]);
+
+  // 处理生成 INSERT 语句
+  const handleGenerateInsert = useCallback(() => {
+    const insertSql = generateInsertSql();
+    if (insertSql) {
+      navigator.clipboard.writeText(insertSql);
+      addLog(`已生成并复制 INSERT 语句（${selectedRows.size} 行）`);
+    } else {
+      addLog("错误: 无法生成 INSERT 语句");
+    }
+  }, [generateInsertSql, selectedRows.size, addLog]);
+
+  // 处理生成 UPDATE 语句
+  const handleGenerateUpdate = useCallback(() => {
+    const updateSql = generateUpdateSqlForRows();
+    if (updateSql) {
+      navigator.clipboard.writeText(updateSql);
+      addLog(`已生成并复制 UPDATE 语句（${selectedRows.size} 行）`);
+    } else {
+      addLog("错误: 无法生成 UPDATE 语句");
+    }
+  }, [generateUpdateSqlForRows, selectedRows.size, addLog]);
+
+  // 处理数据导出
+  const handleExport = useCallback((format: ExportFormat, exportSelected: boolean) => {
+    try {
+      let rowsToExport: any[][];
+      let filename: string;
+
+      if (exportSelected && selectedRows.size > 0) {
+        // 导出选中行
+        const selectedRowIndices = Array.from(selectedRows).sort((a, b) => a - b);
+        rowsToExport = selectedRowIndices
+          .filter(rowIndex => rowIndex < editedData.rows.length)
+          .map(rowIndex => editedData.rows[rowIndex]);
+        filename = `export_selected_${selectedRows.size}_rows`;
+      } else {
+        // 导出全部数据
+        rowsToExport = editedData.rows;
+        filename = `export_all_${rowsToExport.length}_rows`;
+      }
+
+      if (rowsToExport.length === 0) {
+        addLog("导出失败: 没有可导出的数据");
+        return;
+      }
+
+      // 添加时间戳到文件名
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      filename = `${filename}_${timestamp}`;
+
+      const exportData = {
+        columns: displayColumns,
+        rows: rowsToExport,
+      };
+
+      switch (format) {
+        case 'csv':
+          exportToCsv(exportData, filename);
+          addLog(`已导出 ${rowsToExport.length} 行数据为 CSV 格式`);
+          break;
+        case 'json':
+          exportToJson(exportData, filename);
+          addLog(`已导出 ${rowsToExport.length} 行数据为 JSON 格式`);
+          break;
+        case 'excel':
+          exportToExcel(exportData, filename);
+          addLog(`已导出 ${rowsToExport.length} 行数据为 Excel 格式`);
+          break;
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      addLog(`导出失败: ${errorMsg}`);
+      console.error('导出错误:', error);
+    }
+  }, [selectedRows, editedData.rows, displayColumns, addLog]);
+
   // 如果正在查看表结构，显示表结构组件
   if (viewingStructure) {
     return (
@@ -1145,7 +1524,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             onUndo={handleUndo}
             onRedo={handleRedo}
             onResetAll={handleResetAll}
-            onClearSelection={clearSelection}
+            onClearSelection={() => {
+              clearSelection();
+              setSelectedRows(new Set());
+            }}
             onSave={handleSaveChanges}
             onExit={handleExitEditMode}
           />
@@ -1163,6 +1545,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             onEnterEditMode={() => setEditMode(true)}
             onClearFilters={handleClearAllFilters}
             onViewStructure={handleViewStructure}
+            onExport={handleExport}
+            hasSelectedRows={selectedRows.size > 0}
           />
         )}
 
@@ -1173,10 +1557,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             columnFilters={columnFilters}
             expandedSearchColumn={expandedSearchColumn}
             isFiltering={isFiltering}
+            sortConfig={sortConfig}
             onFilterChange={handleFilterChange}
             onFilterSearch={handleFilterSearch}
             onClearFilter={handleClearFilter}
             onExpandSearch={setExpandedSearchColumn}
+            onSort={handleSort}
           />
           <tbody>
             {filteredRows.length === 0 ? (
@@ -1195,18 +1581,20 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 </td>
               </tr>
             ) : (
-              filteredRows.map((row, rowIndex) => {
+              paginatedRows.map((row, paginatedRowIndex) => {
+                // 计算在原始 filteredRows 中的索引
+                const originalFilteredIndex = (currentPage - 1) * pageSize + paginatedRowIndex;
                 let originalRowIndex = result.rows.findIndex((r) => r === row);
                 if (originalRowIndex === -1) {
-                  originalRowIndex = rowIndex;
+                  originalRowIndex = originalFilteredIndex;
                 }
                 const displayRow = originalRowIndex < editedData.rows.length ? editedData.rows[originalRowIndex] : row;
                 
                 return (
                   <TableRow
-                    key={rowIndex}
+                    key={originalFilteredIndex}
                     row={displayRow}
-                    rowIndex={rowIndex}
+                    rowIndex={paginatedRowIndex}
                     originalRowIndex={originalRowIndex}
                     columns={displayColumns}
                     editMode={editMode}
@@ -1215,13 +1603,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                     modifications={modifications}
                     selection={selection}
                     isCellSelected={isCellSelected}
+                    isRowSelected={selectedRows.has(originalRowIndex)}
                     onCellMouseDown={handleCellMouseDown}
                     onCellDoubleClick={handleCellDoubleClick}
                     onCellKeyDown={handleKeyDown}
                     onCellInputChange={handleCellInputChange}
                     onCellSave={handleCellSave}
                     onCellCancel={handleCellCancel}
-                    rowNumber={rowIndex + 1}
+                    onRowNumberClick={handleRowNumberClick}
+                    onRowContextMenu={handleRowContextMenu}
+                    rowNumber={originalFilteredIndex + 1}
                   />
                 );
               })
@@ -1229,6 +1620,30 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
           </tbody>
         </table>
       </div>
+      
+      {/* 分页控件 */}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        totalRows={totalRows}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setCurrentPage(1); // 改变每页行数时重置到第一页
+        }}
+      />
+      
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onGenerateInsert={handleGenerateInsert}
+          onGenerateUpdate={handleGenerateUpdate}
+        />
+      )}
     </div>
     </>
   );

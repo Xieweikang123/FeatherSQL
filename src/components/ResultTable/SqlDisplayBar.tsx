@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import ViewStructureButton from "./ViewStructureButton";
+import type { ExportFormat } from "../../utils/exportUtils";
 
 interface SqlDisplayBarProps {
   sql: string | null;
@@ -12,6 +13,8 @@ interface SqlDisplayBarProps {
   onEnterEditMode: () => void;
   onClearFilters: () => void;
   onViewStructure?: () => void;
+  onExport?: (format: ExportFormat, exportSelected: boolean) => void;
+  hasSelectedRows?: boolean;
 }
 
 export default function SqlDisplayBar({
@@ -25,8 +28,12 @@ export default function SqlDisplayBar({
   onEnterEditMode,
   onClearFilters,
   onViewStructure,
+  onExport,
+  hasSelectedRows = false,
 }: SqlDisplayBarProps) {
   const [copied, setCopied] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   const handleCopySql = async () => {
     // 复制实际显示的 SQL（如果有过滤条件则复制 filteredSql，否则复制原始 sql）
@@ -39,6 +46,29 @@ export default function SqlDisplayBar({
     } catch (error) {
       console.error("Failed to copy SQL:", error);
     }
+  };
+
+  // 处理导出菜单点击外部关闭
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+
+    if (showExportMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showExportMenu]);
+
+  const handleExport = (format: ExportFormat, exportSelected: boolean) => {
+    if (onExport) {
+      onExport(format, exportSelected);
+    }
+    setShowExportMenu(false);
   };
 
   if (!sql) return null;
@@ -90,6 +120,78 @@ export default function SqlDisplayBar({
           >
             ✏️ 编辑模式
           </button>
+        )}
+        {onExport && (
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+              style={{ color: "var(--neu-text-light)" }}
+              title="导出数据"
+            >
+              📥 导出
+            </button>
+            {showExportMenu && (
+              <div
+                className="absolute right-0 mt-1 neu-raised rounded-lg shadow-lg py-1 z-50"
+                style={{ minWidth: "180px" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-2 py-1 text-xs font-semibold" style={{ color: "var(--neu-text-light)", borderBottom: "1px solid var(--neu-dark)" }}>
+                  导出全部数据
+                </div>
+                <button
+                  className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                  style={{ color: "var(--neu-text)" }}
+                  onClick={() => handleExport('csv', false)}
+                >
+                  📄 CSV
+                </button>
+                <button
+                  className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                  style={{ color: "var(--neu-text)" }}
+                  onClick={() => handleExport('json', false)}
+                >
+                  📋 JSON
+                </button>
+                <button
+                  className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                  style={{ color: "var(--neu-text)" }}
+                  onClick={() => handleExport('excel', false)}
+                >
+                  📊 Excel
+                </button>
+                {hasSelectedRows && (
+                  <>
+                    <div className="px-2 py-1 text-xs font-semibold mt-1" style={{ color: "var(--neu-text-light)", borderTop: "1px solid var(--neu-dark)", borderBottom: "1px solid var(--neu-dark)" }}>
+                      导出选中行
+                    </div>
+                    <button
+                      className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                      style={{ color: "var(--neu-text)" }}
+                      onClick={() => handleExport('csv', true)}
+                    >
+                      📄 CSV
+                    </button>
+                    <button
+                      className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                      style={{ color: "var(--neu-text)" }}
+                      onClick={() => handleExport('json', true)}
+                    >
+                      📋 JSON
+                    </button>
+                    <button
+                      className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                      style={{ color: "var(--neu-text)" }}
+                      onClick={() => handleExport('excel', true)}
+                    >
+                      📊 Excel
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         )}
         {hasActiveFilters && (
           <button

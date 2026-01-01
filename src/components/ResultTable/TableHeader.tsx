@@ -1,14 +1,21 @@
 import React, { useRef, useEffect } from "react";
 
+interface SortConfig {
+  column: string;
+  direction: 'asc' | 'desc';
+}
+
 interface TableHeaderProps {
   columns: string[];
   columnFilters: Record<string, string>;
   expandedSearchColumn: string | null;
   isFiltering: boolean;
+  sortConfig: SortConfig[];
   onFilterChange: (columnName: string, value: string) => void;
   onFilterSearch: (columnName: string) => void;
   onClearFilter: (columnName: string) => void;
   onExpandSearch: (columnName: string | null) => void;
+  onSort: (column: string, e: React.MouseEvent) => void;
 }
 
 export default function TableHeader({
@@ -16,10 +23,12 @@ export default function TableHeader({
   columnFilters,
   expandedSearchColumn,
   isFiltering,
+  sortConfig,
   onFilterChange,
   onFilterSearch,
   onClearFilter,
   onExpandSearch,
+  onSort,
 }: TableHeaderProps) {
   const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const thRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
@@ -92,6 +101,11 @@ export default function TableHeader({
           const filterValue = columnFilters[column] || "";
           const hasFilter = filterValue.trim() !== "";
           const isExpanded = expandedSearchColumn === column;
+          
+          // 查找该列的排序配置
+          const sortIndex = sortConfig.findIndex(s => s.column === column);
+          const sortInfo = sortIndex !== -1 ? sortConfig[sortIndex] : null;
+          const sortOrder = sortIndex !== -1 ? sortIndex + 1 : null; // 显示排序优先级（1, 2, 3...）
 
           return (
             <th
@@ -99,16 +113,36 @@ export default function TableHeader({
               ref={(el) => {
                 thRefs.current[column] = el;
               }}
-              className="px-4 py-3 text-left font-semibold uppercase text-xs tracking-wider relative group"
+              className="px-4 py-3 text-left font-semibold uppercase text-xs tracking-wider relative group cursor-pointer select-none"
               style={{
                 minWidth: "120px",
                 borderBottom: "1px solid var(--neu-dark)",
                 color: "var(--neu-text)",
                 zIndex: isExpanded ? 1001 : 'auto',
               }}
+              onClick={(e) => {
+                // 如果点击的是搜索按钮，不触发排序
+                if ((e.target as HTMLElement).closest('button')) {
+                  return;
+                }
+                onSort(column, e);
+              }}
+              title={sortInfo ? `按 ${column} ${sortInfo.direction === 'asc' ? '升序' : '降序'} 排序${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}。按住 Shift 点击可添加多列排序` : `点击排序。按住 Shift 点击可添加多列排序`}
             >
               <div className="flex items-center gap-2">
                 <span className="flex-1 truncate">{column}</span>
+                {sortInfo && (
+                  <span
+                    className="flex-shrink-0 flex items-center gap-0.5"
+                    style={{ color: "var(--neu-accent)" }}
+                    title={`${sortInfo.direction === 'asc' ? '升序' : '降序'}${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}`}
+                  >
+                    {sortInfo.direction === 'asc' ? '↑' : '↓'}
+                    {sortOrder && sortOrder > 1 && (
+                      <span className="text-[10px] font-bold">{sortOrder}</span>
+                    )}
+                  </span>
+                )}
                 {hasFilter && (
                   <span
                     className="flex-shrink-0 w-2 h-2 bg-blue-500 rounded-full"
@@ -116,7 +150,10 @@ export default function TableHeader({
                   ></span>
                 )}
                 <button
-                  onClick={() => onExpandSearch(isExpanded ? null : column)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExpandSearch(isExpanded ? null : column);
+                  }}
                   className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active ${
                     isExpanded || hasFilter ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                   }`}

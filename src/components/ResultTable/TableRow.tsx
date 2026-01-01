@@ -13,12 +13,15 @@ interface TableRowProps {
   modifications: Map<string, CellModification>;
   selection: CellSelection | null;
   isCellSelected: (row: number, col: number) => boolean;
+  isRowSelected: boolean;
   onCellMouseDown: (rowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
   onCellDoubleClick: (rowIndex: number, cellIndex: number) => void;
   onCellKeyDown: (e: React.KeyboardEvent, rowIndex: number, cellIndex: number) => void;
   onCellInputChange: (value: string) => void;
   onCellSave: (rowIndex: number, cellIndex: number) => void;
   onCellCancel: () => void;
+  onRowNumberClick: (rowIndex: number, e: React.MouseEvent) => void;
+  onRowContextMenu: (rowIndex: number, e: React.MouseEvent) => void;
   rowNumber: number;
 }
 
@@ -26,19 +29,22 @@ export default function TableRow({
   row,
   rowIndex,
   originalRowIndex,
-  columns,
+  columns: _columns,
   editMode,
   editingCell,
   editingValue,
   modifications,
-  selection,
+  selection: _selection,
   isCellSelected,
+  isRowSelected,
   onCellMouseDown,
   onCellDoubleClick,
   onCellKeyDown,
   onCellInputChange,
   onCellSave,
   onCellCancel,
+  onRowNumberClick,
+  onRowContextMenu,
   rowNumber,
 }: TableRowProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -57,16 +63,30 @@ export default function TableRow({
   return (
     <tr
       key={rowIndex}
-      className="transition-colors duration-150 group neu-flat"
-      style={{ borderBottom: "1px solid var(--neu-dark)" }}
+      className={`transition-colors duration-150 group ${isRowSelected ? "neu-raised" : "neu-flat"}`}
+      style={{ 
+        borderBottom: "1px solid var(--neu-dark)",
+        backgroundColor: isRowSelected ? "var(--neu-accent-dark)" : undefined,
+        opacity: isRowSelected ? 0.1 : undefined,
+      }}
     >
       <td
-        className="px-4 py-2.5 text-center select-none"
+        className={`px-4 py-2.5 text-center select-none ${isRowSelected ? "font-semibold" : ""}`}
         style={{
           width: "60px",
           minWidth: "60px",
-          color: "var(--neu-text-light)",
+          color: isRowSelected ? "var(--neu-accent)" : "var(--neu-text-light)",
           borderRight: "1px solid var(--neu-dark)",
+          cursor: editMode ? "pointer" : "default",
+        }}
+        onClick={(e) => {
+          if (editMode) {
+            onRowNumberClick(rowIndex, e);
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onRowContextMenu(rowIndex, e);
         }}
       >
         <span className="font-mono text-xs">{rowNumber}</span>
