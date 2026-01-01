@@ -1182,7 +1182,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             {filteredRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={displayColumns.length}
+                  colSpan={displayColumns.length + 1}
                   className="px-4 py-12 text-center"
                   style={{ color: 'var(--neu-text-light)' }}
                 >
@@ -1221,6 +1221,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                     onCellInputChange={handleCellInputChange}
                     onCellSave={handleCellSave}
                     onCellCancel={handleCellCancel}
+                    rowNumber={rowIndex + 1}
                   />
                 );
               })

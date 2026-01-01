@@ -77,6 +77,17 @@ export default function TableHeader({
   return (
     <thead className="neu-raised sticky top-0" style={{ zIndex: 10 }}>
       <tr>
+        <th
+          className="px-4 py-3 text-center font-semibold uppercase text-xs tracking-wider"
+          style={{
+            width: "60px",
+            minWidth: "60px",
+            borderBottom: "1px solid var(--neu-dark)",
+            color: "var(--neu-text)",
+          }}
+        >
+          序号
+        </th>
         {columns.map((column, index) => {
           const filterValue = columnFilters[column] || "";
           const hasFilter = filterValue.trim() !== "";

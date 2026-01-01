@@ -19,6 +19,7 @@ interface TableRowProps {
   onCellInputChange: (value: string) => void;
   onCellSave: (rowIndex: number, cellIndex: number) => void;
   onCellCancel: () => void;
+  rowNumber: number;
 }
 
 export default function TableRow({
@@ -38,6 +39,7 @@ export default function TableRow({
   onCellInputChange,
   onCellSave,
   onCellCancel,
+  rowNumber,
 }: TableRowProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -58,6 +60,17 @@ export default function TableRow({
       className="transition-colors duration-150 group neu-flat"
       style={{ borderBottom: "1px solid var(--neu-dark)" }}
     >
+      <td
+        className="px-4 py-2.5 text-center select-none"
+        style={{
+          width: "60px",
+          minWidth: "60px",
+          color: "var(--neu-text-light)",
+          borderRight: "1px solid var(--neu-dark)",
+        }}
+      >
+        <span className="font-mono text-xs">{rowNumber}</span>
+      </td>
       {row.map((cell, cellIndex) => {
         const isEditing =
           editingCell?.row === originalRowIndex && editingCell?.col === cellIndex;
