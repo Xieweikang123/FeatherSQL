@@ -268,53 +268,12 @@ function App() {
               </div>
             </>
           ) : currentConnectionId && currentDatabase !== null ? (
-            // 选中数据库但未选中表时：显示 SQL 编辑器和数据表视图
-            <>
-              {/* SQL Editor */}
-              <div 
-                className="flex flex-col min-h-0"
-                style={{ 
-                  height: editorHeight !== null ? `${editorHeight}px` : undefined,
-                  flex: editorHeight === null ? 1 : undefined
-                }}
-              >
-                <SqlEditor />
-              </div>
-
-              {/* Resizable divider */}
-              <div
-                onMouseDown={handleMouseDown}
-                className={`h-1.5 cursor-row-resize transition-all duration-200 group neu-flat ${
-                  isDragging ? "" : ""
-                }`}
-                style={{ 
-                  flexShrink: 0,
-                  backgroundColor: isDragging ? 'var(--neu-accent)' : 'var(--neu-bg)'
-                }}
-              >
-                <div className="h-full w-full flex items-center justify-center">
-                  <div className={`w-16 h-1 rounded-full transition-all duration-200 ${
-                    isDragging 
-                      ? "" 
-                      : ""
-                  }`} 
-                  style={{ 
-                    backgroundColor: isDragging ? 'var(--neu-accent-light)' : 'rgba(255, 255, 255, 0.1)',
-                    boxShadow: isDragging ? '0 0 4px var(--neu-accent)' : 'none'
-                  }} />
-                </div>
-              </div>
-
-              {/* Tables View */}
-              <div 
-                className="overflow-auto neu-flat flex-1"
-                style={{ 
-                  borderTop: '1px solid var(--neu-dark)'
-                }}
-              >
-                <TableView />
-              </div>
-            </>
+            // 选中数据库但未选中表时：只显示数据表视图
+            <div 
+              className="overflow-auto neu-flat flex-1"
+            >
+              <TableView />
+            </div>
           ) : (
             // 未选中数据库时：只显示 SQL 编辑器
             <div 

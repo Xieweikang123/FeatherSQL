@@ -247,12 +247,12 @@ export default function TableView() {
         <div className="relative">
           <input
             type="text"
-            placeholder="搜索数据库或表..."
+            placeholder={currentDatabase && connectionType !== "sqlite" ? "搜索表..." : "搜索数据库或表..."}
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
-              // Auto-expand databases that match search
-              if (e.target.value) {
+              // Auto-expand databases that match search (only if no database is selected)
+              if (e.target.value && !currentDatabase) {
                 const query = e.target.value.toLowerCase();
                 databases.forEach(db => {
                   if (db.toLowerCase().includes(query) && !expandedDatabases.has(db)) {
@@ -293,6 +293,127 @@ export default function TableView() {
             <div className="text-4xl mb-3 opacity-40">📋</div>
             <div className="font-medium">暂无数据库</div>
           </div>
+        ) : currentDatabase && connectionType !== "sqlite" ? (
+          // Show only tables for selected database
+          (() => {
+            const tables = getFilteredTables(databaseTables[currentDatabase] || []);
+            const isLoading = loadingDatabases.has(currentDatabase);
+            
+            if (isLoading) {
+              return (
+                <div className="text-center text-sm py-12 flex flex-col items-center gap-3" style={{ color: 'var(--neu-text-light)' }}>
+                  <svg className="animate-spin h-6 w-6" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>加载中...</span>
+                </div>
+              );
+            }
+            
+            if (tables.length === 0) {
+              return (
+                <div className="text-center text-sm py-12" style={{ color: 'var(--neu-text-light)' }}>
+                  <div className="text-4xl mb-3 opacity-40">📋</div>
+                  <div className="font-medium">数据库 "{currentDatabase}" 暂无表</div>
+                </div>
+              );
+            }
+            
+            return viewMode === 'grid' ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {tables.map((table) => (
+                  <div
+                    key={table}
+                    onClick={() => handleTableClick(table, currentDatabase)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      handleTableClick(table, currentDatabase, true);
+                    }}
+                    className="group relative rounded-lg p-3 cursor-pointer transition-all duration-200 neu-flat hover:neu-hover active:neu-active min-w-0"
+                    style={{ backgroundColor: 'rgba(30, 30, 30, 0.6)' }}
+                    title={`左键点击查询表，右键点击查看结构: ${table}`}
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0 pr-12">
+                      <span className="text-xl transition-transform duration-200 group-hover:scale-110 flex-shrink-0 mt-0.5 opacity-70">📄</span>
+                      <span className="text-sm font-medium flex-1 min-w-0 leading-relaxed" style={{ color: 'rgba(240, 240, 240, 0.85)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                        {table}
+                      </span>
+                    </div>
+                    <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setImportingTable(table);
+                          setImportingTableDb(currentDatabase);
+                        }}
+                        className="w-6 h-6 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                        style={{ color: 'var(--neu-accent)' }}
+                        title="导入数据"
+                      >
+                        <span className="text-xs">📥</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTableClick(table, currentDatabase, true);
+                        }}
+                        className="w-6 h-6 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                        style={{ color: 'var(--neu-text-light)' }}
+                        title="查看表结构"
+                      >
+                        <span className="text-xs">🔍</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {tables.map((table) => (
+                  <div
+                    key={table}
+                    onClick={() => handleTableClick(table, currentDatabase)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      handleTableClick(table, currentDatabase, true);
+                    }}
+                    className="group text-sm py-2.5 px-3.5 rounded-lg cursor-pointer transition-all duration-200 flex items-start gap-2.5 neu-flat hover:neu-hover active:neu-active min-w-0"
+                    style={{ color: 'var(--neu-text)' }}
+                    title={`左键点击查询表，右键点击查看结构: ${table}`}
+                  >
+                    <span className="text-base flex-shrink-0 mt-0.5 opacity-70">📄</span>
+                    <span className="font-normal flex-1 min-w-0 leading-relaxed" style={{ color: 'rgba(240, 240, 240, 0.85)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{table}</span>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setImportingTable(table);
+                          setImportingTableDb(currentDatabase);
+                        }}
+                        className="w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                        style={{ color: 'var(--neu-accent)' }}
+                        title="导入数据"
+                      >
+                        <span className="text-xs">📥</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTableClick(table, currentDatabase, true);
+                        }}
+                        className="w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+                        style={{ color: 'var(--neu-text-light)' }}
+                        title="查看表结构"
+                      >
+                        <span className="text-xs">🔍</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
         ) : connectionType === "sqlite" ? (
           // SQLite: show tables directly (no database tree)
           (() => {
