@@ -26,6 +26,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
   const [isFiltering, setIsFiltering] = useState(false);
   const debounceTimerRef = useRef<number | null>(null);
+  // 保存实际执行到数据库的SQL
+  const [actualExecutedSql, setActualExecutedSql] = useState<string | null>(sql || null);
   
   // 保存原始列信息（当查询返回空结果时，保留列信息用于显示表头）
   const originalColumnsRef = useRef<string[]>([]);
@@ -118,6 +120,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     // 只有当SQL变化时才更新原始结果（表示新的查询）
     if (sql && sql !== originalSqlRef.current) {
       originalResultRef.current = result;
+      // 新查询时，实际执行的SQL就是原始SQL
+      setActualExecutedSql(sql);
     }
   }, [result, sql]);
 
@@ -193,6 +197,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute,
         currentDatabase || undefined
       );
+      
+      // 保存实际执行的SQL
+      setActualExecutedSql(sqlToExecute);
       
       // 更新过滤器状态
       updateFilters(filters);
@@ -406,6 +413,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 处理单元格鼠标按下
   const handleCellMouseDown = (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
+    // 检查是否有选中的文本（允许文本选择）
+    const textSelection = window.getSelection();
+    if (textSelection && textSelection.toString().trim().length > 0) {
+      return; // 如果有选中的文本，不处理单元格选择
+    }
+    
     if (!editMode) return;
     
     const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
@@ -579,16 +592,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     Object.values(columnFilters).some(v => v.trim() !== ""), 
     [columnFilters]
   );
-  
-  const filteredSql = useMemo(() => {
-    if (!sql) return sql;
-    // 如果有过滤或排序，构建完整的 SQL
-    if (hasActiveFilters || sortConfig.length > 0) {
-      const dbType = currentConnection?.type || 'sqlite';
-      return buildFilteredAndSortedSql(originalSqlRef.current || sql, columnFilters, sortConfig, dbType);
-    }
-    return sql;
-  }, [hasActiveFilters, sql, columnFilters, sortConfig, currentConnection, originalSqlRef]);
 
   // 从 SQL 中提取表名
   const tableInfo = useMemo(() => {
@@ -936,8 +939,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
         {sql && (
           <SqlDisplayBar
-            sql={sql}
-            filteredSql={filteredSql || null}
+            sql={actualExecutedSql || sql}
+            filteredSql={null}
             hasActiveFilters={hasActiveFilters}
             isFiltering={isFiltering}
             rowCount={displayRows.length}

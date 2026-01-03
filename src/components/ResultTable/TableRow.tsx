@@ -67,7 +67,6 @@ function TableRow({
       style={{ 
         borderBottom: "1px solid var(--neu-dark)",
         backgroundColor: isRowSelected ? "var(--neu-accent-dark)" : undefined,
-        opacity: isRowSelected ? 0.1 : undefined,
       }}
     >
       <td
@@ -108,20 +107,25 @@ function TableRow({
               ${isEditing ? "neu-pressed" : ""}
               ${isSelected && !isEditing ? "neu-raised" : ""}
               ${editMode ? "cursor-cell hover:neu-hover" : "max-w-xs truncate"}
-              select-none
             `}
             style={{
-              color: isEditing
-                ? "var(--neu-accent-dark)"
-                : isSelected
-                ? "var(--neu-accent-dark)"
-                : isModified
-                ? "var(--neu-warning)"
-                : "var(--neu-text)",
-              borderLeft:
-                isModified && !isEditing && !isSelected
-                  ? "2px solid var(--neu-warning)"
-                  : "none",
+              ...({
+                color: isEditing
+                  ? "var(--neu-accent-dark)"
+                  : isSelected
+                  ? "var(--neu-accent-dark)"
+                  : isModified
+                  ? "var(--neu-warning)"
+                  : "var(--neu-text)",
+                borderLeft:
+                  isModified && !isEditing && !isSelected
+                    ? "2px solid var(--neu-warning)"
+                    : "none",
+              } as React.CSSProperties),
+              userSelect: editMode ? 'none' : 'text',
+              WebkitUserSelect: editMode ? 'none' : 'text',
+              MozUserSelect: editMode ? 'none' : 'text',
+              msUserSelect: editMode ? 'none' : 'text',
             }}
             title={!isEditing ? String(cell ?? "") : undefined}
             onMouseDown={(e) => onCellMouseDown(rowIndex, cellIndex, e)}

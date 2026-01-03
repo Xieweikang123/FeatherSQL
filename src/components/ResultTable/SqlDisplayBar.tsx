@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import ViewStructureButton from "./ViewStructureButton";
 import type { ExportFormat } from "../../utils/exportUtils";
 
@@ -37,8 +37,8 @@ export default function SqlDisplayBar({
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   const handleCopySql = async () => {
-    // 复制实际显示的 SQL（如果有过滤条件则复制 filteredSql，否则复制原始 sql）
-    const sqlToCopy = hasActiveFilters ? (filteredSql || sql) : sql;
+    // 复制实际执行的 SQL
+    const sqlToCopy = filteredSql || sql;
     if (!sqlToCopy) return;
     try {
       await navigator.clipboard.writeText(sqlToCopy);
@@ -109,9 +109,9 @@ export default function SqlDisplayBar({
             wordBreak: "break-word",
             overflowWrap: "break-word",
           }}
-          title={hasActiveFilters ? filteredSql || sql : sql}
+          title={filteredSql || sql}
         >
-          {hasActiveFilters ? filteredSql || sql : sql}
+          {filteredSql || sql}
         </code>
         {hasActiveFilters && (
           <span className="text-xs flex-shrink-0" style={{ color: "var(--neu-accent)" }}>

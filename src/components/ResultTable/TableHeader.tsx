@@ -113,12 +113,18 @@ function TableHeader({
               ref={(el) => {
                 thRefs.current[column] = el;
               }}
-              className="px-4 py-3 text-left font-semibold uppercase text-xs tracking-wider relative group cursor-pointer select-none"
+              className="px-4 py-3 text-left font-semibold uppercase text-xs tracking-wider relative group cursor-pointer"
               style={{
-                minWidth: "120px",
-                borderBottom: "1px solid var(--neu-dark)",
-                color: "var(--neu-text)",
-                zIndex: isExpanded ? 1001 : 'auto',
+                ...({
+                  minWidth: "120px",
+                  borderBottom: "1px solid var(--neu-dark)",
+                  color: "var(--neu-text)",
+                  zIndex: isExpanded ? 1001 : 'auto',
+                } as React.CSSProperties),
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                MozUserSelect: 'text',
+                msUserSelect: 'text',
               }}
               onClick={(e) => {
                 // 如果点击的是搜索按钮，不触发排序

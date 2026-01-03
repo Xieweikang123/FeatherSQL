@@ -243,38 +243,51 @@ export default function SqlEditor() {
     // Helper function to parse FROM clause and find table names
     const parseFromClause = (sqlText: string): string[] => {
       const tables: string[] = [];
-      // Match FROM clause - handle backticks, database prefix, etc.
-      // Pattern: FROM `db`.`table` or FROM table or FROM table alias
-      const fromMatch = sqlText.match(/FROM\s+([^WHERE|JOIN|ORDER|GROUP|HAVING|LIMIT]+)/i);
-      if (fromMatch) {
-        const fromPart = fromMatch[1].trim();
-        // Split by comma for multiple tables
-        const tableRefs = fromPart.split(',').map(t => t.trim());
-        for (const tableRef of tableRefs) {
-          // Remove alias if present (table AS alias or table alias)
-          const aliasMatch = tableRef.match(/^(.+?)(?:\s+(?:AS\s+)?\w+)?$/i);
-          if (aliasMatch) {
-            const tableName = extractTableName(aliasMatch[1].trim());
-            if (tableName) {
-              tables.push(tableName);
-            }
+      // Find FROM keyword (case insensitive)
+      const fromIndex = sqlText.toUpperCase().indexOf('FROM');
+      if (fromIndex === -1) {
+        return tables;
+      }
+      
+      // Find the position after FROM
+      const afterFrom = sqlText.substring(fromIndex + 4);
+      // Find the next SQL keyword (WHERE, JOIN, ORDER, GROUP, HAVING, LIMIT, etc.)
+      // Use word boundaries to avoid matching partial words
+      const nextKeywordMatch = afterFrom.match(/\s+(WHERE|JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|ORDER\s+BY|GROUP\s+BY|HAVING|LIMIT|OFFSET|UNION|;)/i);
+      const endIndex = nextKeywordMatch ? nextKeywordMatch.index : afterFrom.length;
+      
+      // Extract the FROM clause content (remove leading/trailing whitespace and newlines)
+      const fromClause = afterFrom.substring(0, endIndex).trim().replace(/\s+/g, ' ');
+      if (!fromClause) {
+        return tables;
+      }
+      
+      // Split by comma for multiple tables
+      const tableRefs = fromClause.split(',').map(t => t.trim()).filter(t => t);
+      for (const tableRef of tableRefs) {
+        // Remove alias if present (table AS alias or table alias)
+        // Match: table, table alias, table AS alias, `db`.`table`, `table` alias, etc.
+        // Split by whitespace and take the first part as table name
+        const parts = tableRef.split(/\s+/);
+        const tablePart = parts[0].trim();
+        if (tablePart) {
+          const tableName = extractTableName(tablePart);
+          if (tableName) {
+            tables.push(tableName);
           }
         }
       }
+      
       return tables;
     };
 
     // Register custom completion provider for SQL
     const completionProvider = {
       provideCompletionItems: async (model: any, position: any, context: any) => {
-        // 严格检查：只在手动触发（Ctrl+Space）或触发字符（点号）时提供建议
+        // 支持手动触发（Ctrl+Space）、触发字符（点号）和自动触发（输入时）
         const isManualInvoke = context.triggerKind === monaco.languages.CompletionTriggerKind.Invoke;
         const isTriggerCharacter = context.triggerKind === monaco.languages.CompletionTriggerKind.TriggerCharacter;
-        
-        // 如果不是手动触发也不是触发字符，直接返回空建议
-        if (!isManualInvoke && !isTriggerCharacter) {
-          return { suggestions: [] };
-        }
+        const isAutomatic = context.triggerKind === monaco.languages.CompletionTriggerKind.Automatic;
         
         // 如果是触发字符，检查是否是点号
         if (isTriggerCharacter && context.triggerCharacter !== '.') {
@@ -328,11 +341,13 @@ export default function SqlEditor() {
         // Parse FROM clause to get table names
         const fromTables = parseFromClause(text);
         
-        // SQL Keywords - 只在手动触发时显示，或者当前单词是字母开头且长度>=2
+        // SQL Keywords - 在手动触发、自动触发或输入字母时显示
         // 避免在输入数字时触发（如输入 "1" 时不应该显示建议）
         const isNumber = currentWord && /^\d+$/.test(currentWord);
+        const isLetterInput = currentWord && /^[A-Za-z]/.test(currentWord);
         const shouldShowKeywords = isManualInvoke || 
-          (currentWord && /^[A-Za-z]/.test(currentWord) && currentWord.length >= 2) ||
+          isAutomatic ||
+          (isLetterInput && !isNumber) ||
           (isAfterFrom && !isNumber);
         
         if (shouldShowKeywords) {
@@ -359,8 +374,8 @@ export default function SqlEditor() {
         }
         
         // After FROM, JOIN - suggest table names (only current database tables)
-        // 只在手动触发或触发字符时显示，避免在输入数字时触发
-        if (isAfterFrom && (isManualInvoke || isTriggerCharacter) && !isNumber) {
+        // 在手动触发、自动触发或触发字符时显示，避免在输入数字时触发
+        if (isAfterFrom && (isManualInvoke || isAutomatic || isTriggerCharacter) && !isNumber) {
           tablesRef.current.forEach(table => {
             if (isManualInvoke || !currentWord || table.toUpperCase().startsWith(currentWord)) {
               addSuggestion({
@@ -376,33 +391,40 @@ export default function SqlEditor() {
         }
         
         // In SELECT clause or WHERE/ORDER BY/etc - suggest columns
-        // 只在手动触发或触发字符时显示，避免在输入数字时触发
+        // 在手动触发、自动触发或触发字符时显示，避免在输入数字时触发
         if ((isInSelectClause || 
             lastWords.includes('WHERE') || 
             lastWords.includes('ORDER') || 
             lastWords.includes('GROUP') ||
             lastWords.includes('HAVING') || 
             lastWords.includes('ON')) && 
-            (isManualInvoke || isTriggerCharacter) && !isNumber) {
+            (isManualInvoke || isAutomatic || isTriggerCharacter) && !isNumber) {
           
           // Priority 1: If we have FROM tables, show their columns first (without table prefix)
           if (fromTables.length > 0) {
             for (const tableName of fromTables) {
-              // Only load if table exists in current database
-              if (tablesRef.current.includes(tableName)) {
-                const columns = await loadTableColumnsRef.current(tableName);
+              // Try to find matching table (case-insensitive, handle backticks)
+              const normalizedTableName = tableName.replace(/`/g, '').toLowerCase();
+              const matchingTable = tablesRef.current.find(t => 
+                t.toLowerCase() === normalizedTableName || 
+                t.replace(/`/g, '').toLowerCase() === normalizedTableName
+              );
+              
+              if (matchingTable) {
+                const columns = await loadTableColumnsRef.current(matchingTable);
                 columns.forEach(col => {
-                  // In SELECT clause, prefer column name without table prefix
-                  const label = isInSelectClause ? col.name : `${tableName}.${col.name}`;
+                  // Always show column name without table prefix when we have FROM table
+                  // This applies to SELECT, WHERE, ORDER BY, GROUP BY, HAVING, etc.
+                  const label = col.name;
                   if (isManualInvoke || !currentWord || col.name.toUpperCase().startsWith(currentWord)) {
                     addSuggestion({
                       label: label,
                       kind: monaco.languages.CompletionItemKind.Field,
-                      insertText: isInSelectClause ? col.name : `${tableName}.${col.name}`,
+                      insertText: col.name,
                       range: range,
                       detail: `列 (${col.data_type})`,
-                      documentation: `${tableName}.${col.name}: ${col.data_type}${col.primary_key ? ' [主键]' : ''}${col.nullable ? '' : ' [非空]'}`,
-                      sortText: isInSelectClause ? `0${col.name}` : `1${tableName}.${col.name}`, // Prioritize columns from FROM table
+                      documentation: `${matchingTable}.${col.name}: ${col.data_type}${col.primary_key ? ' [主键]' : ''}${col.nullable ? '' : ' [非空]'}`,
+                      sortText: `0${col.name}`, // Prioritize columns from FROM table
                     });
                   }
                 });
@@ -410,15 +432,12 @@ export default function SqlEditor() {
             }
           }
           
-          // Priority 2: If no FROM tables found or in WHERE/ORDER BY, show columns from all tables (with table prefix)
+          // Priority 2: If no FROM tables found, show columns from all tables (with table prefix)
           // Only if we haven't found columns from FROM clause
-          if (fromTables.length === 0 || !isInSelectClause) {
+          if (fromTables.length === 0) {
             // Limit to avoid too many suggestions
             const tablesToLoad = tablesRef.current.slice(0, 3);
             for (const table of tablesToLoad) {
-              // Skip if already loaded from FROM clause
-              if (fromTables.includes(table)) continue;
-              
               const columns = await loadTableColumnsRef.current(table);
               columns.forEach(col => {
                 const label = `${table}.${col.name}`;
@@ -551,12 +570,15 @@ export default function SqlEditor() {
             tabSize: 2,
             wordWrap: "on",
             suggestOnTriggerCharacters: true,
-            quickSuggestions: false, // 完全关闭自动提示
+            quickSuggestions: {
+              other: true, // 启用其他情况下的自动提示
+              comments: false, // 注释中不提示
+              strings: false, // 字符串中不提示
+            },
             acceptSuggestionOnCommitCharacter: false, // 避免自动接受
             acceptSuggestionOnEnter: "smart", // 智能接受，只在明确选择时接受
             tabCompletion: "off", // 关闭 Tab 补全，避免干扰
-            quickSuggestionsDelay: 1000, // 增加延迟
-            // suggestSelection 不支持 "never"，移除此项
+            quickSuggestionsDelay: 100, // 减少延迟，提高响应速度
             wordBasedSuggestions: "off", // 关闭基于单词的建议
             snippetSuggestions: "top", // 代码片段建议置顶
             parameterHints: {

@@ -373,7 +373,14 @@ export default function TableView() {
                 {tables.map((table) => (
                   <div
                     key={table}
-                    onClick={() => handleTableClick(table, currentDatabase)}
+                    onClick={() => {
+                      // 如果有选中的文本，不触发点击事件（允许文本选择）
+                      const selection = window.getSelection();
+                      if (selection && selection.toString().trim().length > 0) {
+                        return;
+                      }
+                      handleTableClick(table, currentDatabase);
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       handleTableClick(table, currentDatabase, true);
@@ -383,7 +390,20 @@ export default function TableView() {
                     title={`左键点击查询表，右键点击查看结构: ${table}`}
                   >
                     <span className="text-base flex-shrink-0 mt-0.5 opacity-70">📄</span>
-                    <span className="font-normal flex-1 min-w-0 leading-relaxed" style={{ color: 'rgba(240, 240, 240, 0.85)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{table}</span>
+                    <span 
+                      className="font-normal flex-1 min-w-0 leading-relaxed" 
+                      style={{ 
+                        color: 'rgba(240, 240, 240, 0.85)', 
+                        wordBreak: 'break-word', 
+                        overflowWrap: 'break-word',
+                        userSelect: 'text',
+                        WebkitUserSelect: 'text',
+                        MozUserSelect: 'text',
+                        msUserSelect: 'text',
+                      }}
+                    >
+                      {table}
+                    </span>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={(e) => {
@@ -476,7 +496,14 @@ export default function TableView() {
                 {tables.map((table) => (
                   <div
                     key={table}
-                    onClick={() => handleTableClick(table, "SQLite")}
+                    onClick={() => {
+                      // 如果有选中的文本，不触发点击事件（允许文本选择）
+                      const selection = window.getSelection();
+                      if (selection && selection.toString().trim().length > 0) {
+                        return;
+                      }
+                      handleTableClick(table, "SQLite");
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       handleTableClick(table, "SQLite", true);
@@ -486,7 +513,20 @@ export default function TableView() {
                     title={`左键点击查询表，右键点击查看结构: ${table}`}
                   >
                     <span className="text-base flex-shrink-0 mt-0.5 opacity-70">📄</span>
-                    <span className="font-normal flex-1 min-w-0 leading-relaxed" style={{ color: 'rgba(240, 240, 240, 0.85)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{table}</span>
+                    <span 
+                      className="font-normal flex-1 min-w-0 leading-relaxed" 
+                      style={{ 
+                        color: 'rgba(240, 240, 240, 0.85)', 
+                        wordBreak: 'break-word', 
+                        overflowWrap: 'break-word',
+                        userSelect: 'text',
+                        WebkitUserSelect: 'text',
+                        MozUserSelect: 'text',
+                        msUserSelect: 'text',
+                      }}
+                    >
+                      {table}
+                    </span>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={(e) => {
@@ -604,7 +644,14 @@ export default function TableView() {
                             filteredTables.map((table) => (
                               <div
                                 key={`${database}-${table}`}
-                                onClick={() => handleTableClick(table, database)}
+                                onClick={() => {
+                                  // 如果有选中的文本，不触发点击事件（允许文本选择）
+                                  const selection = window.getSelection();
+                                  if (selection && selection.toString().trim().length > 0) {
+                                    return;
+                                  }
+                                  handleTableClick(table, database);
+                                }}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
                                   handleTableClick(table, database, true);
@@ -614,7 +661,20 @@ export default function TableView() {
                                 title={`左键点击查询表，右键点击查看结构: ${table}`}
                               >
                                 <span className="text-base flex-shrink-0 mt-0.5 opacity-70">📄</span>
-                                <span className="font-normal flex-1 min-w-0 leading-relaxed" style={{ color: 'rgba(240, 240, 240, 0.85)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{table}</span>
+                                <span 
+                                  className="font-normal flex-1 min-w-0 leading-relaxed" 
+                                  style={{ 
+                                    color: 'rgba(240, 240, 240, 0.85)', 
+                                    wordBreak: 'break-word', 
+                                    overflowWrap: 'break-word',
+                                    userSelect: 'text',
+                                    WebkitUserSelect: 'text',
+                                    MozUserSelect: 'text',
+                                    msUserSelect: 'text',
+                                  }}
+                                >
+                                  {table}
+                                </span>
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <button
                                     onClick={(e) => {
