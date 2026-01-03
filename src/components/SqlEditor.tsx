@@ -192,7 +192,14 @@ export default function SqlEditor() {
         isQuerying: false,
         sql: sql 
       });
-      addLog(`查询成功，返回 ${result.rows.length} 行`);
+      // 检查是否是 INSERT/UPDATE/DELETE 语句（返回 affected_rows）
+      const isCommandResult = result.columns.length === 1 && result.columns[0] === "affected_rows";
+      if (isCommandResult && result.rows.length > 0) {
+        const affectedRows = result.rows[0][0];
+        addLog(`执行成功，影响 ${affectedRows} 行`);
+      } else {
+        addLog(`查询成功，返回 ${result.rows.length} 行`);
+      }
       // Save current SQL to workspace state after successful execution
       saveWorkspaceState();
       // History is automatically saved by the backend
@@ -330,13 +337,126 @@ export default function SqlEditor() {
         const fromIndex = textUpper.lastIndexOf('FROM');
         const isInSelectClause = selectIndex !== -1 && (fromIndex === -1 || selectIndex > fromIndex);
         
-        // Check if we're right after FROM or JOIN
-        const isAfterFrom = lastWords[lastWords.length - 1] === 'FROM' || 
-                           lastWords[lastWords.length - 1] === 'JOIN' ||
-                           lastWords[lastWords.length - 1] === 'INNER' ||
-                           lastWords[lastWords.length - 1] === 'LEFT' ||
-                           lastWords[lastWords.length - 1] === 'RIGHT' ||
-                           lastWords[lastWords.length - 1] === 'FULL';
+        // Check if we're after FROM, JOIN, UPDATE, DELETE, or INSERT INTO
+        // Method 1: Check if last word is table-related keyword
+        const lastWord = lastWords[lastWords.length - 1];
+        const secondLastWord = lastWords.length >= 2 ? lastWords[lastWords.length - 2] : '';
+        const thirdLastWord = lastWords.length >= 3 ? lastWords[lastWords.length - 3] : '';
+        const isRightAfterFrom = lastWord === 'FROM';
+        const isRightAfterJoin = lastWord === 'JOIN' || 
+                                 (lastWord === '' && (secondLastWord === 'JOIN' || secondLastWord === 'INNER' || secondLastWord === 'LEFT' || secondLastWord === 'RIGHT' || secondLastWord === 'FULL')) ||
+                                 lastWord === 'INNER' || lastWord === 'LEFT' || lastWord === 'RIGHT' || lastWord === 'FULL';
+        const isRightAfterUpdate = lastWord === 'UPDATE';
+        const isRightAfterDelete = lastWord === 'DELETE';
+        const isRightAfterInsertInto = (lastWord === 'INTO' && secondLastWord === 'INSERT') || 
+                                       (lastWord === '' && secondLastWord === 'INTO' && thirdLastWord === 'INSERT');
+        
+        // Method 2: Check if we're after FROM keyword in the text (more reliable)
+        // Find the position of the last FROM keyword
+        const lastFromIndex = textUpper.lastIndexOf('FROM');
+        const isAfterFromKeyword = lastFromIndex !== -1;
+        
+        // Method 3: Check if we're after JOIN keyword in the text
+        // Find the position of the last JOIN keyword (including INNER JOIN, LEFT JOIN, etc.)
+        const joinPatterns = [
+          /INNER\s+JOIN/i,   // "INNER JOIN"
+          /LEFT\s+JOIN/i,    // "LEFT JOIN"
+          /RIGHT\s+JOIN/i,   // "RIGHT JOIN"
+          /FULL\s+JOIN/i,    // "FULL JOIN"
+          /\bJOIN\b/i        // "JOIN"
+        ];
+        
+        let lastJoinIndex = -1;
+        let lastJoinLength = 0;
+        for (const pattern of joinPatterns) {
+          const matches = [...textUpper.matchAll(pattern)];
+          if (matches.length > 0) {
+            const lastMatch = matches[matches.length - 1];
+            const matchIndex = lastMatch.index!;
+            const matchLength = lastMatch[0].length; // Use actual matched length
+            if (matchIndex > lastJoinIndex) {
+              lastJoinIndex = matchIndex;
+              lastJoinLength = matchLength;
+            }
+          }
+        }
+        const isAfterJoinKeyword = lastJoinIndex !== -1;
+        
+        let isAfterFrom = isRightAfterFrom;
+        let isAfterJoin = isRightAfterJoin;
+        
+        // Check if we're in FROM clause (after FROM keyword but before next keyword)
+        if (isAfterFromKeyword && !isRightAfterFrom) {
+          const afterFromText = textUpper.substring(lastFromIndex + 4); // +4 for "FROM"
+          const nextKeywordMatch = afterFromText.match(/\s+(WHERE|JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|ORDER\s+BY|GROUP\s+BY|HAVING|LIMIT|OFFSET|UNION|;)/i);
+          const fromClauseEnd = nextKeywordMatch ? nextKeywordMatch.index : afterFromText.length;
+          
+          const currentPositionInText = textUntilPosition.length;
+          const fromClauseStartPos = lastFromIndex + 4;
+          const fromClauseEndPos = fromClauseStartPos + fromClauseEnd;
+          
+          isAfterFrom = currentPositionInText >= fromClauseStartPos && currentPositionInText <= fromClauseEndPos;
+        }
+        
+        // Check if we're after JOIN keyword (after JOIN but before ON/WHERE/etc.)
+        if (isAfterJoinKeyword && !isRightAfterJoin) {
+          const afterJoinText = textUpper.substring(lastJoinIndex + lastJoinLength);
+          const nextKeywordMatch = afterJoinText.match(/\s+(ON|WHERE|JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|ORDER\s+BY|GROUP\s+BY|HAVING|LIMIT|OFFSET|UNION|;)/i);
+          const joinClauseEnd = nextKeywordMatch ? nextKeywordMatch.index : afterJoinText.length;
+          
+          const currentPositionInText = textUntilPosition.length;
+          const joinClauseStartPos = lastJoinIndex + lastJoinLength;
+          const joinClauseEndPos = joinClauseStartPos + joinClauseEnd;
+          
+          isAfterJoin = currentPositionInText >= joinClauseStartPos && currentPositionInText <= joinClauseEndPos;
+        }
+        
+        // Check if we're after UPDATE keyword
+        const lastUpdateIndex = textUpper.lastIndexOf('UPDATE');
+        let isAfterUpdate = isRightAfterUpdate;
+        if (lastUpdateIndex !== -1 && !isRightAfterUpdate) {
+          const afterUpdateText = textUpper.substring(lastUpdateIndex + 6); // +6 for "UPDATE"
+          const nextKeywordMatch = afterUpdateText.match(/\s+(SET|WHERE|;)/i);
+          const updateClauseEnd = nextKeywordMatch ? nextKeywordMatch.index : afterUpdateText.length;
+          const currentPositionInText = textUntilPosition.length;
+          const updateClauseStartPos = lastUpdateIndex + 6;
+          const updateClauseEndPos = updateClauseStartPos + updateClauseEnd;
+          isAfterUpdate = currentPositionInText >= updateClauseStartPos && currentPositionInText <= updateClauseEndPos;
+        }
+        
+        // Check if we're after DELETE keyword
+        const lastDeleteIndex = textUpper.lastIndexOf('DELETE');
+        let isAfterDelete = isRightAfterDelete;
+        if (lastDeleteIndex !== -1 && !isRightAfterDelete) {
+          const afterDeleteText = textUpper.substring(lastDeleteIndex + 6); // +6 for "DELETE"
+          const nextKeywordMatch = afterDeleteText.match(/\s+(FROM|WHERE|;)/i);
+          const deleteClauseEnd = nextKeywordMatch ? nextKeywordMatch.index : afterDeleteText.length;
+          const currentPositionInText = textUntilPosition.length;
+          const deleteClauseStartPos = lastDeleteIndex + 6;
+          const deleteClauseEndPos = deleteClauseStartPos + deleteClauseEnd;
+          isAfterDelete = currentPositionInText >= deleteClauseStartPos && currentPositionInText <= deleteClauseEndPos;
+        }
+        
+        // Check if we're after INSERT INTO
+        const lastInsertIndex = textUpper.lastIndexOf('INSERT');
+        let isAfterInsertInto = isRightAfterInsertInto;
+        if (lastInsertIndex !== -1 && !isRightAfterInsertInto) {
+          const afterInsertText = textUpper.substring(lastInsertIndex + 6); // +6 for "INSERT"
+          const intoMatch = afterInsertText.match(/\s+INTO\s+/i);
+          if (intoMatch) {
+            const intoIndex = intoMatch.index! + intoMatch[0].length;
+            const afterIntoText = afterInsertText.substring(intoIndex);
+            const nextKeywordMatch = afterIntoText.match(/\s*\(|VALUES|SELECT|;|\s*$/i);
+            const intoClauseEnd = nextKeywordMatch ? nextKeywordMatch.index : afterIntoText.length;
+            const currentPositionInText = textUntilPosition.length;
+            const intoClauseStartPos = lastInsertIndex + 6 + intoIndex;
+            const intoClauseEndPos = intoClauseStartPos + intoClauseEnd;
+            isAfterInsertInto = currentPositionInText >= intoClauseStartPos && currentPositionInText <= intoClauseEndPos;
+          }
+        }
+        
+        // Combine: we're after FROM, JOIN, UPDATE, DELETE, or INSERT INTO
+        const isAfterTableKeyword = isAfterFrom || isAfterJoin || isAfterUpdate || isAfterDelete || isAfterInsertInto;
         
         // Parse FROM clause to get table names
         const fromTables = parseFromClause(text);
@@ -348,7 +468,7 @@ export default function SqlEditor() {
         const shouldShowKeywords = isManualInvoke || 
           isAutomatic ||
           (isLetterInput && !isNumber) ||
-          (isAfterFrom && !isNumber);
+          (isAfterTableKeyword && !isNumber);
         
         if (shouldShowKeywords) {
           const sqlKeywords = [
@@ -373,9 +493,9 @@ export default function SqlEditor() {
           });
         }
         
-        // After FROM, JOIN - suggest table names (only current database tables)
+        // After FROM, JOIN, UPDATE, DELETE, INSERT INTO - suggest table names (only current database tables)
         // 在手动触发、自动触发或触发字符时显示，避免在输入数字时触发
-        if (isAfterFrom && (isManualInvoke || isAutomatic || isTriggerCharacter) && !isNumber) {
+        if (isAfterTableKeyword && (isManualInvoke || isAutomatic || isTriggerCharacter) && !isNumber) {
           tablesRef.current.forEach(table => {
             if (isManualInvoke || !currentWord || table.toUpperCase().startsWith(currentWord)) {
               addSuggestion({

@@ -192,103 +192,86 @@ function App() {
           {/* Tab Bar - 始终显示 */}
           <TabBar />
           
-          {selectedTable ? (
-            // 选中表时：显示 SQL 编辑器和结果表格
-            <>
-              {/* SQL Editor */}
-              <div 
-                className="flex flex-col min-h-0"
-                style={{ 
-                  height: editorHeight !== null ? `${editorHeight}px` : undefined,
-                  flex: editorHeight === null ? 1 : undefined
-                }}
-              >
-                <SqlEditor />
-              </div>
-
-              {/* Resizable divider */}
-              <div
-                onMouseDown={handleMouseDown}
-                className={`h-1.5 cursor-row-resize transition-all duration-200 group neu-flat ${
-                  isDragging ? "" : ""
-                }`}
-                style={{ 
-                  flexShrink: 0,
-                  backgroundColor: isDragging ? 'var(--neu-accent)' : 'var(--neu-bg)'
-                }}
-              >
-                <div className="h-full w-full flex items-center justify-center">
-                  <div className={`w-16 h-1 rounded-full transition-all duration-200 ${
-                    isDragging 
-                      ? "" 
-                      : ""
-                  }`} 
-                  style={{ 
-                    backgroundColor: isDragging ? 'var(--neu-accent-light)' : 'rgba(255, 255, 255, 0.1)',
-                    boxShadow: isDragging ? '0 0 4px var(--neu-accent)' : 'none'
-                  }} />
-                </div>
-              </div>
-
-              {/* Result Table */}
-              <div 
-                className="overflow-auto neu-flat"
-                style={{ 
-                  flex: editorHeight !== null ? 1 : undefined,
-                  height: editorHeight !== null ? undefined : "256px",
-                  borderTop: '1px solid var(--neu-dark)'
-                }}
-              >
-                {error ? (
-                  <div className="p-4 neu-pressed rounded-lg m-4" style={{ 
-                    borderLeft: '4px solid var(--neu-error)',
-                    color: 'var(--neu-error)'
-                  }}>
-                    <div className="font-semibold mb-1">错误:</div>
-                    <div className="text-sm">{error}</div>
-                  </div>
-                ) : isQuerying ? (
-                  <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
-                    <div className="flex justify-center mb-3">
-                      <svg className="animate-spin h-8 w-8" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    </div>
-                    <div className="text-sm">查询中...</div>
-                  </div>
-                ) : queryResult ? (
-                  <ResultTable result={queryResult} sql={savedSql} />
-                ) : (
-                  <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
-                    <div className="text-4xl mb-3 opacity-50">📊</div>
-                    <div className="text-sm">执行 SQL 查询以查看结果</div>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : currentConnectionId && currentDatabase !== null ? (
-            // 选中数据库但未选中表时：只显示数据表视图
+          {/* 始终显示 SQL 编辑器 */}
+          <>
+            {/* SQL Editor */}
             <div 
-              className="overflow-auto neu-flat flex-1"
-            >
-              <TableView />
-            </div>
-          ) : (
-            // 未选中数据库时：只显示 SQL 编辑器
-            <div 
-              className="flex flex-col flex-1 min-h-0"
+              className="flex flex-col min-h-0"
+              style={{ 
+                height: editorHeight !== null ? `${editorHeight}px` : undefined,
+                flex: editorHeight === null ? 1 : undefined
+              }}
             >
               <SqlEditor />
-              <div className="flex-1 flex items-center justify-center neu-flat" style={{ borderTop: '1px solid var(--neu-dark)' }}>
-                <div className="text-center" style={{ color: 'var(--neu-text-light)' }}>
-                  <div className="text-5xl mb-5 opacity-60">📁</div>
-                  <div className="text-lg mb-2 font-medium" style={{ color: 'var(--neu-text)' }}>请先选择一个数据库</div>
-                  <div className="text-sm">在左侧连接列表中选择一个数据库以查看数据表</div>
-                </div>
+            </div>
+
+            {/* Resizable divider */}
+            <div
+              onMouseDown={handleMouseDown}
+              className={`h-1.5 cursor-row-resize transition-all duration-200 group neu-flat ${
+                isDragging ? "" : ""
+              }`}
+              style={{ 
+                flexShrink: 0,
+                backgroundColor: isDragging ? 'var(--neu-accent)' : 'var(--neu-bg)'
+              }}
+            >
+              <div className="h-full w-full flex items-center justify-center">
+                <div className={`w-16 h-1 rounded-full transition-all duration-200 ${
+                  isDragging 
+                    ? "" 
+                    : ""
+                }`} 
+                style={{ 
+                  backgroundColor: isDragging ? 'var(--neu-accent-light)' : 'rgba(255, 255, 255, 0.1)',
+                  boxShadow: isDragging ? '0 0 4px var(--neu-accent)' : 'none'
+                }} />
               </div>
             </div>
-          )}
+
+            {/* Result Table or TableView */}
+            <div 
+              className="overflow-auto neu-flat"
+              style={{ 
+                flex: editorHeight !== null ? 1 : undefined,
+                height: editorHeight !== null ? undefined : "256px",
+                borderTop: '1px solid var(--neu-dark)'
+              }}
+            >
+              {error ? (
+                <div className="p-4 neu-pressed rounded-lg m-4" style={{ 
+                  borderLeft: '4px solid var(--neu-error)',
+                  color: 'var(--neu-error)'
+                }}>
+                  <div className="font-semibold mb-1">错误:</div>
+                  <div className="text-sm">{error}</div>
+                </div>
+              ) : isQuerying ? (
+                <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
+                  <div className="flex justify-center mb-3">
+                    <svg className="animate-spin h-8 w-8" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  </div>
+                  <div className="text-sm">查询中...</div>
+                </div>
+              ) : queryResult ? (
+                <ResultTable result={queryResult} sql={savedSql} />
+              ) : currentConnectionId && currentDatabase !== null ? (
+                // 选中数据库但未选中表时：显示数据表视图
+                <TableView />
+              ) : (
+                <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
+                  <div className="text-4xl mb-3 opacity-50">📊</div>
+                  <div className="text-sm">执行 SQL 查询以查看结果</div>
+                  {!currentConnectionId && (
+                    <div className="mt-4 text-xs opacity-70">请先选择一个连接和数据库</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
         </main>
 
         {/* Right sidebar - History */}

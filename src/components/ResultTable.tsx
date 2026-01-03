@@ -894,6 +894,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   }
   
   // 如果完全没有列信息（包括保存的列信息），显示"无数据返回"
+  // 注意：INSERT/UPDATE/DELETE 语句会返回 affected_rows 列，应该正常显示
   if (displayColumns.length === 0) {
     return (
       <div className="p-4 text-center" style={{ color: 'var(--neu-text-light)' }}>
