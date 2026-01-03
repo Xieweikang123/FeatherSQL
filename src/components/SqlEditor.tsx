@@ -61,6 +61,13 @@ export default function SqlEditor() {
       return;
     }
 
+    // For non-SQLite databases, require a database to be selected
+    if (currentConnection?.type !== "sqlite" && !currentDatabase) {
+      setTables([]);
+      tablesRef.current = [];
+      return;
+    }
+
     const loadTables = async () => {
       try {
         const dbParam = currentConnection?.type === "sqlite" ? undefined : (currentDatabase || undefined);

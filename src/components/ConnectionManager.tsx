@@ -5,9 +5,14 @@ import {
   deleteConnection,
   disconnectConnection,
   listDatabases,
+  listTables,
   type Connection,
 } from "../lib/commands";
 import ConnectionForm from "./ConnectionForm";
+
+interface DatabaseTables {
+  [database: string]: string[];
+}
 
 export default function ConnectionManager() {
   const {
@@ -30,12 +35,23 @@ export default function ConnectionManager() {
   const [databases, setDatabases] = useState<string[]>([]);
   const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(new Set());
+  const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set());
+  const [databaseTables, setDatabaseTables] = useState<DatabaseTables>({});
+  const [loadingTables, setLoadingTables] = useState<Set<string>>(new Set());
   const [connectingConnections, setConnectingConnections] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     loadConnections();
   }, []);
+
+  // Auto-expand current database if set
+  useEffect(() => {
+    if (currentDatabase && currentConnectionId && !expandedDatabases.has(currentDatabase)) {
+      setExpandedDatabases(prev => new Set([...prev, currentDatabase]));
+      loadTablesForDatabase(currentConnectionId, currentDatabase);
+    }
+  }, [currentDatabase, currentConnectionId]);
 
   const loadConnections = async () => {
     try {
@@ -77,8 +93,10 @@ export default function ConnectionManager() {
       setCurrentDatabase(null);
       addLog(`已连接到: ${connection.name}`);
 
-      // Reset databases when switching connections
+      // Reset databases and tables when switching connections
       setDatabases([]);
+      setDatabaseTables({});
+      setExpandedDatabases(new Set());
       
       // 收起之前的连接，然后展开新连接
       setExpandedConnections(new Set([connection.id]));
@@ -115,11 +133,60 @@ export default function ConnectionManager() {
   };
 
 
-  const handleDatabaseClick = (e: React.MouseEvent, database: string) => {
+  const loadTablesForDatabase = async (connectionId: string, database: string) => {
+    if (databaseTables[database]) {
+      return; // Already loaded
+    }
+
+    setLoadingTables(prev => new Set([...prev, database]));
+    try {
+      const tableList = await listTables(connectionId, database);
+      setDatabaseTables(prev => ({ ...prev, [database]: tableList }));
+      addLog(`已加载数据库 "${database}" 的 ${tableList.length} 个表`);
+    } catch (error) {
+      addLog(`加载数据库 "${database}" 的表列表失败: ${error}`);
+      setDatabaseTables(prev => ({ ...prev, [database]: [] }));
+    } finally {
+      setLoadingTables(prev => {
+        const next = new Set(prev);
+        next.delete(database);
+        return next;
+      });
+    }
+  };
+
+  const toggleDatabase = (e: React.MouseEvent, connectionId: string, database: string) => {
+    e.stopPropagation();
+    setExpandedDatabases(prev => {
+      const next = new Set(prev);
+      if (next.has(database)) {
+        next.delete(database);
+      } else {
+        next.add(database);
+        loadTablesForDatabase(connectionId, database);
+      }
+      return next;
+    });
+  };
+
+  const handleDatabaseClick = (e: React.MouseEvent, connectionId: string, database: string) => {
     e.stopPropagation();
     // Set current database - this will trigger TableView to load tables
     setCurrentDatabase(database);
+    // Auto-expand if not already expanded
+    if (!expandedDatabases.has(database)) {
+      setExpandedDatabases(prev => new Set([...prev, database]));
+      loadTablesForDatabase(connectionId, database);
+    }
     addLog(`已选择数据库: ${database}`);
+  };
+
+  const handleTableClick = (e: React.MouseEvent, database: string, table: string) => {
+    e.stopPropagation();
+    // Set current database and table
+    setCurrentDatabase(database);
+    setSelectedTable(table);
+    addLog(`已选择表: ${database}.${table}`);
   };
 
   const toggleDatabaseList = (e: React.MouseEvent, connection: Connection) => {
@@ -156,6 +223,8 @@ export default function ConnectionManager() {
         if (currentConnectionId === id) {
           setCurrentConnection(null);
           setDatabases([]);
+          setDatabaseTables({});
+          setExpandedDatabases(new Set());
         }
         // Remove from expanded connections
         const newExpanded = new Set(expandedConnections);
@@ -182,6 +251,8 @@ export default function ConnectionManager() {
       if (currentConnectionId === connection.id) {
         setCurrentConnection(null);
         setDatabases([]);
+        setDatabaseTables({});
+        setExpandedDatabases(new Set());
         setCurrentDatabase(null);
         setExpandedConnections(prev => {
           const newSet = new Set(prev);
@@ -319,7 +390,8 @@ export default function ConnectionManager() {
         while (tableAttempts < 20) {
           await new Promise(resolve => setTimeout(resolve, 100));
           const store = useConnectionStore.getState();
-          if (store.selectedTable === savedState.table) {
+          const currentTab = store.getCurrentTab();
+          if (currentTab?.selectedTable === savedState.table) {
             addLog(`✅ 已打开数据表: ${savedState.table}`);
             break;
           }
@@ -771,27 +843,85 @@ export default function ConnectionManager() {
                             <div className="space-y-1">
                               {databases.map((db) => {
                                 const isSelected = currentDatabase === db;
+                                const isExpanded = expandedDatabases.has(db);
+                                const tables = databaseTables[db] || [];
+                                const isLoading = loadingTables.has(db);
                                 
                                 return (
-                                  <div
-                                    key={db}
-                                    data-database={db}
-                                    onClick={(e) => handleDatabaseClick(e, db)}
-                                    className={`text-xs py-2 px-2.5 rounded-md cursor-pointer transition-all duration-200 truncate flex items-center gap-2 group ${
-                                      isSelected
-                                        ? "neu-raised"
-                                        : "neu-flat hover:neu-hover"
-                                    }`}
-                                    style={{ 
-                                      color: isSelected ? 'var(--neu-accent-dark)' : 'var(--neu-text)',
-                                      fontWeight: isSelected ? '600' : 'normal'
-                                    }}
-                                    title={db}
-                                  >
-                                    <span className={`text-base transition-transform duration-200 ${
-                                      isSelected ? "scale-110" : "group-hover:scale-110"
-                                    }`}>📁</span>
-                                    <span className="flex-1 truncate">{db}</span>
+                                  <div key={db}>
+                                    <div
+                                      data-database={db}
+                                      className={`text-xs py-2 px-2.5 rounded-md cursor-pointer transition-all duration-200 truncate flex items-center gap-2 group ${
+                                        isSelected
+                                          ? "neu-raised"
+                                          : "neu-flat hover:neu-hover"
+                                      }`}
+                                      style={{ 
+                                        color: isSelected ? 'var(--neu-accent-dark)' : 'var(--neu-text)',
+                                        fontWeight: isSelected ? '600' : 'normal'
+                                      }}
+                                      title={db}
+                                    >
+                                      <button
+                                        onClick={(e) => toggleDatabase(e, connection.id, db)}
+                                        className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded transition-all duration-200 hover:bg-gray-700/80"
+                                        style={{ 
+                                          color: isExpanded ? 'var(--neu-accent)' : 'var(--neu-text-light)'
+                                        }}
+                                        title={isExpanded ? "收起" : "展开"}
+                                      >
+                                        <span className={`text-[10px] transition-transform duration-200 ${
+                                          isExpanded ? "rotate-90" : ""
+                                        }`}>▶</span>
+                                      </button>
+                                      <span 
+                                        onClick={(e) => handleDatabaseClick(e, connection.id, db)}
+                                        className={`text-base transition-transform duration-200 flex-shrink-0 ${
+                                          isSelected ? "scale-110" : "group-hover:scale-110"
+                                        }`}
+                                      >📁</span>
+                                      <span 
+                                        onClick={(e) => handleDatabaseClick(e, connection.id, db)}
+                                        className="flex-1 truncate"
+                                      >{db}</span>
+                                      {isLoading ? (
+                                        <svg className="animate-spin h-3 w-3 flex-shrink-0" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                      ) : (
+                                        <span className="text-[10px] opacity-50 flex-shrink-0" style={{ color: 'var(--neu-text-light)' }}>
+                                          {tables.length > 0 ? tables.length : ''}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {/* Tables under database */}
+                                    {isExpanded && (
+                                      <div className="ml-6 mt-1 space-y-0.5">
+                                        {isLoading ? (
+                                          <div className="text-[10px] py-1.5 px-2" style={{ color: 'var(--neu-text-light)' }}>
+                                            加载中...
+                                          </div>
+                                        ) : tables.length === 0 ? (
+                                          <div className="text-[10px] py-1.5 px-2" style={{ color: 'var(--neu-text-light)' }}>
+                                            暂无表
+                                          </div>
+                                        ) : (
+                                          tables.map((table) => (
+                                            <div
+                                              key={`${db}-${table}`}
+                                              onClick={(e) => handleTableClick(e, db, table)}
+                                              className="text-[10px] py-1.5 px-2 rounded cursor-pointer transition-all duration-200 flex items-center gap-1.5 neu-flat hover:neu-hover group"
+                                              style={{ color: 'var(--neu-text)' }}
+                                              title={`${db}.${table}`}
+                                            >
+                                              <span className="text-xs opacity-70 flex-shrink-0">📄</span>
+                                              <span className="flex-1 truncate">{table}</span>
+                                            </div>
+                                          ))
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}

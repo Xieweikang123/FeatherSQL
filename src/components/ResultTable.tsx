@@ -107,6 +107,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     originalResultRef,
   });
 
+  // Extract setEditedData for stable reference
+  const setEditedData = editing.setEditedData;
+
   // 保存列信息和原始结果
   useEffect(() => {
     if (result && result.columns.length > 0) {
@@ -126,16 +129,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         ...result,
         columns: originalColumnsRef.current
       };
-      editing.setEditedData(resultWithColumns);
+      setEditedData(resultWithColumns);
     } else {
-      editing.setEditedData(result);
+      setEditedData(result);
     }
     setSelectedRows(new Set());
     setContextMenu(null);
     // 重置到第一页
     setCurrentPage(1);
     setSortConfig([]); // 重置排序
-  }, [result, editing]);
+  }, [result, setEditedData]);
 
   // 构建带 WHERE 条件和 ORDER BY 的 SQL（使用工具函数）
   const buildFilteredAndSortedSqlCallback = useCallback((

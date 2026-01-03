@@ -110,7 +110,8 @@ export function exportToExcel(data: ExportData, filename: string = 'export'): vo
     const excelBuffer = generateExcelBuffer(data);
     
     // 使用 Blob 下载方式
-    const blob = new Blob([excelBuffer], { 
+    // Uint8Array 可以直接用于 Blob 构造函数，使用类型断言解决类型检查问题
+    const blob = new Blob([excelBuffer as BlobPart], { 
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
     });
     
@@ -143,7 +144,7 @@ function escapeCsvValue(value: any): string {
 /**
  * 下载 Blob 文件
  */
-function downloadBlob(blob: Blob, filename: string, mimeType: string): void {
+function downloadBlob(blob: Blob, filename: string, _mimeType: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

@@ -189,12 +189,12 @@ function App() {
 
         {/* Main content */}
         <main ref={mainContentRef} className="flex-1 flex flex-col overflow-hidden">
+          {/* Tab Bar - 始终显示 */}
+          <TabBar />
+          
           {selectedTable ? (
-            // 选中表时：只显示 SQL 编辑器（不显示数据表视图）
+            // 选中表时：显示 SQL 编辑器和结果表格
             <>
-              {/* Tab Bar */}
-              <TabBar />
-              
               {/* SQL Editor */}
               <div 
                 className="flex flex-col min-h-0"
@@ -268,34 +268,72 @@ function App() {
               </div>
             </>
           ) : currentConnectionId && currentDatabase !== null ? (
-            // 选中数据库但未选中表时：只显示数据表视图（不显示 SQL 编辑器）
-            <div className="flex-1 flex overflow-hidden">
-              {/* Tables View - 占据整个主内容区域 */}
-              <div className="flex-1 neu-flat flex flex-col">
+            // 选中数据库但未选中表时：显示 SQL 编辑器和数据表视图
+            <>
+              {/* SQL Editor */}
+              <div 
+                className="flex flex-col min-h-0"
+                style={{ 
+                  height: editorHeight !== null ? `${editorHeight}px` : undefined,
+                  flex: editorHeight === null ? 1 : undefined
+                }}
+              >
+                <SqlEditor />
+              </div>
+
+              {/* Resizable divider */}
+              <div
+                onMouseDown={handleMouseDown}
+                className={`h-1.5 cursor-row-resize transition-all duration-200 group neu-flat ${
+                  isDragging ? "" : ""
+                }`}
+                style={{ 
+                  flexShrink: 0,
+                  backgroundColor: isDragging ? 'var(--neu-accent)' : 'var(--neu-bg)'
+                }}
+              >
+                <div className="h-full w-full flex items-center justify-center">
+                  <div className={`w-16 h-1 rounded-full transition-all duration-200 ${
+                    isDragging 
+                      ? "" 
+                      : ""
+                  }`} 
+                  style={{ 
+                    backgroundColor: isDragging ? 'var(--neu-accent-light)' : 'rgba(255, 255, 255, 0.1)',
+                    boxShadow: isDragging ? '0 0 4px var(--neu-accent)' : 'none'
+                  }} />
+                </div>
+              </div>
+
+              {/* Tables View */}
+              <div 
+                className="overflow-auto neu-flat flex-1"
+                style={{ 
+                  borderTop: '1px solid var(--neu-dark)'
+                }}
+              >
                 <TableView />
               </div>
-              
-              {/* History - 可选的侧边栏 */}
-              {historyExpanded && (
-                <aside className="w-80 neu-raised flex flex-col" style={{ borderLeft: '1px solid var(--neu-dark)' }}>
-                  <SqlHistory />
-                </aside>
-              )}
-            </div>
+            </>
           ) : (
-            // 未选中数据库时：显示提示信息
-            <div className="flex-1 flex items-center justify-center neu-flat">
-              <div className="text-center" style={{ color: 'var(--neu-text-light)' }}>
-                <div className="text-5xl mb-5 opacity-60">📁</div>
-                <div className="text-lg mb-2 font-medium" style={{ color: 'var(--neu-text)' }}>请先选择一个数据库</div>
-                <div className="text-sm">在左侧连接列表中选择一个数据库以查看数据表</div>
+            // 未选中数据库时：只显示 SQL 编辑器
+            <div 
+              className="flex flex-col flex-1 min-h-0"
+            >
+              <SqlEditor />
+              <div className="flex-1 flex items-center justify-center neu-flat" style={{ borderTop: '1px solid var(--neu-dark)' }}>
+                <div className="text-center" style={{ color: 'var(--neu-text-light)' }}>
+                  <div className="text-5xl mb-5 opacity-60">📁</div>
+                  <div className="text-lg mb-2 font-medium" style={{ color: 'var(--neu-text)' }}>请先选择一个数据库</div>
+                  <div className="text-sm">在左侧连接列表中选择一个数据库以查看数据表</div>
+                </div>
               </div>
             </div>
           )}
         </main>
 
-        {/* Right sidebar - History (only when table is selected) */}
-        {selectedTable && historyExpanded && (
+        {/* Right sidebar - History */}
+        {historyExpanded && (
           <aside className="w-80 neu-raised flex flex-col" style={{ borderLeft: '1px solid var(--neu-dark)' }}>
             <SqlHistory />
           </aside>
