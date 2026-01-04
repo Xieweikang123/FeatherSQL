@@ -28,7 +28,6 @@ export default function ConnectionManager() {
     restoreWorkspaceHistory,
     deleteWorkspaceHistory,
     loadSql,
-    addLog,
   } = useConnectionStore();
   const [showForm, setShowForm] = useState(false);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
@@ -57,9 +56,7 @@ export default function ConnectionManager() {
     try {
       const conns = await getConnections();
       setConnections(conns);
-      addLog(`已加载 ${conns.length} 个连接`);
     } catch (error) {
-      addLog(`加载连接失败: ${error}`);
     }
   };
 
@@ -76,7 +73,6 @@ export default function ConnectionManager() {
 
     // 设置连接状态
     setConnectingConnections(prev => new Set(prev).add(connection.id));
-    addLog(`正在连接: ${connection.name}...`);
 
     try {
       // 尝试建立连接（通过列出数据库或表来测试连接）
@@ -91,7 +87,6 @@ export default function ConnectionManager() {
       // 连接成功，设置当前连接
       setCurrentConnection(connection.id);
       setCurrentDatabase(null);
-      addLog(`已连接到: ${connection.name}`);
 
       // Reset databases and tables when switching connections
       setDatabases([]);
@@ -107,7 +102,6 @@ export default function ConnectionManager() {
       }
     } catch (error) {
       const errorMsg = String(error);
-      addLog(`连接失败: ${connection.name} - ${errorMsg}`);
     } finally {
       // 清除连接状态
       setConnectingConnections(prev => {
@@ -123,9 +117,7 @@ export default function ConnectionManager() {
     try {
       const dbList = await listDatabases(connectionId);
       setDatabases(dbList);
-      addLog(`已加载 ${dbList.length} 个数据库`);
     } catch (error) {
-      addLog(`加载数据库列表失败: ${error}`);
       setDatabases([]);
     } finally {
       setLoadingDatabases(false);
@@ -142,9 +134,7 @@ export default function ConnectionManager() {
     try {
       const tableList = await listTables(connectionId, database);
       setDatabaseTables(prev => ({ ...prev, [database]: tableList }));
-      addLog(`已加载数据库 "${database}" 的 ${tableList.length} 个表`);
     } catch (error) {
-      addLog(`加载数据库 "${database}" 的表列表失败: ${error}`);
       setDatabaseTables(prev => ({ ...prev, [database]: [] }));
     } finally {
       setLoadingTables(prev => {
@@ -178,7 +168,6 @@ export default function ConnectionManager() {
       setExpandedDatabases(prev => new Set([...prev, database]));
       loadTablesForDatabase(connectionId, database);
     }
-    addLog(`已选择数据库: ${database}`);
   };
 
   const handleTableClick = (e: React.MouseEvent, database: string, table: string) => {
@@ -186,7 +175,6 @@ export default function ConnectionManager() {
     // Set current database and table
     setCurrentDatabase(database);
     setSelectedTable(table);
-    addLog(`已选择表: ${database}.${table}`);
   };
 
   const toggleDatabaseList = (e: React.MouseEvent, connection: Connection) => {
@@ -219,7 +207,6 @@ export default function ConnectionManager() {
     if (confirm("确定要删除此连接吗？")) {
       try {
         await deleteConnection(id);
-        addLog("连接已删除");
         if (currentConnectionId === id) {
           setCurrentConnection(null);
           setDatabases([]);
@@ -232,7 +219,6 @@ export default function ConnectionManager() {
         setExpandedConnections(newExpanded);
         loadConnections();
       } catch (error) {
-        addLog(`删除连接失败: ${error}`);
       }
     }
   };
@@ -260,10 +246,8 @@ export default function ConnectionManager() {
           return newSet;
         });
       }
-      addLog(`已断开连接: ${connection.name}`);
     } catch (error) {
       const errorMsg = String(error);
-      addLog(`断开连接失败: ${connection.name} - ${errorMsg}`);
     }
   };
 
@@ -274,7 +258,6 @@ export default function ConnectionManager() {
     if (historyId) {
       const history = restoreWorkspaceHistory(historyId);
       if (!history) {
-        addLog("找不到指定的工作历史");
         return;
       }
       historyName = history.name;
@@ -290,45 +273,35 @@ export default function ConnectionManager() {
     }
 
     if (!savedState || !savedState.connectionId) {
-      addLog("没有保存的工作状态");
       return;
     }
 
     // Find the connection
     const connection = connections.find(c => c.id === savedState.connectionId);
     if (!connection) {
-      addLog(`无法恢复：连接配置不存在，可能已被删除`);
       return;
     }
 
     // Close history panel immediately
     setShowHistory(false);
 
-    addLog(`正在恢复工作状态: ${historyName}...`);
-
     try {
       // Connect to the saved connection (even if not currently connected)
       if (currentConnectionId !== connection.id) {
-        addLog(`🔌 正在连接到数据库: ${connection.name}...`);
         // Ensure connection is expanded
         setExpandedConnections(new Set([connection.id]));
         await handleConnectionClick(connection);
         
         // Wait for connection to be established (check store state)
         // Use a polling approach to check if connection is established
-        addLog(`⏳ 等待连接建立...`);
         let attempts = 0;
         while (attempts < 50) {
           await new Promise(resolve => setTimeout(resolve, 100));
           const store = useConnectionStore.getState();
           if (store.currentConnectionId === connection.id) {
-            addLog(`✅ 连接已建立: ${connection.name}`);
             break;
           }
           attempts++;
-          if (attempts % 5 === 0) {
-            addLog(`⏳ 连接中... (${attempts * 100}ms)`);
-          }
         }
         
         // Final check
@@ -337,7 +310,6 @@ export default function ConnectionManager() {
           throw new Error(`连接失败: ${connection.name}`);
         }
       } else {
-        addLog(`✅ 已连接到: ${connection.name}`);
         // Ensure connection is expanded even if already connected
         setExpandedConnections(new Set([connection.id]));
       }
@@ -345,27 +317,22 @@ export default function ConnectionManager() {
       // Restore database
       if (savedState.database !== null) {
         if (connection.type === "sqlite") {
-          addLog(`📁 设置 SQLite 数据库...`);
           setCurrentDatabase("");
         } else {
-          addLog(`📁 正在切换到数据库: ${savedState.database}...`);
           setCurrentDatabase(savedState.database);
           // Expand connection to show databases
           setExpandedConnections(new Set([connection.id]));
           // Load databases if needed
           if (connection.type === "mysql" || connection.type === "postgres" || connection.type === "mssql") {
-            addLog(`📋 正在加载数据库列表...`);
             await loadDatabases(connection.id);
           }
         }
         // Wait for database to be set
-        addLog(`⏳ 等待数据库切换完成...`);
         let dbAttempts = 0;
         while (dbAttempts < 30) {
           await new Promise(resolve => setTimeout(resolve, 100));
           const store = useConnectionStore.getState();
           if (store.currentDatabase === savedState.database) {
-            addLog(`✅ 已切换到数据库: ${savedState.database}`);
             // Scroll to the selected database after a short delay to ensure DOM is updated
             setTimeout(() => {
               const dbElement = document.querySelector(`[data-database="${savedState.database}"]`);
@@ -386,7 +353,6 @@ export default function ConnectionManager() {
 
       // Restore table
       if (savedState.table) {
-        addLog(`📄 正在打开数据表: ${savedState.table}...`);
         setSelectedTable(savedState.table);
         // Wait for table to be set
         let tableAttempts = 0;
@@ -395,7 +361,6 @@ export default function ConnectionManager() {
           const store = useConnectionStore.getState();
           const currentTab = store.getCurrentTab();
           if (currentTab?.selectedTable === savedState.table) {
-            addLog(`✅ 已打开数据表: ${savedState.table}`);
             break;
           }
           tableAttempts++;
@@ -404,15 +369,10 @@ export default function ConnectionManager() {
 
       // Restore SQL
       if (savedState.sql) {
-        addLog(`📝 正在加载 SQL 查询...`);
         loadSql(savedState.sql);
-        addLog(`✅ SQL 查询已加载`);
       }
-
-      addLog(`🎉 工作状态已恢复: ${historyName}`);
     } catch (error) {
       const errorMsg = String(error);
-      addLog(`❌ 恢复工作状态失败: ${errorMsg}`);
     }
   };
 
@@ -420,7 +380,6 @@ export default function ConnectionManager() {
     e.stopPropagation();
     if (confirm("确定要删除这个工作历史吗？")) {
       deleteWorkspaceHistory(historyId);
-      addLog("工作历史已删除");
       // Force re-render by toggling showHistory
       setShowHistory(false);
       setTimeout(() => setShowHistory(true), 10);

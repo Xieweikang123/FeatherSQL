@@ -18,7 +18,6 @@ export default function TableView() {
     getCurrentTab,
     updateTab,
     setSelectedTable,
-    addLog,
     loadSql,
   } = useConnectionStore();
   
@@ -48,9 +47,7 @@ export default function TableView() {
       try {
         const dbList = await listDatabases(currentConnectionId);
         setDatabases(dbList);
-        addLog(`已加载 ${dbList.length} 个数据库`);
       } catch (error) {
-        addLog(`加载数据库列表失败: ${error}`);
         setDatabases([]);
       } finally {
         setLoading(false);
@@ -71,9 +68,7 @@ export default function TableView() {
       try {
         const tableList = await listTables(currentConnectionId, "");
         setDatabaseTables({ "SQLite": tableList });
-        addLog(`已加载 SQLite 的 ${tableList.length} 个表`);
       } catch (error) {
-        addLog(`加载表列表失败: ${error}`);
         setDatabaseTables({});
       } finally {
         setLoading(false);
@@ -94,9 +89,7 @@ export default function TableView() {
     try {
       const tableList = await listTables(currentConnectionId, database);
       setDatabaseTables(prev => ({ ...prev, [database]: tableList }));
-      addLog(`已加载数据库 "${database}" 的 ${tableList.length} 个表`);
     } catch (error) {
-      addLog(`加载数据库 "${database}" 的表列表失败: ${error}`);
       setDatabaseTables(prev => ({ ...prev, [database]: [] }));
     } finally {
       setLoadingDatabases(prev => {
@@ -131,7 +124,6 @@ export default function TableView() {
 
   const handleTableClick = async (tableName: string, database: string, showStructure: boolean = false) => {
     if (!currentConnectionId || !currentConnection) {
-      addLog("请先选择连接");
       return;
     }
 
@@ -162,7 +154,6 @@ export default function TableView() {
 
     // Load SQL into editor
     loadSql(sql);
-    addLog(`查询表: ${tableName}${database ? ` (数据库: ${database})` : ""}`);
 
     // Execute query
     const currentTab = getCurrentTab();
@@ -173,11 +164,9 @@ export default function TableView() {
       const dbParam = currentConnection.type === "sqlite" ? "" : (database || undefined);
       const result = await executeSql(currentConnectionId, sql, dbParam);
       updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
-      addLog(`查询成功，返回 ${result.rows.length} 行`);
     } catch (error) {
       const errorMsg = String(error);
       updateTab(currentTab.id, { error: errorMsg, queryResult: null, isQuerying: false });
-      addLog(`查询失败: ${errorMsg}`);
     }
   };
 

@@ -19,7 +19,6 @@ interface UseTableEditingOptions {
   currentConnection: { type: string } | null;
   currentDatabase: string | null;
   sql: string | null;
-  addLog: (message: string) => void;
   updateTab: (tabId: string, updates: any) => void;
   currentTab: { id: string } | null;
   clearSelection: () => void;
@@ -33,7 +32,6 @@ export function useTableEditing({
   currentConnection,
   currentDatabase,
   sql,
-  addLog,
   updateTab,
   currentTab,
   clearSelection,
@@ -81,11 +79,8 @@ export function useTableEditing({
     if (previousState) {
       setEditedData(previousState.editedData);
       setModifications(previousState.modifications);
-      addLog("已撤销上一步操作");
-    } else {
-      addLog("没有可撤销的操作");
     }
-  }, [editHistory, addLog]);
+  }, [editHistory]);
   
   // 重做
   const handleRedo = useCallback(() => {
@@ -93,11 +88,8 @@ export function useTableEditing({
     if (nextState) {
       setEditedData(nextState.editedData);
       setModifications(nextState.modifications);
-      addLog("已重做操作");
-    } else {
-      addLog("没有可重做的操作");
     }
-  }, [editHistory, addLog]);
+  }, [editHistory]);
   
   // 撤销所有改动
   const handleResetAll = useCallback(() => {
@@ -107,8 +99,7 @@ export function useTableEditing({
     clearSelection();
     setEditingCell(null);
     setEditingValue("");
-    addLog("已撤销所有改动");
-  }, [result, editHistory, clearSelection, addLog]);
+  }, [result, editHistory, clearSelection]);
   
   // 编辑相关处理函数
   const handleCellDoubleClick = useCallback((originalRowIndex: number, cellIndex: number) => {
@@ -176,8 +167,7 @@ export function useTableEditing({
     
     setEditingCell(null);
     setEditingValue("");
-    addLog(`已修改: ${column} = ${newValue === null ? 'NULL' : newValue}`);
-  }, [editingCell, editingValue, result.columns, result.rows, saveToHistory, editedData, modifications, addLog, originalResultRef]);
+  }, [editingCell, editingValue, result.columns, result.rows, saveToHistory, editedData, modifications, originalResultRef]);
   
   const handleCellCancel = useCallback(() => {
     setEditingCell(null);
@@ -203,10 +193,23 @@ export function useTableEditing({
       const [row, col] = cellKey.split('-').map(Number);
       // 使用原始结果获取原始值
       const originalValue = originalResultRef?.current?.rows[row]?.[col] ?? result.rows[row]?.[col];
-      const currentValue = editedData.rows[row]?.[col];
-      // 检查是否在修改记录中（如果在修改记录中，说明已经被修改过）
+      // 检查是否在修改记录中（优先检查 newMods，因为可能在同一函数调用中已经更新）
       const modKey = `${row}-${col}`;
-      const isModified = modifications.has(modKey);
+      const isModifiedInNewMods = newMods.has(modKey);
+      const isModifiedInOldMods = modifications.has(modKey);
+      const isModified = isModifiedInNewMods || isModifiedInOldMods;
+      
+      // 优先使用 newMods 中的值（最新），然后是旧 modifications，最后是 editedData
+      // 这样可以处理快速连续输入时状态还没更新的情况
+      let currentValue: any;
+      if (isModifiedInNewMods) {
+        currentValue = newMods.get(modKey)!.newValue;
+      } else if (isModifiedInOldMods) {
+        currentValue = modifications.get(modKey)!.newValue;
+      } else {
+        // 也检查 newEditedData，因为可能在同一循环中已经更新
+        currentValue = newEditedData.rows[row]?.[col] ?? editedData.rows[row]?.[col];
+      }
       
       // 如果当前值等于原始值且不在修改记录中，说明未修改，使用空字符串作为标记
       // 注意：即使字符串表示相同，如果已经在修改记录中，也应该使用当前值
@@ -244,7 +247,8 @@ export function useTableEditing({
       const [row, col] = cellKey.split('-').map(Number);
       // 获取原始值和当前编辑后的值（使用原始结果获取原始值）
       const originalValue = originalResultRef?.current?.rows[row]?.[col] ?? result.rows[row]?.[col];
-      const currentValue = editedData.rows[row]?.[col];
+      // 使用 newEditedData 而不是 editedData，因为我们在循环中可能已经更新了某些单元格
+      const currentValue = newEditedData.rows[row]?.[col] ?? editedData.rows[row]?.[col];
       
       // 如果值未改变，跳过（避免不必要的更新）
       if (currentValue === newValue || String(currentValue) === String(newValue)) continue;
@@ -274,9 +278,8 @@ export function useTableEditing({
     if (modifiedCount > 0) {
       setEditedData(newEditedData);
       setModifications(newMods);
-      addLog(`批量修改了 ${modifiedCount} 个单元格`);
     }
-  }, [result, editedData, modifications, saveToHistory, addLog, originalResultRef]);
+  }, [result, editedData, modifications, saveToHistory, originalResultRef]);
   
   // 复制选中区域
   const handleCopy = useCallback(async (selection: CellSelection | null) => {
@@ -316,20 +319,17 @@ export function useTableEditing({
     
     const text = textRows.join('\n');
     await navigator.clipboard.writeText(text);
-    addLog(`已复制 ${textRows.length} 行 ${sortedCols.length} 列`);
-  }, [editedData.rows, addLog]);
+  }, [editedData.rows]);
   
   // 粘贴数据
   const handlePaste = useCallback(async (selection: CellSelection | null) => {
     if (!selection) {
-      addLog('粘贴失败: 没有选中单元格');
       return;
     }
     
     try {
       const text = await navigator.clipboard.readText();
       if (!text || text.trim() === '') {
-        addLog('粘贴失败: 剪贴板为空');
         return;
       }
       
@@ -438,31 +438,23 @@ export function useTableEditing({
       if (pastedCount > 0) {
         setEditedData(newEditedData);
         setModifications(newMods);
-        addLog(`已粘贴 ${pastedCount} 个单元格`);
-      } else {
-        addLog(`粘贴完成，但没有单元格被修改（可能是值相同）`);
       }
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      addLog(`粘贴失败: ${errorMsg}`);
       console.error('粘贴错误:', error);
     }
-  }, [result, editedData, modifications, saveToHistory, addLog, originalResultRef]);
+  }, [result, editedData, modifications, saveToHistory, originalResultRef]);
   
   // 保存修改到数据库
   const handleSaveChanges = useCallback(async () => {
     if (!currentConnectionId || !currentConnection) {
-      addLog("错误: 未选择数据库连接");
       return;
     }
     
     if (modifications.size === 0) {
-      addLog("没有需要保存的修改");
       return;
     }
     
     if (!sql) {
-      addLog("错误: 无法保存，缺少原始 SQL 语句");
       return;
     }
     
@@ -490,13 +482,7 @@ export function useTableEditing({
       );
       
       if (updateSqls.length === 0) {
-        addLog("错误: 无法生成 UPDATE 语句");
         return;
-      }
-      
-      addLog(`开始保存 ${updateSqls.length} 条修改...`);
-      if (databaseToUse) {
-        addLog(`使用数据库: ${databaseToUse}`);
       }
       
       // 执行所有 UPDATE 语句
@@ -509,8 +495,6 @@ export function useTableEditing({
           successCount++;
         } catch (error) {
           failCount++;
-          const errorMsg = String(error);
-          addLog(`保存失败: ${errorMsg}`);
           console.error("Update SQL:", updateSql);
           console.error("Database param:", dbParam);
           console.error("Error:", error);
@@ -518,16 +502,12 @@ export function useTableEditing({
       }
       
       if (failCount > 0) {
-        addLog(`保存完成: 成功 ${successCount} 条，失败 ${failCount} 条`);
         throw new Error(`部分保存失败: ${failCount} 条记录保存失败`);
       }
-      
-      addLog(`成功保存 ${successCount} 条修改`);
       
       // 重新执行原始 SQL 查询以刷新数据
       if (!currentTab) return;
       
-      addLog("正在刷新数据...");
       updateTab(currentTab.id, { isQuerying: true });
       try {
         const newResult = await executeSql(currentConnectionId, sql, dbParam);
@@ -536,19 +516,15 @@ export function useTableEditing({
         // 清除修改记录
         setModifications(new Map());
         setEditedData(newResult);
-        
-        addLog("数据已刷新");
       } finally {
         updateTab(currentTab.id, { isQuerying: false });
       }
     } catch (error) {
-      const errorMsg = String(error);
-      addLog(`保存失败: ${errorMsg}`);
-      // 不抛出错误，让用户看到日志
+      console.error("保存失败:", error);
     } finally {
       setIsSaving(false);
     }
-  }, [currentConnectionId, currentConnection, modifications, sql, result, currentDatabase, addLog, currentTab, updateTab]);
+  }, [currentConnectionId, currentConnection, modifications, sql, result, currentDatabase, currentTab, updateTab]);
   
   // 退出编辑模式
   const handleExitEditMode = useCallback((setEditMode: (mode: boolean) => void) => {

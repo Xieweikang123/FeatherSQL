@@ -16,18 +16,14 @@ function App() {
     currentConnectionId, 
     currentDatabase, 
     getCurrentTab,
-    logs, 
-    clearLogs,
   } = useConnectionStore();
   
   // 获取当前标签页状态
   const currentTab = getCurrentTab();
-  const selectedTable = currentTab?.selectedTable || null;
   const queryResult = currentTab?.queryResult || null;
   const error = currentTab?.error || null;
   const isQuerying = currentTab?.isQuerying || false;
   const savedSql = currentTab?.sql || null;
-  const [logsExpanded, setLogsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
   const [editorHeightRatio, setEditorHeightRatio] = useState<number | null>(null);
@@ -282,42 +278,6 @@ function App() {
           <aside className="w-80 neu-raised flex flex-col" style={{ borderLeft: '1px solid var(--neu-dark)' }}>
             <SqlHistory />
           </aside>
-        )}
-      </div>
-
-      {/* Logs panel */}
-      <div className="neu-raised" style={{ borderTop: '1px solid var(--neu-dark)' }}>
-        <button
-          onClick={() => setLogsExpanded(!logsExpanded)}
-          className="w-full px-4 py-2.5 neu-flat hover:neu-hover active:neu-active text-left text-sm flex items-center justify-between transition-all duration-200"
-          style={{ color: 'var(--neu-text)' }}
-        >
-          <span className="font-medium">日志</span>
-          <span className="text-xs transition-transform duration-200" style={{ color: 'var(--neu-text-light)' }}>{logsExpanded ? "▼" : "▶"}</span>
-        </button>
-        {logsExpanded && (
-          <div className="h-32 neu-pressed overflow-auto p-3 text-xs font-mono">
-            {logs.length === 0 ? (
-              <div className="text-center py-4" style={{ color: 'var(--neu-text-light)' }}>暂无日志</div>
-            ) : (
-              <>
-                <button
-                  onClick={clearLogs}
-                  className="mb-3 px-3 py-1.5 neu-flat hover:neu-hover active:neu-active rounded-lg text-xs transition-all duration-200"
-                  style={{ color: 'var(--neu-text)' }}
-                >
-                  清空日志
-                </button>
-                <div className="space-y-1">
-                  {logs.map((log, index) => (
-                    <div key={index} className="py-0.5 px-1 rounded transition-colors duration-150" style={{ color: 'var(--neu-text-light)' }}>
-                      {log}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
         )}
       </div>
     </div>

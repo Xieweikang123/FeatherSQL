@@ -30,7 +30,6 @@ export default function SqlEditor() {
     getCurrentTab,
     updateTab,
     setSelectedTable, 
-    addLog, 
     saveWorkspaceState 
   } = useConnectionStore();
   
@@ -156,7 +155,6 @@ export default function SqlEditor() {
       if (currentTab) {
         updateTab(currentTab.id, { error: "请先选择一个连接" });
       }
-      addLog("执行失败: 未选择连接");
       return;
     }
 
@@ -182,7 +180,6 @@ export default function SqlEditor() {
     }
 
     updateTab(currentTab.id, { error: null, isQuerying: true });
-    addLog(`执行 SQL: ${sql.substring(0, 50)}...`);
 
     try {
       const result = await executeSql(currentConnectionId, sql, currentDatabase || undefined);
@@ -196,9 +193,6 @@ export default function SqlEditor() {
       const isCommandResult = result.columns.length === 1 && result.columns[0] === "affected_rows";
       if (isCommandResult && result.rows.length > 0) {
         const affectedRows = result.rows[0][0];
-        addLog(`执行成功，影响 ${affectedRows} 行`);
-      } else {
-        addLog(`查询成功，返回 ${result.rows.length} 行`);
       }
       // Save current SQL to workspace state after successful execution
       saveWorkspaceState();
@@ -211,7 +205,6 @@ export default function SqlEditor() {
         isQuerying: false,
         sql: sql 
       });
-      addLog(`执行失败: ${errorMsg}`);
       // Save current SQL to workspace state even on error (user might want to retry)
       saveWorkspaceState();
       // History is automatically saved by the backend

@@ -12,7 +12,6 @@ export default function TableStructure({ tableName, onClose }: TableStructurePro
     currentConnectionId,
     currentDatabase,
     connections,
-    addLog,
   } = useConnectionStore();
 
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
@@ -35,18 +34,16 @@ export default function TableStructure({ tableName, onClose }: TableStructurePro
         const dbParam = connectionType === "sqlite" ? "" : (currentDatabase || undefined);
         const structure = await describeTable(currentConnectionId, tableName, dbParam);
         setColumns(structure);
-        addLog(`已加载表 "${tableName}" 的结构，共 ${structure.length} 个字段`);
       } catch (err) {
         const errorMsg = String(err);
         setError(errorMsg);
-        addLog(`加载表结构失败: ${errorMsg}`);
       } finally {
         setLoading(false);
       }
     };
 
     loadStructure();
-  }, [currentConnectionId, tableName, currentDatabase, connectionType, addLog]);
+  }, [currentConnectionId, tableName, currentDatabase, connectionType]);
 
   return (
     <div className="flex flex-col h-full">

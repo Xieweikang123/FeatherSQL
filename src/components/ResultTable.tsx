@@ -48,7 +48,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     currentConnectionId, 
     currentDatabase, 
     connections, 
-    addLog, 
     getCurrentTab,
     updateTab,
     editMode, // 从 store 读取 editMode
@@ -102,7 +101,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     currentConnection: currentConnection || null,
     currentDatabase,
     sql: sql || null,
-    addLog,
     updateTab,
     currentTab,
     clearSelection,
@@ -191,7 +189,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute = buildFilteredAndSortedSqlCallback(originalSqlRef.current, filters, sortConfig);
       }
       
-      addLog(`执行过滤查询: ${sqlToExecute.substring(0, 100)}...`);
       const newResult = await executeSql(
         currentConnectionId,
         sqlToExecute,
@@ -216,10 +213,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       }
       // 过滤后重置到第一页
       setCurrentPage(1);
-      addLog(`过滤查询成功，返回 ${newResult.rows.length} 行`);
     } catch (error) {
-      const errorMsg = String(error);
-      addLog(`过滤查询失败: ${errorMsg}`);
       console.error("Filtered SQL execution error:", error);
       if (currentTab) {
         updateTab(currentTab.id, { isQuerying: false });
@@ -227,7 +221,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } finally {
       setIsFiltering(false);
     }
-    }, [currentConnectionId, originalSqlRef, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, addLog, currentTab, updateTab, editMode, editing, result]);
+    }, [currentConnectionId, originalSqlRef, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, currentTab, updateTab, editMode, editing, result]);
 
 
 
@@ -766,22 +760,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const insertSql = generateInsertSqlCallback();
     if (insertSql) {
       navigator.clipboard.writeText(insertSql);
-      addLog(`已生成并复制 INSERT 语句（${selectedRows.size} 行）`);
-    } else {
-      addLog("错误: 无法生成 INSERT 语句");
     }
-  }, [generateInsertSqlCallback, selectedRows.size, addLog]);
+  }, [generateInsertSqlCallback, selectedRows.size]);
 
   // 处理生成 UPDATE 语句
   const handleGenerateUpdate = useCallback(() => {
     const updateSql = generateUpdateSqlForRowsCallback();
     if (updateSql) {
       navigator.clipboard.writeText(updateSql);
-      addLog(`已生成并复制 UPDATE 语句（${selectedRows.size} 行）`);
-    } else {
-      addLog("错误: 无法生成 UPDATE 语句");
     }
-  }, [generateUpdateSqlForRowsCallback, selectedRows.size, addLog]);
+  }, [generateUpdateSqlForRowsCallback, selectedRows.size]);
 
   // 处理数据导出
   const handleExport = useCallback(async (format: ExportFormat, exportSelected: boolean) => {
@@ -803,7 +791,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       }
 
       if (rowsToExport.length === 0) {
-        addLog("导出失败: 没有可导出的数据");
         return;
       }
 
@@ -843,35 +830,22 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       switch (format) {
         case 'csv':
           exportToCsv(exportData, filename);
-          addLog(`✓ 已导出 ${rowsToExport.length} 行数据为 CSV 格式`);
-          addLog(`文件名: ${fullFilename}`);
-          addLog(`文件已保存到下载目录`);
           break;
         case 'json':
           exportToJson(exportData, filename);
-          addLog(`✓ 已导出 ${rowsToExport.length} 行数据为 JSON 格式`);
-          addLog(`文件名: ${fullFilename}`);
-          addLog(`文件已保存到下载目录`);
           break;
         case 'excel':
           try {
             exportToExcel(exportData, filename);
-            addLog(`✓ 已导出 ${rowsToExport.length} 行数据为 Excel 格式`);
-            addLog(`文件名: ${fullFilename}`);
-            addLog(`文件已保存到下载目录`);
           } catch (excelError) {
-            const excelErrorMsg = excelError instanceof Error ? excelError.message : String(excelError);
-            addLog(`Excel 导出失败: ${excelErrorMsg}`);
             console.error('Excel export error:', excelError);
           }
           break;
       }
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      addLog(`导出失败: ${errorMsg}`);
       console.error('导出错误:', error);
     }
-  }, [selectedRows, editing.editedData.rows, displayColumns, addLog, sql]);
+  }, [selectedRows, editing.editedData.rows, displayColumns, sql]);
 
   // 如果正在查看表结构，显示表结构组件
   if (viewingStructure) {

@@ -42,8 +42,6 @@ interface ConnectionState {
   // 标签页相关
   tabs: TabState[];
   currentTabId: string | null;
-  // 全局状态
-  logs: string[];
   // 编辑模式状态（持久化）
   editMode: boolean;
 
@@ -66,8 +64,6 @@ interface ConnectionState {
   setIsQuerying: (isQuerying: boolean) => void;
   setColumnFilters: (filters: Record<string, string>) => void;
   // 全局方法
-  addLog: (message: string) => void;
-  clearLogs: () => void;
   setEditMode: (editMode: boolean) => void;
   saveWorkspaceState: () => void;
   restoreWorkspaceState: () => WorkspaceState | null;
@@ -114,7 +110,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     currentDatabase: null,
     tabs: [initialTab],
     currentTabId: initialTab.id,
-    logs: [],
     editMode: loadEditMode(), // 从 localStorage 加载编辑模式状态
 
   setConnections: (connections) => {
@@ -272,11 +267,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     }
   },
   // 全局方法
-  addLog: (message) =>
-    set((state) => ({
-      logs: [...state.logs, `${new Date().toLocaleTimeString()}: ${message}`],
-    })),
-  clearLogs: () => set({ logs: [] }),
   setEditMode: (editMode) => {
     set({ editMode });
     // 持久化编辑模式状态到 localStorage

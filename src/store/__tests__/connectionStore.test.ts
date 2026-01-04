@@ -22,7 +22,6 @@ describe("connectionStore", () => {
       currentDatabase: null,
       tabs: [newTab],
       currentTabId: newTab.id,
-      logs: [],
       editMode: false,
     });
     // Clear localStorage
@@ -76,19 +75,6 @@ describe("connectionStore", () => {
       useConnectionStore.getState().setError("Test error");
       expect(useConnectionStore.getState().getCurrentTab()?.error).toBe("Test error");
       expect(useConnectionStore.getState().getCurrentTab()?.queryResult).toBeNull();
-    });
-
-    it("should add log message", () => {
-      useConnectionStore.getState().addLog("Test log");
-      const logs = useConnectionStore.getState().logs;
-      expect(logs.length).toBe(1);
-      expect(logs[0]).toContain("Test log");
-    });
-
-    it("should clear logs", () => {
-      useConnectionStore.getState().addLog("Test log");
-      useConnectionStore.getState().clearLogs();
-      expect(useConnectionStore.getState().logs).toEqual([]);
     });
 
     it("should set isQuerying", () => {

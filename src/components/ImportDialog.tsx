@@ -15,7 +15,6 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
     currentConnectionId,
     currentDatabase,
     connections,
-    addLog,
     setIsQuerying,
   } = useConnectionStore();
 
@@ -43,9 +42,7 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
     try {
       const result = await readFileContent(file);
       setImportData(result.data);
-      addLog(`成功解析文件: ${file.name}，共 ${result.data.rows.length} 行，${result.data.columns.length} 列`);
     } catch (error) {
-      addLog(`解析文件失败: ${error instanceof Error ? error.message : String(error)}`);
       setImportData(null);
     } finally {
       setLoading(false);
@@ -54,7 +51,6 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
 
   const handleImport = async () => {
     if (!importData || !currentConnectionId || !currentConnection) {
-      addLog("错误: 请先选择文件并确保已连接数据库");
       return;
     }
 
@@ -72,7 +68,6 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
       }
 
       if (dataToImport.rows.length === 0) {
-        addLog("错误: 没有可导入的数据");
         return;
       }
 
@@ -85,8 +80,6 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
         batchSize
       );
 
-      addLog(`开始导入 ${dataToImport.rows.length} 行数据，将执行 ${sqls.length} 条 SQL 语句...`);
-
       const dbParam = currentConnection.type === "sqlite" ? "" : (currentDatabase || undefined);
 
       // 执行所有 INSERT 语句
@@ -97,27 +90,19 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
         try {
           await executeSql(currentConnectionId, sqls[i], dbParam);
           successCount++;
-          if ((i + 1) % 10 === 0) {
-            addLog(`已执行 ${i + 1}/${sqls.length} 条 SQL 语句...`);
-          }
         } catch (error) {
           errorCount++;
           const errorMsg = error instanceof Error ? error.message : String(error);
-          addLog(`执行第 ${i + 1} 条 SQL 失败: ${errorMsg}`);
           // 继续执行其他语句
         }
       }
 
       if (errorCount === 0) {
-        addLog(`✅ 导入成功！共导入 ${dataToImport.rows.length} 行数据`);
         onSuccess?.();
         onClose();
-      } else {
-        addLog(`⚠️ 导入完成，但部分数据导入失败。成功: ${successCount}，失败: ${errorCount}`);
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      addLog(`导入失败: ${errorMsg}`);
     } finally {
       setLoading(false);
       setIsQuerying(false);

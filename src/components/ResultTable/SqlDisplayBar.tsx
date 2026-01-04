@@ -81,7 +81,7 @@ export default function SqlDisplayBar({
         setTimeout(() => setExportSuccess(null), 3000);
       } catch (error) {
         console.error('Export error:', error);
-        // 错误信息已经在 onExport 中通过 addLog 记录
+        // 错误信息已经在 onExport 中记录
       }
     } else {
       setShowExportMenu(false);

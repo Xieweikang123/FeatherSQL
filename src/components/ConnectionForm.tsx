@@ -31,7 +31,6 @@ export default function ConnectionForm({
   onClose,
   onSuccess,
 }: ConnectionFormProps) {
-  const { addLog } = useConnectionStore();
   const [name, setName] = useState("");
   const [dbType, setDbType] = useState<"sqlite" | "mysql" | "postgres" | "mssql">("sqlite");
   const [config, setConfig] = useState<ConnectionConfig>({});
@@ -64,7 +63,6 @@ export default function ConnectionForm({
         setConfig({ ...config, filepath: selected });
       }
     } catch (error) {
-      addLog(`选择文件失败: ${error}`);
     }
   };
 
@@ -101,11 +99,9 @@ export default function ConnectionForm({
 
       const result = await testConnection(dbType, testConfig);
       setTestResult(result);
-      addLog(`测试连接: ${result}`);
     } catch (error) {
       const errorMsg = String(error);
       setTestResult(`连接失败: ${errorMsg}`);
-      addLog(`测试连接失败: ${errorMsg}`);
     } finally {
       setTesting(false);
     }
@@ -129,15 +125,12 @@ export default function ConnectionForm({
       if (connection) {
         // Update existing connection
         await updateConnection(connection.id, name, submitConfig);
-        addLog(`连接 "${name}" 已更新`);
       } else {
         // Create new connection
         await createConnection(name, dbType, submitConfig);
-        addLog(`连接 "${name}" 已创建`);
       }
       onSuccess();
     } catch (error) {
-      addLog(`保存连接失败: ${error}`);
     } finally {
       setLoading(false);
     }

@@ -49,7 +49,6 @@ describe("useTableEditing", () => {
       currentConnection: { type: "mysql" },
       currentDatabase: "testdb",
       sql: "SELECT * FROM users",
-      addLog: vi.fn(),
       updateTab: vi.fn(),
       currentTab: { id: "tab1" },
       clearSelection: vi.fn(),
@@ -199,7 +198,6 @@ describe("useTableEditing", () => {
       expect(result.current.editingCell).toBeNull();
       expect(result.current.modifications.size).toBe(1);
       expect(result.current.editedData.rows[0][1]).toBe("modified");
-      expect(options.addLog).toHaveBeenCalled();
     });
 
     it("should not save if value unchanged", () => {
@@ -287,7 +285,6 @@ describe("useTableEditing", () => {
       expect(hookResult.current.modifications.size).toBe(2);
       expect(hookResult.current.editedData.rows[0][1]).toBe("test");
       expect(hookResult.current.editedData.rows[1][1]).toBe("test");
-      expect(options.addLog).toHaveBeenCalled();
     });
 
     it("should append to existing values in append mode", () => {
@@ -356,7 +353,6 @@ describe("useTableEditing", () => {
       });
 
       expect(navigator.clipboard.writeText).toHaveBeenCalled();
-      expect(options.addLog).toHaveBeenCalled();
     });
 
     it("should not copy without selection", async () => {
@@ -394,7 +390,6 @@ describe("useTableEditing", () => {
 
       expect(hookResult.current.editedData.rows[0][1]).toBe("pasted");
       expect(hookResult.current.editedData.rows[1][1]).toBe("pasted");
-      expect(options.addLog).toHaveBeenCalled();
     });
 
     it("should paste tab-separated values", async () => {
@@ -433,7 +428,6 @@ describe("useTableEditing", () => {
         await result.current.handlePaste(null);
       });
 
-      expect(options.addLog).toHaveBeenCalledWith("粘贴失败: 没有选中单元格");
     });
 
     it("should handle paste errors", async () => {
@@ -454,7 +448,6 @@ describe("useTableEditing", () => {
         await result.current.handlePaste(selection);
       });
 
-      expect(options.addLog).toHaveBeenCalledWith(expect.stringContaining("粘贴失败"));
     });
   });
 
@@ -484,7 +477,6 @@ describe("useTableEditing", () => {
       });
 
       expect(mockEditHistory.undo).toHaveBeenCalled();
-      expect(options.addLog).toHaveBeenCalledWith("已撤销上一步操作");
     });
 
     it("should show message when no undo available", () => {
@@ -508,7 +500,6 @@ describe("useTableEditing", () => {
         result.current.handleUndo();
       });
 
-      expect(options.addLog).toHaveBeenCalledWith("没有可撤销的操作");
     });
 
     it("should redo operation", () => {
@@ -536,7 +527,6 @@ describe("useTableEditing", () => {
       });
 
       expect(mockEditHistory.redo).toHaveBeenCalled();
-      expect(options.addLog).toHaveBeenCalledWith("已重做操作");
     });
 
     it("should reset all changes", () => {
@@ -565,7 +555,6 @@ describe("useTableEditing", () => {
       expect(result.current.modifications.size).toBe(0);
       expect(result.current.editedData).toEqual(options.result);
       expect(options.clearSelection).toHaveBeenCalled();
-      expect(options.addLog).toHaveBeenCalledWith("已撤销所有改动");
     });
   });
 
@@ -608,7 +597,6 @@ describe("useTableEditing", () => {
         await result.current.handleSaveChanges();
       });
 
-      expect(options.addLog).toHaveBeenCalledWith("没有需要保存的修改");
       expect(executeSql).not.toHaveBeenCalled();
     });
 
@@ -627,7 +615,6 @@ describe("useTableEditing", () => {
         await hookResult.current.handleSaveChanges();
       });
 
-      expect(options.addLog).toHaveBeenCalledWith("错误: 未选择数据库连接");
       expect(executeSql).not.toHaveBeenCalled();
     });
 
@@ -652,7 +639,6 @@ describe("useTableEditing", () => {
         await hookResult.current.handleSaveChanges();
       });
 
-      expect(options.addLog).toHaveBeenCalledWith("错误: 无法保存，缺少原始 SQL 语句");
       expect(executeSql).not.toHaveBeenCalled();
     });
 
@@ -680,7 +666,6 @@ describe("useTableEditing", () => {
         await hookResult.current.handleSaveChanges();
       });
 
-      expect(options.addLog).toHaveBeenCalledWith(expect.stringContaining("保存失败"));
     });
 
     it("should handle partial save failures", async () => {
@@ -716,7 +701,6 @@ describe("useTableEditing", () => {
         await hookResult.current.handleSaveChanges();
       });
 
-      expect(options.addLog).toHaveBeenCalledWith(expect.stringContaining("部分保存失败"));
     });
   });
 
