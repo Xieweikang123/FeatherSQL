@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 use chrono::Utc;
+use crate::db::settings;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlHistory {
@@ -73,9 +74,10 @@ pub async fn add_sql_history(
     let mut history = load_history(&app);
     history.insert(0, history_item); // Insert at the beginning
     
-    // Keep only the last 1000 history items
-    if history.len() > 1000 {
-        history.truncate(1000);
+    // Get max history count from settings
+    let settings = settings::load_settings(&app);
+    if history.len() > settings.max_history_count {
+        history.truncate(settings.max_history_count);
     }
     
     save_history(&app, &history)?;

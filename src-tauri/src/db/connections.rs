@@ -1020,7 +1020,7 @@ pub async fn describe_table(
             let columns: Vec<ColumnInfo> = result
                 .into_iter()
                 .map(|row| {
-                    let cid: i64 = row.get(0);
+                    let _cid: i64 = row.get(0);
                     let name: String = row.get(1);
                     let data_type: String = row.get(2);
                     let notnull: i64 = row.get(3);

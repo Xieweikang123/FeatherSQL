@@ -507,7 +507,6 @@ async fn execute_sql_mssql(
                     .collect();
                 rows.push(row_data);
             }
-            _ => {}
         }
     }
     

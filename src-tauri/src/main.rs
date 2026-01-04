@@ -8,6 +8,7 @@ use crate::db::connections::{create_connection, get_connections, update_connecti
 use crate::db::execute::execute_sql;
 use crate::db::pool_manager::PoolManager;
 use crate::db::history::{add_sql_history, get_sql_history, delete_sql_history};
+use crate::db::settings::{get_settings, update_settings};
 use tauri::Manager;
 
 fn main() {
@@ -33,6 +34,8 @@ fn main() {
             add_sql_history,
             get_sql_history,
             delete_sql_history,
+            get_settings,
+            update_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -119,3 +119,18 @@ export async function deleteSqlHistory(id?: string): Promise<void> {
   return await invoke("delete_sql_history", { id });
 }
 
+// Settings commands
+export interface AppSettings {
+  max_history_count: number;
+}
+
+export async function getSettings(): Promise<AppSettings> {
+  return await invoke("get_settings");
+}
+
+export async function updateSettings(settings: Partial<AppSettings>): Promise<AppSettings> {
+  return await invoke("update_settings", { 
+    max_history_count: settings.max_history_count 
+  });
+}
+

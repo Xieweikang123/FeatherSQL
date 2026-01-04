@@ -6,9 +6,13 @@ import {
   disconnectConnection,
   listDatabases,
   listTables,
+  executeSql,
   type Connection,
 } from "../lib/commands";
+import { buildTableName } from "../lib/utils";
 import ConnectionForm from "./ConnectionForm";
+import TableContextMenu from "./ConnectionManager/TableContextMenu";
+import TableStructure from "./TableStructure";
 
 interface DatabaseTables {
   [database: string]: string[];
@@ -28,6 +32,8 @@ export default function ConnectionManager() {
     restoreWorkspaceHistory,
     deleteWorkspaceHistory,
     loadSql,
+    getCurrentTab,
+    updateTab,
   } = useConnectionStore();
   const [showForm, setShowForm] = useState(false);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
@@ -39,6 +45,8 @@ export default function ConnectionManager() {
   const [loadingTables, setLoadingTables] = useState<Set<string>>(new Set());
   const [connectingConnections, setConnectingConnections] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; table: string; database: string } | null>(null);
+  const [viewingStructure, setViewingStructure] = useState<string | null>(null);
 
   useEffect(() => {
     loadConnections();
@@ -175,6 +183,98 @@ export default function ConnectionManager() {
     // Set current database and table
     setCurrentDatabase(database);
     setSelectedTable(table);
+  };
+
+  const handleTableContextMenu = (e: React.MouseEvent, database: string, table: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      table,
+      database,
+    });
+  };
+
+  const handleQueryTable = async () => {
+    if (!contextMenu || !currentConnectionId) return;
+    
+    const { table, database } = contextMenu;
+    const connection = connections.find(c => c.id === currentConnectionId);
+    if (!connection) return;
+
+    // Set current database if different
+    if (connection.type !== "sqlite" && database !== currentDatabase) {
+      setCurrentDatabase(database);
+    }
+
+    // Set selected table
+    setSelectedTable(table);
+
+    // Build escaped table name with database prefix if needed
+    const escapedTableName = buildTableName(table, connection.type, database);
+    // Use TOP for MSSQL, LIMIT for other databases
+    const sql = connection.type === "mssql" 
+      ? `SELECT TOP 100 * FROM ${escapedTableName}`
+      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+
+    // Load SQL into editor
+    loadSql(sql);
+
+    // Execute query
+    const currentTab = getCurrentTab();
+    if (!currentTab) return;
+    
+    updateTab(currentTab.id, { error: null, isQuerying: true });
+    try {
+      const dbParam = connection.type === "sqlite" ? "" : (database || undefined);
+      const result = await executeSql(currentConnectionId, sql, dbParam);
+      updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
+    } catch (error) {
+      const errorMsg = String(error);
+      updateTab(currentTab.id, { error: errorMsg, queryResult: null, isQuerying: false });
+    }
+  };
+
+  const handleViewStructure = () => {
+    if (!contextMenu) return;
+    
+    const { table, database } = contextMenu;
+    const connection = connections.find(c => c.id === currentConnectionId);
+    if (!connection) return;
+
+    // Set current database if different (for non-SQLite)
+    if (connection.type !== "sqlite" && database !== currentDatabase) {
+      setCurrentDatabase(database);
+    }
+    
+    setViewingStructure(table);
+  };
+
+  const handleGenerateSelect = () => {
+    if (!contextMenu || !currentConnectionId) return;
+    
+    const { table, database } = contextMenu;
+    const connection = connections.find(c => c.id === currentConnectionId);
+    if (!connection) return;
+
+    // Set current database if different
+    if (connection.type !== "sqlite" && database !== currentDatabase) {
+      setCurrentDatabase(database);
+    }
+
+    // Set selected table
+    setSelectedTable(table);
+
+    // Build escaped table name with database prefix if needed
+    const escapedTableName = buildTableName(table, connection.type, database);
+    // Use TOP for MSSQL, LIMIT for other databases
+    const sql = connection.type === "mssql" 
+      ? `SELECT TOP 100 * FROM ${escapedTableName}`
+      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+
+    // Load SQL into editor (but don't execute)
+    loadSql(sql);
   };
 
   const toggleDatabaseList = (e: React.MouseEvent, connection: Connection) => {
@@ -871,9 +971,10 @@ export default function ConnectionManager() {
                                             <div
                                               key={`${db}-${table}`}
                                               onClick={(e) => handleTableClick(e, db, table)}
+                                              onContextMenu={(e) => handleTableContextMenu(e, db, table)}
                                               className="text-[10px] py-1.5 px-2 rounded cursor-pointer transition-all duration-200 flex items-center gap-1.5 neu-flat hover:neu-hover group"
                                               style={{ color: 'var(--neu-text)' }}
-                                              title={`${db}.${table}`}
+                                              title={`${db}.${table} (右键查看菜单)`}
                                             >
                                               <span className="text-xs opacity-70 flex-shrink-0">📄</span>
                                               <span className="flex-1 truncate">{table}</span>
@@ -917,6 +1018,35 @@ export default function ConnectionManager() {
             loadConnections();
           }}
         />
+      )}
+
+      {contextMenu && (
+        <TableContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onViewStructure={handleViewStructure}
+          onQueryTable={handleQueryTable}
+          onGenerateSelect={handleGenerateSelect}
+        />
+      )}
+
+      {viewingStructure && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(4px)' }}
+          onClick={() => setViewingStructure(null)}
+        >
+          <div
+            className="w-full h-full max-w-4xl max-h-[90vh] m-4 neu-raised rounded-lg overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <TableStructure
+              tableName={viewingStructure}
+              onClose={() => setViewingStructure(null)}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

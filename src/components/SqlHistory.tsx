@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getSqlHistory, deleteSqlHistory, type SqlHistory } from "../lib/commands";
+import { getSqlHistory, deleteSqlHistory, getSettings, updateSettings, type SqlHistory, type AppSettings } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
 
 export default function SqlHistory() {
@@ -7,6 +7,10 @@ export default function SqlHistory() {
   const [history, setHistory] = useState<SqlHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<SqlHistory | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>({ max_history_count: 1000 });
+  const [maxHistoryInput, setMaxHistoryInput] = useState<string>("1000");
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const loadHistory = async () => {
     setLoading(true);
@@ -22,7 +26,37 @@ export default function SqlHistory() {
 
   useEffect(() => {
     loadHistory();
+    loadSettings();
   }, [currentConnectionId]);
+
+  const loadSettings = async () => {
+    try {
+      const currentSettings = await getSettings();
+      setSettings(currentSettings);
+      setMaxHistoryInput(currentSettings.max_history_count.toString());
+    } catch (error) {
+      console.error("Failed to load settings:", error);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    const count = parseInt(maxHistoryInput, 10);
+    if (isNaN(count) || count < 1 || count > 100000) {
+      alert("最大历史记录数必须在 1 到 100000 之间");
+      return;
+    }
+    
+    setSavingSettings(true);
+    try {
+      const updatedSettings = await updateSettings({ max_history_count: count });
+      setSettings(updatedSettings);
+      setShowSettings(false);
+    } catch (error: any) {
+      alert(error.message || "保存设置失败");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   const handleDelete = async (id?: string) => {
     try {
@@ -60,6 +94,14 @@ export default function SqlHistory() {
         <span className="text-sm font-medium">SQL 执行历史</span>
         <div className="flex gap-2">
           <button
+            onClick={() => setShowSettings(!showSettings)}
+            className="px-3 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+            style={{ color: 'var(--neu-text)' }}
+            title="设置"
+          >
+            ⚙️
+          </button>
+          <button
             onClick={loadHistory}
             className="px-3 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
             style={{ color: 'var(--neu-text)' }}
@@ -76,6 +118,52 @@ export default function SqlHistory() {
           </button>
         </div>
       </div>
+
+      {showSettings && (
+        <div className="neu-pressed p-4" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
+          <div className="mb-3">
+            <label className="block text-xs mb-2" style={{ color: 'var(--neu-text)' }}>
+              最大历史记录数 (1-100000)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="1"
+                max="100000"
+                value={maxHistoryInput}
+                onChange={(e) => setMaxHistoryInput(e.target.value)}
+                className="flex-1 px-2 py-1 text-sm rounded neu-flat"
+                style={{ 
+                  color: 'var(--neu-text)',
+                  backgroundColor: 'var(--neu-bg)',
+                  border: '1px solid var(--neu-dark)'
+                }}
+              />
+              <button
+                onClick={handleSaveSettings}
+                disabled={savingSettings}
+                className="px-3 py-1 text-xs rounded transition-all neu-raised hover:neu-hover active:neu-active disabled:opacity-50"
+                style={{ color: 'var(--neu-accent-dark)' }}
+              >
+                {savingSettings ? "保存中..." : "保存"}
+              </button>
+              <button
+                onClick={() => {
+                  setMaxHistoryInput(settings.max_history_count.toString());
+                  setShowSettings(false);
+                }}
+                className="px-3 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                style={{ color: 'var(--neu-text)' }}
+              >
+                取消
+              </button>
+            </div>
+            <div className="text-xs mt-1" style={{ color: 'var(--neu-text-light)' }}>
+              当前设置: {settings.max_history_count} 条
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {loading ? (
