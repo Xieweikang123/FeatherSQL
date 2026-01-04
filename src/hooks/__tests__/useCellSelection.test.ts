@@ -224,14 +224,20 @@ describe("useCellSelection", () => {
 
       expect(result.current.selection).not.toBeNull();
 
+      // Wait for the event listener to be attached (setTimeout in useEffect)
+      await new Promise(resolve => setTimeout(resolve, 10));
+
       // Simulate click outside
-      const event = new MouseEvent("mouseup", { bubbles: true });
       const div = document.createElement("div");
       document.body.appendChild(div);
+      const event = new MouseEvent("mouseup", { 
+        bubbles: true,
+        cancelable: true 
+      });
       Object.defineProperty(event, "target", { value: div, enumerable: true });
 
       act(() => {
-        document.dispatchEvent(event);
+        div.dispatchEvent(event);
       });
 
       await waitFor(() => {

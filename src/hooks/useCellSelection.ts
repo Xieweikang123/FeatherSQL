@@ -65,7 +65,7 @@ export function useCellSelection(editMode: boolean) {
       clearTimeout(timeoutId);
       document.removeEventListener("mouseup", handleClickOutside);
     };
-  }, [editMode, isDragging, selection]);
+  }, [editMode]);
 
   const clearSelection = useCallback(() => {
     setSelection(null);

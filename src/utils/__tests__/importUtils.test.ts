@@ -387,6 +387,8 @@ describe("importUtils", () => {
       const file = new File([buffer], "test.xlsx", {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
+      // Mock file.arrayBuffer() method
+      file.arrayBuffer = vi.fn().mockResolvedValue(buffer);
 
       const result = await readFileContent(file);
 
@@ -414,6 +416,8 @@ describe("importUtils", () => {
       const file = new File([buffer], "test.xls", {
         type: "application/vnd.ms-excel",
       });
+      // Mock file.arrayBuffer() method
+      file.arrayBuffer = vi.fn().mockResolvedValue(buffer);
 
       const result = await readFileContent(file);
 
