@@ -38,6 +38,7 @@ function App() {
 
   useEffect(() => {
     // Load connections on mount
+    // The backend handles all error cases gracefully and returns empty array if needed
     getConnections()
       .then((connections) => {
         setConnections(connections);
@@ -45,6 +46,8 @@ function App() {
       })
       .catch((err) => {
         console.error("Failed to load connections:", err);
+        // Set empty connections array to allow app to continue
+        setConnections([]);
       });
   }, [setConnections]);
 

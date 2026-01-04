@@ -301,6 +301,9 @@ export default function ConnectionManager() {
       return;
     }
 
+    // Close history panel immediately
+    setShowHistory(false);
+
     addLog(`正在恢复工作状态: ${historyName}...`);
 
     try {
@@ -407,11 +410,9 @@ export default function ConnectionManager() {
       }
 
       addLog(`🎉 工作状态已恢复: ${historyName}`);
-      setShowHistory(false); // Close history panel after restoring
     } catch (error) {
       const errorMsg = String(error);
       addLog(`❌ 恢复工作状态失败: ${errorMsg}`);
-      // Don't close history panel on error so user can try again
     }
   };
 

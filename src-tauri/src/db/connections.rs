@@ -82,27 +82,50 @@ pub enum ConnectionConfig {
     },
 }
 
-pub(crate) fn get_store_path(app: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn get_store_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
-        .expect("Failed to get app data directory")
-        .join("connections.json")
+        .map_err(|e| format!("Failed to get app data directory: {}", e))
+        .map(|dir| dir.join("connections.json"))
 }
 
 pub(crate) fn load_connections(app: &tauri::AppHandle) -> Vec<Connection> {
-    let path = get_store_path(app);
+    // Try to get the store path, but don't fail if app data dir doesn't exist yet
+    let path = match get_store_path(app) {
+        Ok(path) => path,
+        Err(e) => {
+            // On first launch, app data directory might not be initialized yet
+            // This is normal and we should return empty list
+            eprintln!("Info: App data directory not ready yet: {}", e);
+            return vec![];
+        }
+    };
+    
+    // Try to read the connections file if it exists
     if path.exists() {
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(connections) = serde_json::from_str::<Vec<Connection>>(&content) {
-                return connections;
+        match fs::read_to_string(&path) {
+            Ok(content) => {
+                match serde_json::from_str::<Vec<Connection>>(&content) {
+                    Ok(connections) => return connections,
+                    Err(e) => {
+                        eprintln!("Warning: Failed to parse connections file: {}", e);
+                        // Return empty list on parse error
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to read connections file: {}", e);
+                // Return empty list on read error
             }
         }
     }
+    
+    // Return empty list if file doesn't exist or any error occurred
     vec![]
 }
 
 pub(crate) fn save_connections(app: &tauri::AppHandle, connections: &[Connection]) -> Result<(), String> {
-    let path = get_store_path(app);
+    let path = get_store_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
     }
@@ -253,6 +276,8 @@ pub async fn create_connection(
 pub async fn get_connections(
     app: tauri::AppHandle,
 ) -> Result<Vec<Connection>, String> {
+    // load_connections already handles all error cases gracefully
+    // (missing directory, missing file, parse errors, etc.)
     Ok(load_connections(&app))
 }
 
