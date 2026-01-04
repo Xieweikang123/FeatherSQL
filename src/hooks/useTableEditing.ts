@@ -45,6 +45,19 @@ export function useTableEditing({
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
+  // 使用 ref 来存储最新的修改记录，处理快速连续输入时状态还没更新的情况
+  const modificationsRef = useRef<Map<string, CellModification>>(new Map());
+  const editedDataRef = useRef<QueryResult>(result);
+  
+  // 同步 ref 和 state
+  useEffect(() => {
+    modificationsRef.current = modifications;
+  }, [modifications]);
+  
+  useEffect(() => {
+    editedDataRef.current = editedData;
+  }, [editedData]);
+  
   // 使用编辑历史 hook
   const editHistory = useEditHistory(editedData);
   
@@ -62,6 +75,8 @@ export function useTableEditing({
   useEffect(() => {
     setEditedData(result);
     setModifications(new Map());
+    editedDataRef.current = result;
+    modificationsRef.current = new Map();
     setEditingCell(null);
     clearSelectionRef.current();
     resetHistoryRef.current();
@@ -181,34 +196,55 @@ export function useTableEditing({
     // 保存当前状态到历史栈（在修改之前）
     saveToHistory();
     
-    const newEditedData = { ...editedData };
-    newEditedData.rows = [...newEditedData.rows];
-    const newMods = new Map(modifications);
+    // 使用 ref 获取最新的值，处理快速连续输入时状态还没更新的情况
+    const latestEditedData = editedDataRef.current;
+    const latestModifications = modificationsRef.current;
+    
+    const newEditedData = { ...latestEditedData };
+    newEditedData.rows = [...latestEditedData.rows];
+    const newMods = new Map(latestModifications);
     
     let modifiedCount = 0;
     
     // 收集所有选中单元格的当前值，用于判断是否应该追加
     const currentValues: string[] = [];
-    for (const cellKey of selection.cells) {
+    // 将 Set 转换为数组并排序，确保处理顺序一致
+    const sortedCellsForCollection = Array.from(selection.cells).sort();
+    for (const cellKey of sortedCellsForCollection) {
       const [row, col] = cellKey.split('-').map(Number);
       // 使用原始结果获取原始值
       const originalValue = originalResultRef?.current?.rows[row]?.[col] ?? result.rows[row]?.[col];
       // 检查是否在修改记录中（优先检查 newMods，因为可能在同一函数调用中已经更新）
       const modKey = `${row}-${col}`;
       const isModifiedInNewMods = newMods.has(modKey);
-      const isModifiedInOldMods = modifications.has(modKey);
+      const isModifiedInOldMods = latestModifications.has(modKey);
       const isModified = isModifiedInNewMods || isModifiedInOldMods;
       
-      // 优先使用 newMods 中的值（最新），然后是旧 modifications，最后是 editedData
+      // 优先使用 newMods 中的值（最新），然后是 latestModifications，最后是 latestEditedData
       // 这样可以处理快速连续输入时状态还没更新的情况
       let currentValue: any;
       if (isModifiedInNewMods) {
         currentValue = newMods.get(modKey)!.newValue;
       } else if (isModifiedInOldMods) {
-        currentValue = modifications.get(modKey)!.newValue;
+        currentValue = latestModifications.get(modKey)!.newValue;
       } else {
+        // 确保行数据存在
+        if (!newEditedData.rows[row]) {
+          // 如果 latestEditedData 中也没有该行，从原始 result 中获取
+          if (latestEditedData.rows[row]) {
+            newEditedData.rows[row] = [...latestEditedData.rows[row]];
+          } else if (result.rows[row]) {
+            newEditedData.rows[row] = [...result.rows[row]];
+          } else {
+            // 如果原始数据中也没有，创建一个空数组
+            newEditedData.rows[row] = [];
+          }
+        }
         // 也检查 newEditedData，因为可能在同一循环中已经更新
-        currentValue = newEditedData.rows[row]?.[col] ?? editedData.rows[row]?.[col];
+        // 优先使用 newEditedData，然后是 latestEditedData，最后是原始 result
+        currentValue = newEditedData.rows[row]?.[col] ?? 
+                      latestEditedData.rows[row]?.[col] ?? 
+                      result.rows[row]?.[col];
       }
       
       // 如果当前值等于原始值且不在修改记录中，说明未修改，使用空字符串作为标记
@@ -242,26 +278,57 @@ export function useTableEditing({
     
     const newValue = value.trim() === "" ? null : (baseValue + value);
     
-    // 遍历所有选中的单元格
-    for (const cellKey of selection.cells) {
+    // 遍历所有选中的单元格（按顺序处理，确保所有单元格都被更新）
+    // 将 Set 转换为数组并排序，确保处理顺序一致
+    const sortedCells = Array.from(selection.cells).sort();
+    for (const cellKey of sortedCells) {
       const [row, col] = cellKey.split('-').map(Number);
       // 获取原始值和当前编辑后的值（使用原始结果获取原始值）
       const originalValue = originalResultRef?.current?.rows[row]?.[col] ?? result.rows[row]?.[col];
-      // 使用 newEditedData 而不是 editedData，因为我们在循环中可能已经更新了某些单元格
-      const currentValue = newEditedData.rows[row]?.[col] ?? editedData.rows[row]?.[col];
+      
+      // 获取当前值（在更新之前）
+      // 优先检查是否已经在本次循环中更新过
+      const modKey = `${row}-${col}`;
+      const alreadyUpdatedInThisLoop = newMods.has(modKey);
+      
+      let currentValue: any;
+      if (alreadyUpdatedInThisLoop) {
+        // 如果已经在本次循环中更新过，使用更新后的值
+        currentValue = newMods.get(modKey)!.newValue;
+      } else {
+        // 否则，从修改记录或原始数据中获取当前值
+        // 优先使用 latestModifications（之前已经修改过的值），然后是 latestEditedData，最后是原始 result
+        if (latestModifications.has(modKey)) {
+          currentValue = latestModifications.get(modKey)!.newValue;
+        } else {
+          currentValue = latestEditedData.rows[row]?.[col] ?? result.rows[row]?.[col];
+        }
+      }
       
       // 如果值未改变，跳过（避免不必要的更新）
-      if (currentValue === newValue || String(currentValue) === String(newValue)) continue;
+      if (currentValue === newValue || String(currentValue) === String(newValue)) {
+        continue;
+      }
+      
+      // 确保行数据存在（在更新之前）
+      if (!newEditedData.rows[row]) {
+        // 如果 latestEditedData 中也没有该行，从原始 result 中获取
+        if (latestEditedData.rows[row]) {
+          newEditedData.rows[row] = [...latestEditedData.rows[row]];
+        } else if (result.rows[row]) {
+          newEditedData.rows[row] = [...result.rows[row]];
+        } else {
+          // 如果原始数据中也没有，创建一个空数组
+          newEditedData.rows[row] = [];
+        }
+      }
       
       // 更新编辑数据
-      if (!newEditedData.rows[row]) {
-        newEditedData.rows[row] = [...editedData.rows[row]];
-      }
       newEditedData.rows[row] = [...newEditedData.rows[row]];
       newEditedData.rows[row][col] = newValue;
       
       // 记录修改（使用原始值作为 oldValue，用于撤销）
-      const modKey = `${row}-${col}`;
+      // modKey 已经在上面定义过了
       const column = result.columns[col];
       // 如果这个单元格还没有被修改过，使用原始值；否则使用之前的修改记录中的 oldValue
       const modOldValue = newMods.has(modKey) ? newMods.get(modKey)!.oldValue : originalValue;
@@ -278,8 +345,11 @@ export function useTableEditing({
     if (modifiedCount > 0) {
       setEditedData(newEditedData);
       setModifications(newMods);
+      // 立即更新 ref，确保下次调用时能获取最新值
+      editedDataRef.current = newEditedData;
+      modificationsRef.current = newMods;
     }
-  }, [result, editedData, modifications, saveToHistory, originalResultRef]);
+  }, [result, saveToHistory, originalResultRef]);
   
   // 复制选中区域
   const handleCopy = useCallback(async (selection: CellSelection | null) => {

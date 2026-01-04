@@ -28,6 +28,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const debounceTimerRef = useRef<number | null>(null);
   // 保存实际执行到数据库的SQL
   const [actualExecutedSql, setActualExecutedSql] = useState<string | null>(sql || null);
+  // 跟踪是否刚刚完成拖拽，用于防止在 mouseup 后立即触发新的选择
+  const justFinishedDraggingRef = useRef<boolean>(false);
   
   // 保存原始列信息（当查询返回空结果时，保留列信息用于显示表头）
   const originalColumnsRef = useRef<string[]>([]);
@@ -69,6 +71,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   }, [columnFilters, currentTab, tabColumnFilters, updateTab]);
   const { 
     selection, 
+    selectionRef, // 用于获取最新选择状态
     clearSelection, 
     isDragging, 
     setIsDragging, 
@@ -421,6 +424,17 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     // 如果正在编辑，不处理选择
     if (editing.editingCell) return;
     
+    // 如果正在拖拽，不处理新的 mousedown（避免在拖拽结束时触发新的选择）
+    if (isDragging) {
+      return;
+    }
+    
+    // 如果刚刚完成拖拽，不处理新的 mousedown（避免在 mouseup 后立即触发新的选择）
+    if (justFinishedDraggingRef.current) {
+      justFinishedDraggingRef.current = false; // 重置标志
+      return;
+    }
+    
     const clickedCell = { row: originalRowIndex, col: cellIndex };
     const isCtrlOrCmd = e.ctrlKey || e.metaKey;
     const isCurrentlySelected = selection && isCellSelected(originalRowIndex, cellIndex);
@@ -458,7 +472,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
     if (originalRowIndex === -1) return;
     
-    setRectSelection(dragStartRef.current, { row: originalRowIndex, col: cellIndex });
+    const endCell = { row: originalRowIndex, col: cellIndex };
+    setRectSelection(dragStartRef.current, endCell);
   };
 
   // 处理鼠标释放和移动
@@ -477,6 +492,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     };
 
     const handleMouseUp = () => {
+      if (isDragging) {
+        // 标记刚刚完成拖拽，防止在 mouseup 事件处理期间触发新的选择
+        justFinishedDraggingRef.current = true;
+        // 延迟重置标志，确保所有 mouseup 相关事件处理完成
+        setTimeout(() => {
+          justFinishedDraggingRef.current = false;
+        }, 100);
+      }
       setIsDragging(false);
       dragStartRef.current = null;
     };
@@ -492,7 +515,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 批量编辑、复制、粘贴（使用 editing hook）
   const handleBatchEdit = (value: string) => {
-    editing.handleBatchEdit(value, selection);
+    // 使用 selectionRef 获取最新选择状态，避免 React 异步状态更新导致的问题
+    const latestSelection = selectionRef.current;
+    editing.handleBatchEdit(value, latestSelection);
   };
 
   const handleCopy = () => {
@@ -531,8 +556,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } else if (e.key === 'Delete' && selection && !editing.editingCell) {
       e.preventDefault();
       handleBatchEdit('');
-    } else if (!editing.editingCell && selection && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    } else if (!editing.editingCell && selectionRef.current && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       // 直接输入字符时，如果有选中单元格，进行批量编辑
+      // 使用 selectionRef 获取最新选择状态
       e.preventDefault();
       handleBatchEdit(e.key);
     }

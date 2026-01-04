@@ -316,5 +316,71 @@ describe("useCellSelection", () => {
       removeEventListenerSpy.mockRestore();
     });
   });
+
+  describe("selectionRef synchronization", () => {
+    it("should synchronize selectionRef with selection state", () => {
+      const { result } = renderHook(() => useCellSelection(true));
+
+      // Initially both should be null
+      expect(result.current.selection).toBeNull();
+      expect(result.current.selectionRef.current).toBeNull();
+
+      // Set a selection
+      act(() => {
+        result.current.setRectSelection({ row: 0, col: 0 }, { row: 1, col: 1 });
+      });
+
+      // Both should have the same value
+      expect(result.current.selection).not.toBeNull();
+      expect(result.current.selectionRef.current).not.toBeNull();
+      expect(result.current.selectionRef.current?.cells.size).toBe(4);
+      expect(result.current.selection?.cells.size).toBe(4);
+      expect(result.current.selectionRef.current?.cells.has("0-0")).toBe(true);
+      expect(result.current.selectionRef.current?.cells.has("1-1")).toBe(true);
+
+      // Update selection
+      act(() => {
+        result.current.setRectSelection({ row: 0, col: 2 }, { row: 1, col: 2 });
+      });
+
+      // Both should be updated
+      expect(result.current.selection?.cells.size).toBe(2);
+      expect(result.current.selectionRef.current?.cells.size).toBe(2);
+      expect(result.current.selectionRef.current?.cells.has("0-2")).toBe(true);
+      expect(result.current.selectionRef.current?.cells.has("1-2")).toBe(true);
+      // Old cells should not be in the new selection
+      expect(result.current.selectionRef.current?.cells.has("0-0")).toBe(false);
+    });
+
+    it("should provide latest selection via selectionRef even when state is stale", () => {
+      const { result } = renderHook(() => useCellSelection(true));
+
+      // Simulate the scenario: setRectSelection updates selectionRef immediately
+      // but React state update is asynchronous
+      act(() => {
+        // First selection: single cell
+        result.current.setRectSelection({ row: 0, col: 2 }, { row: 0, col: 2 });
+      });
+
+      // Verify initial state
+      expect(result.current.selection?.cells.size).toBe(1);
+      expect(result.current.selectionRef.current?.cells.size).toBe(1);
+
+      // Simulate drag to extend selection (like vertical selection)
+      act(() => {
+        // Extend to second row
+        result.current.setRectSelection({ row: 0, col: 2 }, { row: 1, col: 2 });
+      });
+
+      // selectionRef should immediately reflect the new selection (2 cells)
+      // This is the key fix: selectionRef.current is updated synchronously
+      expect(result.current.selectionRef.current?.cells.size).toBe(2);
+      expect(result.current.selectionRef.current?.cells.has("0-2")).toBe(true);
+      expect(result.current.selectionRef.current?.cells.has("1-2")).toBe(true);
+
+      // selection state should also be updated (after React re-render)
+      expect(result.current.selection?.cells.size).toBe(2);
+    });
+  });
 });
 

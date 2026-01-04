@@ -19,12 +19,31 @@ export function useCellSelection(editMode: boolean) {
   const [selection, setSelection] = useState<CellSelection | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ row: number; col: number } | null>(null);
+  // 使用 ref 存储 isDragging 状态，确保 handleClickOutside 能访问到最新值
+  const isDraggingRef = useRef(false);
+  // 使用 ref 存储 selection 状态，确保能访问到最新值（用于键盘输入等场景）
+  const selectionRef = useRef<CellSelection | null>(null);
+  
+  // 同步 ref 和 state
+  useEffect(() => {
+    isDraggingRef.current = isDragging;
+  }, [isDragging]);
+  
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
 
   // Clear selection when clicking outside
   useEffect(() => {
     if (!editMode) return;
 
     const handleClickOutside = (event: MouseEvent) => {
+      // 如果正在拖拽，不处理（让拖拽逻辑处理）
+      // 使用 ref 确保能访问到最新的 isDragging 状态
+      if (isDraggingRef.current) {
+        return;
+      }
+      
       const target = event.target as HTMLElement;
       // 检查点击的目标是否是表格单元格或其子元素
       const isTableCell = target.closest("td") !== null;
@@ -37,11 +56,16 @@ export function useCellSelection(editMode: boolean) {
     };
 
     // 使用 mouseup 事件，确保在单元格的 onMouseDown 处理完成后再清除选择
-    document.addEventListener("mouseup", handleClickOutside);
+    // 延迟执行，确保拖拽的 handleMouseUp 先执行
+    const timeoutId = setTimeout(() => {
+      document.addEventListener("mouseup", handleClickOutside, false);
+    }, 0);
+    
     return () => {
+      clearTimeout(timeoutId);
       document.removeEventListener("mouseup", handleClickOutside);
     };
-  }, [editMode]);
+  }, [editMode, isDragging, selection]);
 
   const clearSelection = useCallback(() => {
     setSelection(null);
@@ -113,12 +137,14 @@ export function useCellSelection(editMode: boolean) {
     const maxRow = Math.max(start.row, end.row);
     const minCol = Math.min(start.col, end.col);
     const maxCol = Math.max(start.col, end.col);
+    
     const cells = new Set<string>();
     for (let row = minRow; row <= maxRow; row++) {
       for (let col = minCol; col <= maxCol; col++) {
         cells.add(`${row}-${col}`);
       }
     }
+    
     setSelection({
       cells,
       range: { start, end }
@@ -127,6 +153,7 @@ export function useCellSelection(editMode: boolean) {
 
   return {
     selection,
+    selectionRef, // 导出 ref，用于获取最新选择状态
     setSelection,
     isDragging,
     setIsDragging,

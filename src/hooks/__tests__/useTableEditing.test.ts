@@ -329,6 +329,88 @@ describe("useTableEditing", () => {
 
       expect(result.current.modifications.size).toBe(0);
     });
+
+    it("should batch edit vertically selected cells (fix for async state update issue)", () => {
+      // This test verifies the fix for the issue where vertical selection
+      // would only update the first cell due to React's asynchronous state updates
+      const result = createMockQueryResult([
+        [1, "Alice"],
+        [2, "Bob"],
+        [3, "Charlie"],
+      ]);
+      const options = createMockOptions({ result });
+      const { result: hookResult } = renderHook(() => useTableEditing(options));
+
+      // Simulate vertical selection (same column, different rows)
+      // This is the scenario that was failing before the fix
+      const selection: CellSelection = {
+        cells: new Set(["0-1", "1-1", "2-1"]), // Column 1, rows 0, 1, 2
+        range: {
+          start: { row: 0, col: 1 },
+          end: { row: 2, col: 1 },
+        },
+      };
+
+      act(() => {
+        hookResult.current.handleBatchEdit("updated", selection);
+      });
+
+      // All three cells should be updated
+      expect(hookResult.current.modifications.size).toBe(3);
+      expect(hookResult.current.editedData.rows[0][1]).toBe("updated");
+      expect(hookResult.current.editedData.rows[1][1]).toBe("updated");
+      expect(hookResult.current.editedData.rows[2][1]).toBe("updated");
+
+      // Verify modifications are correct
+      expect(hookResult.current.modifications.get("0-1")?.newValue).toBe("updated");
+      expect(hookResult.current.modifications.get("1-1")?.newValue).toBe("updated");
+      expect(hookResult.current.modifications.get("2-1")?.newValue).toBe("updated");
+    });
+
+    it("should handle rapid consecutive batch edits on vertically selected cells", () => {
+      // This test simulates the scenario where user selects vertically,
+      // releases mouse, and immediately types - all cells should update
+      const result = createMockQueryResult([
+        [1, "Alice"],
+        [2, "Bob"],
+      ]);
+      const options = createMockOptions({ result });
+      const { result: hookResult } = renderHook(() => useTableEditing(options));
+
+      // First batch edit (simulating first keyboard input)
+      act(() => {
+        const selection: CellSelection = {
+          cells: new Set(["0-1", "1-1"]), // Vertical selection
+          range: {
+            start: { row: 0, col: 1 },
+            end: { row: 1, col: 1 },
+          },
+        };
+        hookResult.current.handleBatchEdit("1", selection);
+      });
+
+      // Both cells should be updated
+      expect(hookResult.current.modifications.size).toBe(2);
+      expect(hookResult.current.editedData.rows[0][1]).toBe("1");
+      expect(hookResult.current.editedData.rows[1][1]).toBe("1");
+
+      // Second batch edit (simulating second keyboard input)
+      act(() => {
+        const selection: CellSelection = {
+          cells: new Set(["0-1", "1-1"]), // Same selection
+          range: {
+            start: { row: 0, col: 1 },
+            end: { row: 1, col: 1 },
+          },
+        };
+        hookResult.current.handleBatchEdit("2", selection);
+      });
+
+      // Both cells should be updated to "12" (append mode)
+      expect(hookResult.current.modifications.size).toBe(2);
+      expect(hookResult.current.editedData.rows[0][1]).toBe("12");
+      expect(hookResult.current.editedData.rows[1][1]).toBe("12");
+    });
   });
 
   describe("copy and paste", () => {
