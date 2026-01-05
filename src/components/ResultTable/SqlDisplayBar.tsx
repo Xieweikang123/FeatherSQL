@@ -35,9 +35,6 @@ export default function SqlDisplayBar({
   
   // 调试：记录接收到的 SQL
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SqlDisplayBar.tsx:38',message:'SqlDisplayBar received props',data:{sql,filteredSql,hasActiveFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
     console.log('SqlDisplayBar received sql:', sql);
     console.log('SqlDisplayBar received filteredSql:', filteredSql);
   }, [sql, filteredSql]);
@@ -102,8 +99,9 @@ export default function SqlDisplayBar({
   return (
     <div
       className="flex items-center justify-between gap-3 flex-1 min-w-0"
+      style={{ flex: 1, minWidth: 0, overflow: "hidden", display: "flex" }}
     >
-      <div className="flex items-center gap-2 flex-1 min-w-0">
+      <div className="flex items-center gap-2 flex-1 min-w-0" style={{ flex: 1, minWidth: 0, overflow: "hidden", display: "flex" }}>
         <span
           className="text-xs font-semibold flex-shrink-0"
           style={{ color: "var(--neu-text-light)" }}
@@ -111,11 +109,14 @@ export default function SqlDisplayBar({
           SQL:
         </span>
         <code
-          className="text-xs font-mono flex-1 break-all whitespace-pre-wrap"
+          className="text-xs font-mono"
           style={{
             color: "var(--neu-text)",
-            wordBreak: "break-word",
-            overflowWrap: "break-word",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            flex: 1,
+            minWidth: 0,
           }}
           title={filteredSql || sql}
         >

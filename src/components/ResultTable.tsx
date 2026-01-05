@@ -119,9 +119,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 保存列信息和原始结果
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:119',message:'useEffect triggered',data:{sql,originalSql:originalSqlRef.current,refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql,resultChanged:!!result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     if (result && result.columns.length > 0) {
       originalColumnsRef.current = result.columns;
     }
@@ -131,9 +128,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       originalResultRef.current = result;
       // 新查询时，实际执行的SQL就是原始SQL
       // 只有在 SQL prop 真正变化时才重置（表示用户执行了新的查询）
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:130',message:'Resetting actualExecutedSql in useEffect',data:{sql,beforeRef:actualExecutedSqlRef.current,beforeState:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       console.log('SQL prop changed, resetting actualExecutedSql to:', sql);
       actualExecutedSqlRef.current = sql;
       setActualExecutedSql(sql);
@@ -233,9 +227,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       );
       
       // 保存实际执行的SQL（同时更新 state、ref 和 store）
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:212',message:'Before setting actualExecutedSql',data:{sqlToExecute,currentRef:actualExecutedSqlRef.current,currentState:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       console.log('Setting actualExecutedSql to:', sqlToExecute);
       actualExecutedSqlRef.current = sqlToExecute;
       setActualExecutedSql(sqlToExecute);
@@ -243,17 +234,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       if (currentTab) {
         updateTab(currentTab.id, { actualExecutedSql: sqlToExecute });
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:218',message:'After updating store',data:{sqlToExecute,refValue:actualExecutedSqlRef.current,storeValue:currentTab?.actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       
       // 更新过滤器状态
       updateFilters(filters);
       
       // 如果查询返回空结果但没有列信息，尝试从保存的列信息中恢复
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:220',message:'Before updateTab call',data:{refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       if (newResult.columns.length === 0 && originalColumnsRef.current.length > 0) {
         const resultWithColumns = {
           ...newResult,
@@ -263,9 +248,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       } else {
         updateTab(currentTab.id, { queryResult: newResult, error: null, isQuerying: false });
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:228',message:'After updateTab call',data:{refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       // 过滤后重置到第一页
       setCurrentPage(1);
     } catch (error) {
@@ -981,18 +963,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       <div className="h-full flex flex-col">
         {sql && (() => {
           const filteredSqlValue = actualExecutedSqlRef.current || actualExecutedSql;
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:963',message:'Rendering SqlDisplayBar',data:{sql,filteredSqlValue,refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql,hasActiveFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-          console.log('Passing to SqlDisplayBar:');
-          console.log('  sql prop:', sql);
-          console.log('  filteredSql prop:', filteredSqlValue);
-          console.log('  actualExecutedSqlRef.current:', actualExecutedSqlRef.current);
-          console.log('  actualExecutedSql state:', actualExecutedSql);
           return (
             <div
               className="px-4 py-2 neu-flat flex items-center gap-3"
-              style={{ borderBottom: "1px solid var(--neu-dark)" }}
+              style={{ borderBottom: "1px solid var(--neu-dark)", display: "flex", flexWrap: "nowrap", overflow: "hidden" }}
             >
               {/* 编辑模式工具栏部分 */}
               {editMode && (
