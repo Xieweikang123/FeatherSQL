@@ -7,7 +7,6 @@ import { useColumnFilters } from "../hooks/useColumnFilters";
 import { useCellSelection } from "../hooks/useCellSelection";
 import { useTableEditing } from "../hooks/useTableEditing";
 import { buildFilteredAndSortedSql, generateInsertSql as generateInsertSqlUtil, generateUpdateSqlForRows as generateUpdateSqlForRowsUtil } from "../utils/sqlGenerator";
-import EditToolbar from "./ResultTable/EditToolbar";
 import SqlDisplayBar from "./ResultTable/SqlDisplayBar";
 import TableHeader from "./ResultTable/TableHeader";
 import TableBody from "./ResultTable/TableBody";
@@ -980,26 +979,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       />
 
       <div className="h-full flex flex-col">
-        {editMode && (
-          <EditToolbar
-            modificationsCount={editing.modifications.size}
-            selection={selection}
-            canUndo={editing.editHistory.canUndo}
-            canRedo={editing.editHistory.canRedo}
-            isSaving={editing.isSaving}
-            hasConnection={!!currentConnectionId}
-            onUndo={editing.handleUndo}
-            onRedo={editing.handleRedo}
-            onResetAll={editing.handleResetAll}
-            onClearSelection={() => {
-              clearSelection();
-              setSelectedRows(new Set());
-            }}
-            onSave={handleSaveChanges}
-            onExit={handleExitEditMode}
-          />
-        )}
-
         {sql && (() => {
           const filteredSqlValue = actualExecutedSqlRef.current || actualExecutedSql;
           // #region agent log
@@ -1011,20 +990,109 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
           console.log('  actualExecutedSqlRef.current:', actualExecutedSqlRef.current);
           console.log('  actualExecutedSql state:', actualExecutedSql);
           return (
-            <SqlDisplayBar
-              sql={sql}
-              filteredSql={filteredSqlValue}
-              hasActiveFilters={hasActiveFilters}
-              isFiltering={isFiltering}
-              rowCount={displayRows.length}
-              editMode={editMode}
-              canViewStructure={!!tableInfo?.tableName}
-              onEnterEditMode={() => setEditMode(true)}
-              onClearFilters={handleClearAllFilters}
-              onViewStructure={handleViewStructure}
-              onExport={handleExport}
-              hasSelectedRows={selectedRows.size > 0}
-            />
+            <div
+              className="px-4 py-2 neu-flat flex items-center gap-3"
+              style={{ borderBottom: "1px solid var(--neu-dark)" }}
+            >
+              {/* 编辑模式工具栏部分 */}
+              {editMode && (
+                <>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs font-semibold" style={{ color: "var(--neu-accent)" }}>
+                      编辑模式
+                    </span>
+                    {editing.modifications.size > 0 && (
+                      <span className="text-xs" style={{ color: "var(--neu-warning)" }}>
+                        ({editing.modifications.size} 个未保存的修改)
+                      </span>
+                    )}
+                    {selection && (
+                      <span className="text-xs" style={{ color: "var(--neu-accent-light)" }}>
+                        (已选择: {selection.cells.size} 个单元格)
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={editing.handleUndo}
+                      disabled={!editing.editHistory.canUndo}
+                      className="px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:hover:neu-flat"
+                      style={{ color: "var(--neu-text)" }}
+                      title="撤销 (Ctrl+Z)"
+                    >
+                      ↶ 撤销
+                    </button>
+                    <button
+                      onClick={editing.handleRedo}
+                      disabled={!editing.editHistory.canRedo}
+                      className="px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:hover:neu-flat"
+                      style={{ color: "var(--neu-text)" }}
+                      title="重做 (Ctrl+Y 或 Ctrl+Shift+Z)"
+                    >
+                      ↷ 重做
+                    </button>
+                    {editing.modifications.size > 0 && (
+                      <button
+                        onClick={editing.handleResetAll}
+                        className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                        style={{ color: "var(--neu-warning)" }}
+                        title="撤销所有改动"
+                      >
+                        ↶ 撤销所有
+                      </button>
+                    )}
+                    {selection && (
+                      <button
+                        onClick={() => {
+                          clearSelection();
+                          setSelectedRows(new Set());
+                        }}
+                        className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                        style={{ color: "var(--neu-text)" }}
+                        title="清除选择"
+                      >
+                        ✕
+                      </button>
+                    )}
+                    {editing.modifications.size > 0 && (
+                      <button
+                        onClick={handleSaveChanges}
+                        disabled={editing.isSaving || !currentConnectionId}
+                        className="px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed rounded transition-all neu-raised hover:neu-hover active:neu-active disabled:hover:neu-raised font-medium"
+                        style={{ color: "var(--neu-success)" }}
+                        title="保存所有修改到数据库"
+                      >
+                        {editing.isSaving ? "保存中..." : `💾 保存 (${editing.modifications.size})`}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleExitEditMode}
+                      className="px-3 py-1.5 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                      style={{ color: "var(--neu-text)" }}
+                      title="退出编辑模式"
+                    >
+                      退出编辑
+                    </button>
+                  </div>
+                  <div className="w-px h-6" style={{ backgroundColor: "var(--neu-dark)" }}></div>
+                </>
+              )}
+              {/* SQL 显示栏部分 */}
+              <SqlDisplayBar
+                sql={sql}
+                filteredSql={filteredSqlValue}
+                hasActiveFilters={hasActiveFilters}
+                isFiltering={isFiltering}
+                rowCount={displayRows.length}
+                editMode={editMode}
+                canViewStructure={!!tableInfo?.tableName}
+                onEnterEditMode={() => setEditMode(true)}
+                onClearFilters={handleClearAllFilters}
+                onViewStructure={handleViewStructure}
+                onExport={handleExport}
+                hasSelectedRows={selectedRows.size > 0}
+              />
+            </div>
           );
         })()}
 
