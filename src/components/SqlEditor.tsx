@@ -187,7 +187,9 @@ export default function SqlEditor() {
         queryResult: result, 
         error: null, 
         isQuerying: false,
-        sql: sql 
+        sql: sql,
+        columnFilters: {}, // 执行新 SQL 时清理筛选条件
+        actualExecutedSql: sql // 重置实际执行的 SQL 为新的 SQL
       });
       // 检查是否是 INSERT/UPDATE/DELETE 语句（返回 affected_rows）
       const isCommandResult = result.columns.length === 1 && result.columns[0] === "affected_rows";
@@ -203,7 +205,9 @@ export default function SqlEditor() {
         error: errorMsg, 
         queryResult: null,
         isQuerying: false,
-        sql: sql 
+        sql: sql,
+        columnFilters: {}, // 执行新 SQL 时清理筛选条件
+        actualExecutedSql: sql // 重置实际执行的 SQL 为新的 SQL
       });
       // Save current SQL to workspace state even on error (user might want to retry)
       saveWorkspaceState();

@@ -32,6 +32,15 @@ export default function SqlDisplayBar({
   hasSelectedRows = false,
 }: SqlDisplayBarProps) {
   const [copied, setCopied] = useState(false);
+  
+  // 调试：记录接收到的 SQL
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SqlDisplayBar.tsx:38',message:'SqlDisplayBar received props',data:{sql,filteredSql,hasActiveFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    console.log('SqlDisplayBar received sql:', sql);
+    console.log('SqlDisplayBar received filteredSql:', filteredSql);
+  }, [sql, filteredSql]);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);

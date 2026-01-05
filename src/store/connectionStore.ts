@@ -33,6 +33,7 @@ export interface TabState {
   selectedTable: string | null;
   columnFilters: Record<string, string>;
   sqlToLoad: string | null;
+  actualExecutedSql: string | null; // 实际执行的 SQL（包含筛选条件）
 }
 
 interface ConnectionState {
@@ -98,6 +99,7 @@ const createDefaultTab = (name: string = "新查询"): TabState => ({
   selectedTable: null,
   columnFilters: {},
   sqlToLoad: null,
+  actualExecutedSql: null,
 });
 
 export const useConnectionStore = create<ConnectionState>((set, get) => {

@@ -26,8 +26,26 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
   const [isFiltering, setIsFiltering] = useState(false);
   const debounceTimerRef = useRef<number | null>(null);
+  
+  // 获取连接信息（需要在 useCellSelection 之前获取 editMode）
+  const { 
+    currentConnectionId, 
+    currentDatabase, 
+    connections, 
+    getCurrentTab,
+    updateTab,
+    editMode, // 从 store 读取 editMode
+    setEditMode // 使用 store 的 setEditMode
+  } = useConnectionStore();
+  
+  // 获取当前标签页
+  const currentTab = getCurrentTab();
+  // 从 store 中获取 actualExecutedSql，如果不存在则使用 sql
+  const actualExecutedSqlFromStore = currentTab?.actualExecutedSql || null;
   // 保存实际执行到数据库的SQL
-  const [actualExecutedSql, setActualExecutedSql] = useState<string | null>(sql || null);
+  const [actualExecutedSql, setActualExecutedSql] = useState<string | null>(actualExecutedSqlFromStore || sql || null);
+  // 使用 ref 来保存 actualExecutedSql，避免被 useEffect 重置
+  const actualExecutedSqlRef = useRef<string | null>(actualExecutedSqlFromStore || sql || null);
   // 跟踪是否刚刚完成拖拽，用于防止在 mouseup 后立即触发新的选择
   const justFinishedDraggingRef = useRef<boolean>(false);
   
@@ -45,23 +63,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     originalResultRef.current = result;
   }
   
-  // 获取连接信息（需要在 useCellSelection 之前获取 editMode）
-  const { 
-    currentConnectionId, 
-    currentDatabase, 
-    connections, 
-    getCurrentTab,
-    updateTab,
-    editMode, // 从 store 读取 editMode
-    setEditMode // 使用 store 的 setEditMode
-  } = useConnectionStore();
-  
-  // 获取当前标签页
-  const currentTab = getCurrentTab();
   const tabColumnFilters = currentTab?.columnFilters || {};
   
   // 使用自定义 hooks（使用标签页的 columnFilters）
-  const { columnFilters, updateFilters, originalSqlRef } = useColumnFilters(sql, tabColumnFilters);
+  const { columnFilters, updateFilters, originalSqlRef, columnFiltersRef } = useColumnFilters(sql, tabColumnFilters);
   
   // 同步 columnFilters 到标签页
   useEffect(() => {
@@ -115,14 +120,40 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 保存列信息和原始结果
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:119',message:'useEffect triggered',data:{sql,originalSql:originalSqlRef.current,refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql,resultChanged:!!result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     if (result && result.columns.length > 0) {
       originalColumnsRef.current = result.columns;
     }
     // 只有当SQL变化时才更新原始结果（表示新的查询）
+    // 注意：不要在这里重置 actualExecutedSql，因为它可能已经被筛选查询更新了
     if (sql && sql !== originalSqlRef.current) {
       originalResultRef.current = result;
       // 新查询时，实际执行的SQL就是原始SQL
+      // 只有在 SQL prop 真正变化时才重置（表示用户执行了新的查询）
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:130',message:'Resetting actualExecutedSql in useEffect',data:{sql,beforeRef:actualExecutedSqlRef.current,beforeState:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      console.log('SQL prop changed, resetting actualExecutedSql to:', sql);
+      actualExecutedSqlRef.current = sql;
       setActualExecutedSql(sql);
+      // 同时更新到 store
+      if (currentTab) {
+        updateTab(currentTab.id, { actualExecutedSql: sql });
+      }
+    } else if (sql && sql === originalSqlRef.current && result) {
+      // SQL 没有变化，但 result 变化了（可能是筛选查询的结果）
+      // 在这种情况下，不要重置 actualExecutedSql，保持当前的值
+      // 但是需要确保 ref 和 state 同步
+      // 如果 state 有带 WHERE 条件的 SQL，但 ref 被重置为原始 SQL（组件重新创建），恢复 ref
+      if (actualExecutedSql && actualExecutedSql !== sql && actualExecutedSqlRef.current === sql) {
+        // state 有带 WHERE 条件的 SQL，但 ref 被重置为原始 SQL，恢复 ref
+        actualExecutedSqlRef.current = actualExecutedSql;
+      } else if (actualExecutedSqlRef.current && actualExecutedSqlRef.current !== actualExecutedSql) {
+        // ref 有值但 state 不同步，同步 state
+        setActualExecutedSql(actualExecutedSqlRef.current);
+      }
     }
   }, [result, sql]);
 
@@ -192,19 +223,38 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute = buildFilteredAndSortedSqlCallback(originalSqlRef.current, filters, sortConfig);
       }
       
+      console.log('executeFilteredAndSortedSql: sqlToExecute =', sqlToExecute);
+      console.log('executeFilteredAndSortedSql: activeFilters =', activeFilters);
+      console.log('executeFilteredAndSortedSql: sortConfig =', sortConfig);
+      
       const newResult = await executeSql(
         currentConnectionId,
         sqlToExecute,
         currentDatabase || undefined
       );
       
-      // 保存实际执行的SQL
+      // 保存实际执行的SQL（同时更新 state、ref 和 store）
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:212',message:'Before setting actualExecutedSql',data:{sqlToExecute,currentRef:actualExecutedSqlRef.current,currentState:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      console.log('Setting actualExecutedSql to:', sqlToExecute);
+      actualExecutedSqlRef.current = sqlToExecute;
       setActualExecutedSql(sqlToExecute);
+      // 同时更新到 store，这样即使组件重新创建也能恢复
+      if (currentTab) {
+        updateTab(currentTab.id, { actualExecutedSql: sqlToExecute });
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:218',message:'After updating store',data:{sqlToExecute,refValue:actualExecutedSqlRef.current,storeValue:currentTab?.actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       
       // 更新过滤器状态
       updateFilters(filters);
       
       // 如果查询返回空结果但没有列信息，尝试从保存的列信息中恢复
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:220',message:'Before updateTab call',data:{refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       if (newResult.columns.length === 0 && originalColumnsRef.current.length > 0) {
         const resultWithColumns = {
           ...newResult,
@@ -214,6 +264,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       } else {
         updateTab(currentTab.id, { queryResult: newResult, error: null, isQuerying: false });
       }
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:228',message:'After updateTab call',data:{refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       // 过滤后重置到第一页
       setCurrentPage(1);
     } catch (error) {
@@ -314,8 +367,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 手动触发查询（按 Enter 键时调用）
   const handleFilterSearch = useCallback((columnName: string) => {
-    const filterValue = columnFilters[columnName] || "";
-    const newFilters = { ...columnFilters };
+    // 使用 ref 获取最新的筛选值，避免状态更新延迟问题
+    const currentFilters = columnFiltersRef.current;
+    const filterValue = currentFilters[columnName] || "";
+    const newFilters = { ...currentFilters };
+    
+    console.log('handleFilterSearch called for column:', columnName);
+    console.log('currentFilters:', currentFilters);
+    console.log('filterValue:', filterValue);
     
     if (filterValue.trim() === "") {
       delete newFilters[columnName];
@@ -326,11 +385,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       debounceTimerRef.current = null;
     }
     
+    console.log('Calling executeFilteredAndSortedSql with filters:', newFilters);
     executeFilteredAndSortedSql(newFilters, sortConfig);
-  }, [columnFilters, sortConfig, executeFilteredAndSortedSql]);
+  }, [columnFiltersRef, sortConfig, executeFilteredAndSortedSql]);
 
   const handleClearFilter = useCallback((columnName: string) => {
-    const newFilters = { ...columnFilters };
+    // 使用 ref 获取最新的筛选值
+    const currentFilters = columnFiltersRef.current;
+    const newFilters = { ...currentFilters };
     delete newFilters[columnName];
     
     if (debounceTimerRef.current !== null) {
@@ -339,7 +401,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
     
     executeFilteredAndSortedSql(newFilters, sortConfig);
-  }, [columnFilters, sortConfig, executeFilteredAndSortedSql]);
+  }, [columnFiltersRef, sortConfig, executeFilteredAndSortedSql]);
 
   // 清除所有过滤
   const handleClearAllFilters = useCallback(() => {
@@ -938,22 +1000,33 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
           />
         )}
 
-        {sql && (
-          <SqlDisplayBar
-            sql={actualExecutedSql || sql}
-            filteredSql={null}
-            hasActiveFilters={hasActiveFilters}
-            isFiltering={isFiltering}
-            rowCount={displayRows.length}
-            editMode={editMode}
-            canViewStructure={!!tableInfo?.tableName}
-            onEnterEditMode={() => setEditMode(true)}
-            onClearFilters={handleClearAllFilters}
-            onViewStructure={handleViewStructure}
-            onExport={handleExport}
-            hasSelectedRows={selectedRows.size > 0}
-          />
-        )}
+        {sql && (() => {
+          const filteredSqlValue = actualExecutedSqlRef.current || actualExecutedSql;
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/201eadee-28d1-435d-93ff-d0c26bb03615',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ResultTable.tsx:963',message:'Rendering SqlDisplayBar',data:{sql,filteredSqlValue,refValue:actualExecutedSqlRef.current,stateValue:actualExecutedSql,hasActiveFilters},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          console.log('Passing to SqlDisplayBar:');
+          console.log('  sql prop:', sql);
+          console.log('  filteredSql prop:', filteredSqlValue);
+          console.log('  actualExecutedSqlRef.current:', actualExecutedSqlRef.current);
+          console.log('  actualExecutedSql state:', actualExecutedSql);
+          return (
+            <SqlDisplayBar
+              sql={sql}
+              filteredSql={filteredSqlValue}
+              hasActiveFilters={hasActiveFilters}
+              isFiltering={isFiltering}
+              rowCount={displayRows.length}
+              editMode={editMode}
+              canViewStructure={!!tableInfo?.tableName}
+              onEnterEditMode={() => setEditMode(true)}
+              onClearFilters={handleClearAllFilters}
+              onViewStructure={handleViewStructure}
+              onExport={handleExport}
+              hasSelectedRows={selectedRows.size > 0}
+            />
+          );
+        })()}
 
       <div className="flex-1 overflow-auto" style={{ marginTop: 0, paddingTop: 0 }}>
         <table className="w-full border-collapse text-sm" style={{ marginTop: 0 }}>
@@ -969,8 +1042,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             onExpandSearch={setExpandedSearchColumn}
             onSort={handleSort}
           />
-            {filteredRows.length === 0 ? (
-            <EmptyState hasActiveFilters={hasActiveFilters} columnCount={displayColumns.length} />
+          {filteredRows.length === 0 ? (
+            <tbody>
+              <EmptyState hasActiveFilters={hasActiveFilters} columnCount={displayColumns.length} />
+            </tbody>
           ) : (
             <TableBody
               paginatedRows={paginatedRows}
