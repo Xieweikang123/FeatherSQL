@@ -6,12 +6,14 @@ interface SqlDisplayBarProps {
   sql: string | null;
   filteredSql: string | null;
   hasActiveFilters: boolean;
+  hasActiveSort?: boolean;
   isFiltering: boolean;
   rowCount: number;
   editMode: boolean;
   canViewStructure?: boolean;
   onEnterEditMode: () => void;
   onClearFilters: () => void;
+  onClearSort?: () => void;
   onViewStructure?: () => void;
   onExport?: (format: ExportFormat, exportSelected: boolean) => Promise<void>;
   hasSelectedRows?: boolean;
@@ -21,12 +23,14 @@ export default function SqlDisplayBar({
   sql,
   filteredSql,
   hasActiveFilters,
+  hasActiveSort = false,
   isFiltering,
   rowCount,
   editMode,
   canViewStructure = false,
   onEnterEditMode,
   onClearFilters,
+  onClearSort,
   onViewStructure,
   onExport,
   hasSelectedRows = false,
@@ -237,6 +241,17 @@ export default function SqlDisplayBar({
             title="清除所有过滤"
           >
             {isFiltering ? "过滤中..." : "清除过滤"}
+          </button>
+        )}
+        {hasActiveSort && onClearSort && (
+          <button
+            onClick={onClearSort}
+            disabled={isFiltering}
+            className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ color: "var(--neu-accent)" }}
+            title="清除排序"
+          >
+            {isFiltering ? "排序中..." : "清除排序"}
           </button>
         )}
         <button

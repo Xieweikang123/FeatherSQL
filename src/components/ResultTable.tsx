@@ -396,6 +396,23 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     executeFilteredAndSortedSql({}, sortConfig);
   }, [updateFilters, sortConfig, executeFilteredAndSortedSql]);
 
+  // 清除排序（全部或指定列）
+  const handleClearSort = useCallback(() => {
+    if (!currentTab) return;
+    updateTab(currentTab.id, { sortConfig: [] });
+    setCurrentPage(1);
+    executeFilteredAndSortedSql(columnFiltersRef.current, []);
+  }, [currentTab, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
+
+  // 清除指定列的排序
+  const handleClearSortColumn = useCallback((column: string) => {
+    if (!currentTab) return;
+    const newConfig = sortConfig.filter((s) => s.column !== column);
+    updateTab(currentTab.id, { sortConfig: newConfig });
+    setCurrentPage(1);
+    executeFilteredAndSortedSql(columnFiltersRef.current, newConfig);
+  }, [currentTab, sortConfig, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
+
   // 组件卸载时清除定时器
   useEffect(() => {
     return () => {
@@ -689,7 +706,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         newConfig = [...sortConfig, { column, direction: 'asc' }];
       }
     } else {
-      // 普通点击：单列排序，清除其他排序
+      // 普通点击：单列排序，清除其他排序。ASC ↔ DESC 切换，取消请点 ×
       if (existingIndex !== -1 && sortConfig.length === 1) {
         newConfig = [{
           column,
@@ -1047,12 +1064,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 sql={sql}
                 filteredSql={filteredSqlValue}
                 hasActiveFilters={hasActiveFilters}
+                hasActiveSort={sortConfig.length > 0}
                 isFiltering={isFiltering}
                 rowCount={displayRows.length}
                 editMode={editMode}
                 canViewStructure={!!tableInfo?.tableName}
                 onEnterEditMode={() => setEditMode(true)}
                 onClearFilters={handleClearAllFilters}
+                onClearSort={handleClearSort}
                 onViewStructure={handleViewStructure}
                 onExport={handleExport}
                 hasSelectedRows={selectedRows.size > 0}
@@ -1074,6 +1093,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             onClearFilter={handleClearFilter}
             onExpandSearch={setExpandedSearchColumn}
             onSort={handleSort}
+            onClearSortColumn={handleClearSortColumn}
           />
           {filteredRows.length === 0 ? (
             <tbody>

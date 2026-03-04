@@ -16,6 +16,7 @@ interface TableHeaderProps {
   onClearFilter: (columnName: string) => void;
   onExpandSearch: (columnName: string | null) => void;
   onSort: (column: string, e: React.MouseEvent) => void;
+  onClearSortColumn?: (column: string) => void;
 }
 
 function TableHeader({
@@ -29,6 +30,7 @@ function TableHeader({
   onClearFilter,
   onExpandSearch,
   onSort,
+  onClearSortColumn,
 }: TableHeaderProps) {
   const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const thRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
@@ -133,7 +135,7 @@ function TableHeader({
                 }
                 onSort(column, e);
               }}
-              title={sortInfo ? `按 ${column} ${sortInfo.direction === 'asc' ? '升序' : '降序'} 排序${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}。按住 Shift 点击可添加多列排序` : `点击排序。按住 Shift 点击可添加多列排序`}
+              title={sortInfo ? `按 ${column} ${sortInfo.direction === 'asc' ? '升序' : '降序'} 排序${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}。再次点击切换，点 × 取消` : `点击排序。Shift+点击可添加多列排序`}
             >
               <div className="flex items-center gap-2">
                 <span className="flex-1 truncate">{column}</span>
@@ -151,6 +153,19 @@ function TableHeader({
                     {sortInfo.direction === 'asc' ? '↑ 升序' : '↓ 降序'}
                     {sortOrder && sortOrder > 1 && (
                       <span className="text-[10px] font-bold ml-0.5">{sortOrder}</span>
+                    )}
+                    {onClearSortColumn && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onClearSortColumn(column);
+                        }}
+                        className="ml-0.5 w-4 h-4 flex items-center justify-center rounded hover:bg-black/10 transition-colors flex-shrink-0"
+                        title="取消此列排序"
+                      >
+                        ×
+                      </button>
                     )}
                   </span>
                 ) : (
@@ -278,7 +293,8 @@ export default memo(TableHeader, (prevProps, nextProps) => {
     JSON.stringify(prevProps.columnFilters) === JSON.stringify(nextProps.columnFilters) &&
     prevProps.expandedSearchColumn === nextProps.expandedSearchColumn &&
     prevProps.isFiltering === nextProps.isFiltering &&
-    JSON.stringify(prevProps.sortConfig) === JSON.stringify(nextProps.sortConfig)
+    JSON.stringify(prevProps.sortConfig) === JSON.stringify(nextProps.sortConfig) &&
+    prevProps.onClearSortColumn === nextProps.onClearSortColumn
   );
 });
 
