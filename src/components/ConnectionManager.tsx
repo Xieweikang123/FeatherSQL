@@ -178,11 +178,43 @@ export default function ConnectionManager() {
     }
   };
 
-  const handleTableClick = (e: React.MouseEvent, database: string, table: string) => {
+  const handleTableClick = async (e: React.MouseEvent, database: string, table: string) => {
     e.stopPropagation();
-    // Set current database and table
-    setCurrentDatabase(database);
+    if (!currentConnectionId) return;
+
+    const connection = connections.find(c => c.id === currentConnectionId);
+    if (!connection) return;
+
+    // Set current database if different
+    if (connection.type !== "sqlite" && database !== currentDatabase) {
+      setCurrentDatabase(database);
+    }
+
+    // Set selected table
     setSelectedTable(table);
+
+    // Build escaped table name with database prefix if needed
+    const escapedTableName = buildTableName(table, connection.type, database);
+    const sql = connection.type === "mssql"
+      ? `SELECT TOP 100 * FROM ${escapedTableName}`
+      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+
+    // Load SQL into editor
+    loadSql(sql);
+
+    // Execute query and show table data
+    const currentTab = getCurrentTab();
+    if (!currentTab) return;
+
+    updateTab(currentTab.id, { error: null, isQuerying: true });
+    try {
+      const dbParam = connection.type === "sqlite" ? "" : (database || undefined);
+      const result = await executeSql(currentConnectionId, sql, dbParam);
+      updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
+    } catch (error) {
+      const errorMsg = String(error);
+      updateTab(currentTab.id, { error: errorMsg, queryResult: null, isQuerying: false });
+    }
   };
 
   const handleTableContextMenu = (e: React.MouseEvent, database: string, table: string) => {
@@ -969,7 +1001,7 @@ export default function ConnectionManager() {
                                               onContextMenu={(e) => handleTableContextMenu(e, db, table)}
                                               className="text-[10px] py-1.5 px-2 rounded cursor-pointer transition-all duration-200 flex items-center gap-1.5 neu-flat hover:neu-hover group"
                                               style={{ color: 'var(--neu-text)' }}
-                                              title={`${db}.${table} (右键查看菜单)`}
+                                              title={`左键查询表数据，右键查看菜单`}
                                             >
                                               <span className="text-xs opacity-70 flex-shrink-0">📄</span>
                                               <span className="flex-1 truncate">{table}</span>
