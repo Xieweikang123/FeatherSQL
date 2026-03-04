@@ -9,6 +9,10 @@ import { useConnectionStore } from "./store/connectionStore";
 import { getConnections } from "./lib/commands";
 
 const EDITOR_HEIGHT_RATIO_KEY = "feathersql_editor_height_ratio";
+const SIDEBAR_WIDTH_KEY = "feathersql_sidebar_width";
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 400;
+const SIDEBAR_DEFAULT_WIDTH = 260;
 
 function App() {
   const { 
@@ -28,9 +32,14 @@ function App() {
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
   const [editorHeightRatio, setEditorHeightRatio] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT_WIDTH);
+  const [isSidebarDragging, setIsSidebarDragging] = useState(false);
   const mainContentRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef<number>(0);
   const dragStartHeight = useRef<number>(0);
+  const dragStartX = useRef<number>(0);
+  const dragStartSidebarWidth = useRef<number>(0);
+  const currentSidebarWidthRef = useRef<number>(SIDEBAR_DEFAULT_WIDTH);
 
   useEffect(() => {
     // Load connections on mount
@@ -54,6 +63,17 @@ function App() {
       const ratio = parseFloat(savedRatio);
       if (!isNaN(ratio) && ratio > 0 && ratio < 1) {
         setEditorHeightRatio(ratio);
+      }
+    }
+  }, []);
+
+  // Load saved sidebar width from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (saved) {
+      const w = parseInt(saved, 10);
+      if (!isNaN(w) && w >= SIDEBAR_MIN_WIDTH && w <= SIDEBAR_MAX_WIDTH) {
+        setSidebarWidth(w);
       }
     }
   }, []);
@@ -133,6 +153,44 @@ function App() {
     };
   }, [isDragging, editorHeight]);
 
+  const handleSidebarMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsSidebarDragging(true);
+    dragStartX.current = e.clientX;
+    dragStartSidebarWidth.current = sidebarWidth;
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    currentSidebarWidthRef.current = sidebarWidth;
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isSidebarDragging) return;
+      const deltaX = e.clientX - dragStartX.current;
+      const newWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, dragStartSidebarWidth.current + deltaX));
+      setSidebarWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      if (isSidebarDragging) {
+        setIsSidebarDragging(false);
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, currentSidebarWidthRef.current.toString());
+      }
+    };
+    if (isSidebarDragging) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    }
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isSidebarDragging, sidebarWidth]);
+
   return (
     <div className="flex flex-col h-screen" style={{ backgroundColor: 'var(--neu-bg)', color: 'var(--neu-text)' }}>
       {/* Top bar */}
@@ -182,12 +240,42 @@ function App() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Connections */}
-        <aside className="w-64 neu-raised flex flex-col" style={{ borderRight: '1px solid var(--neu-dark)' }}>
+        <aside 
+          className="flex flex-col flex-shrink-0" 
+          style={{ 
+            width: sidebarWidth,
+            minWidth: sidebarWidth,
+            maxWidth: sidebarWidth,
+            background: 'var(--neu-bg)',
+            borderRight: '1px solid rgba(255, 255, 255, 0.04)',
+            boxShadow: '1px 0 4px rgba(0, 0, 0, 0.2)',
+          }}
+        >
           <ConnectionManager />
         </aside>
 
+        {/* Left sidebar resizer - 拖拽调整左侧宽度 */}
+        <div
+          onMouseDown={handleSidebarMouseDown}
+          className="group flex-shrink-0 cursor-col-resize flex items-center justify-center hover:bg-black/10"
+          style={{ 
+            width: 8,
+            minWidth: 8,
+            backgroundColor: isSidebarDragging ? 'rgba(91, 155, 213, 0.15)' : undefined,
+            transition: 'background-color 0.15s',
+          }}
+          title="拖拽调整宽度"
+        >
+          <div 
+            className="w-px h-10 rounded-full transition-colors duration-150"
+            style={{ 
+              backgroundColor: isSidebarDragging ? 'var(--neu-accent)' : 'rgba(255, 255, 255, 0.06)',
+            }}
+          />
+        </div>
+
         {/* Main content */}
-        <main ref={mainContentRef} className="flex-1 flex flex-col overflow-hidden">
+        <main ref={mainContentRef} className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {/* Tab Bar - 始终显示 */}
           <TabBar />
           
@@ -275,7 +363,13 @@ function App() {
 
         {/* Right sidebar - History */}
         {historyExpanded && (
-          <aside className="w-80 neu-raised flex flex-col" style={{ borderLeft: '1px solid var(--neu-dark)' }}>
+          <aside 
+            className="w-80 flex flex-col flex-shrink-0" 
+            style={{ 
+              background: 'var(--neu-bg)',
+              boxShadow: '-2px 0 8px rgba(0, 0, 0, 0.15), inset -1px 0 0 rgba(255, 255, 255, 0.03)',
+            }}
+          >
             <SqlHistory />
           </aside>
         )}
