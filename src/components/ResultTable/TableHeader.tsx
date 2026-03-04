@@ -137,16 +137,29 @@ function TableHeader({
             >
               <div className="flex items-center gap-2">
                 <span className="flex-1 truncate">{column}</span>
-                {sortInfo && (
+                {/* 排序指示器：已排序显示 ↑/↓，未排序显示可排序提示 ↕ */}
+                {sortInfo ? (
                   <span
-                    className="flex-shrink-0 flex items-center gap-0.5"
-                    style={{ color: "var(--neu-accent)" }}
+                    className="flex-shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-sm font-medium border"
+                    style={{
+                      color: "var(--neu-accent)",
+                      backgroundColor: "rgba(91, 155, 213, 0.15)",
+                      borderColor: "var(--neu-accent)",
+                    }}
                     title={`${sortInfo.direction === 'asc' ? '升序' : '降序'}${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}`}
                   >
-                    {sortInfo.direction === 'asc' ? '↑' : '↓'}
+                    {sortInfo.direction === 'asc' ? '↑ 升序' : '↓ 降序'}
                     {sortOrder && sortOrder > 1 && (
-                      <span className="text-[10px] font-bold">{sortOrder}</span>
+                      <span className="text-[10px] font-bold ml-0.5">{sortOrder}</span>
                     )}
+                  </span>
+                ) : (
+                  <span
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-50 transition-opacity text-xs"
+                    style={{ color: "var(--neu-text-light)" }}
+                    title="点击排序"
+                  >
+                    ↕
                   </span>
                 )}
                 {hasFilter && (

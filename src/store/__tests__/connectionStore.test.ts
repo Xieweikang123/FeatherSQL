@@ -14,7 +14,9 @@ describe("connectionStore", () => {
       isQuerying: false,
       selectedTable: null,
       columnFilters: {},
+      sortConfig: [] as Array<{ column: string; direction: 'asc' | 'desc' }>,
       sqlToLoad: null,
+      actualExecutedSql: null,
     };
     useConnectionStore.setState({
       connections: [],

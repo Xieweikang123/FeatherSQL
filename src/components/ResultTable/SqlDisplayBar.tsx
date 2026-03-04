@@ -32,12 +32,6 @@ export default function SqlDisplayBar({
   hasSelectedRows = false,
 }: SqlDisplayBarProps) {
   const [copied, setCopied] = useState(false);
-  
-  // 调试：记录接收到的 SQL
-  useEffect(() => {
-    console.log('SqlDisplayBar received sql:', sql);
-    console.log('SqlDisplayBar received filteredSql:', filteredSql);
-  }, [sql, filteredSql]);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -129,7 +123,7 @@ export default function SqlDisplayBar({
         )}
         {!hasActiveFilters && (
           <span className="text-xs flex-shrink-0" style={{ color: "var(--neu-text-light)" }}>
-            (共 {rowCount} 条)
+            {isFiltering ? "(排序中...)" : `(共 ${rowCount} 条)`}
           </span>
         )}
       </div>

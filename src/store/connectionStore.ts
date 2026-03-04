@@ -22,6 +22,12 @@ interface WorkspaceState {
   sql: string | null;
 }
 
+// 排序配置
+export interface SortConfigItem {
+  column: string;
+  direction: 'asc' | 'desc';
+}
+
 // 标签页状态
 export interface TabState {
   id: string;
@@ -32,6 +38,7 @@ export interface TabState {
   isQuerying: boolean;
   selectedTable: string | null;
   columnFilters: Record<string, string>;
+  sortConfig: SortConfigItem[]; // 列排序配置，持久化到 tab 以在加载时恢复
   sqlToLoad: string | null;
   actualExecutedSql: string | null; // 实际执行的 SQL（包含筛选条件）
 }
@@ -98,6 +105,7 @@ const createDefaultTab = (name: string = "新查询"): TabState => ({
   isQuerying: false,
   selectedTable: null,
   columnFilters: {},
+  sortConfig: [],
   sqlToLoad: null,
   actualExecutedSql: null,
 });

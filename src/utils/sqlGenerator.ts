@@ -106,7 +106,7 @@ export function buildFilteredAndSortedSql(
       if (offsetMatch) insertPosition = Math.min(insertPosition, offsetMatch.index || sql.length);
       if (fetchMatch) insertPosition = Math.min(insertPosition, fetchMatch.index || sql.length);
       
-      sql = sql.slice(0, insertPosition).trim() + ` ORDER BY ${orderByClause}` + sql.slice(insertPosition);
+      sql = sql.slice(0, insertPosition).trim() + ` ORDER BY ${orderByClause} ` + sql.slice(insertPosition).trimStart();
     }
   }
   

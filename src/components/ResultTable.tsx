@@ -95,8 +95,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   
-  // 排序状态
-  const [sortConfig, setSortConfig] = useState<Array<{ column: string; direction: 'asc' | 'desc' }>>([]);
+  // 排序状态：从 tab 读取，排序时组件会因 isQuerying 卸载，需持久化到 store
+  const sortConfig = currentTab?.sortConfig ?? [];
   
   const currentConnection = connections.find(c => c.id === currentConnectionId);
   
@@ -128,12 +128,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       originalResultRef.current = result;
       // 新查询时，实际执行的SQL就是原始SQL
       // 只有在 SQL prop 真正变化时才重置（表示用户执行了新的查询）
-      console.log('SQL prop changed, resetting actualExecutedSql to:', sql);
       actualExecutedSqlRef.current = sql;
       setActualExecutedSql(sql);
-      // 同时更新到 store
+      // 新查询时重置排序，过滤/排序导致 result 变化时不重置
       if (currentTab) {
-        updateTab(currentTab.id, { actualExecutedSql: sql });
+        updateTab(currentTab.id, { actualExecutedSql: sql, sortConfig: [] });
       }
     } else if (sql && sql === originalSqlRef.current && result) {
       // SQL 没有变化，但 result 变化了（可能是筛选查询的结果）
@@ -164,9 +163,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
     setSelectedRows(new Set());
     setContextMenu(null);
-    // 重置到第一页
+    // 重置到第一页（排序在 sql 变化时单独重置，避免过滤/排序后误清空）
     setCurrentPage(1);
-    setSortConfig([]); // 重置排序
     // 新查询结果：直接展示全部数据（最多 5000 条，避免性能问题）
     if (result?.rows?.length > 0) {
       setPageSize(Math.min(result.rows.length, 5000));
@@ -211,7 +209,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     
     try {
       setIsFiltering(true);
-      updateTab(currentTab.id, { isQuerying: true });
+      // 过滤/排序时不设置 isQuerying，避免 ResultTable 卸载导致 sortConfig 丢失、UI 闪烁
       
       let sqlToExecute: string;
       if (activeFilters.length === 0 && sortConfig.length === 0) {
@@ -222,10 +220,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig);
       }
       
-      console.log('executeFilteredAndSortedSql: sqlToExecute =', sqlToExecute);
-      console.log('executeFilteredAndSortedSql: activeFilters =', activeFilters);
-      console.log('executeFilteredAndSortedSql: sortConfig =', sortConfig);
-      
       const newResult = await executeSql(
         currentConnectionId,
         sqlToExecute,
@@ -233,7 +227,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       );
       
       // 保存实际执行的SQL（同时更新 state、ref 和 store）
-      console.log('Setting actualExecutedSql to:', sqlToExecute);
       actualExecutedSqlRef.current = sqlToExecute;
       setActualExecutedSql(sqlToExecute);
       // 同时更新到 store，这样即使组件重新创建也能恢复
@@ -677,6 +670,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 处理列头排序
   const handleSort = useCallback((column: string, e: React.MouseEvent) => {
+    if (!currentTab) return;
     const isShiftKey = e.shiftKey;
     
     // 先计算新的排序配置
@@ -706,11 +700,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       }
     }
     
-    setSortConfig(newConfig);
+    // 立即持久化到 tab，否则 isQuerying 会导致 ResultTable 卸载，sortConfig 会丢失
+    updateTab(currentTab.id, { sortConfig: newConfig });
     setCurrentPage(1);
     // 使用 columnFiltersRef 获取最新筛选值，与 handleFilterSearch 保持一致
     executeFilteredAndSortedSql(columnFiltersRef.current, newConfig);
-  }, [sortConfig, columnFiltersRef, executeFilteredAndSortedSql]);
+  }, [sortConfig, currentTab, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
 
   // 处理序号列点击，选中整行
   const handleRowNumberClick = useCallback((filteredRowIndex: number, e: React.MouseEvent) => {
