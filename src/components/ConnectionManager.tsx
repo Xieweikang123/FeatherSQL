@@ -934,12 +934,7 @@ export default function ConnectionManager() {
                                           isExpanded ? "rotate-90" : ""
                                         }`}>▶</span>
                                       </button>
-                                      <span 
-                                        onClick={(e) => handleDatabaseClick(e, connection.id, db)}
-                                        className={`text-base transition-transform duration-200 flex-shrink-0 ${
-                                          isSelected ? "scale-110" : "group-hover:scale-110"
-                                        }`}
-                                      >📁</span>
+
                                       <span 
                                         onClick={(e) => handleDatabaseClick(e, connection.id, db)}
                                         className="flex-1 truncate"

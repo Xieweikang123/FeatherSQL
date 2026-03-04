@@ -5,8 +5,18 @@ import { buildTableName } from "../lib/utils";
 import TableStructure from "./TableStructure";
 import ImportDialog from "./ImportDialog";
 
+const TABLE_VIEW_MODE_KEY = "feathersql_table_view_mode";
+
 interface DatabaseTables {
   [database: string]: string[];
+}
+
+function loadTableViewMode(): 'list' | 'grid' {
+  try {
+    const saved = localStorage.getItem(TABLE_VIEW_MODE_KEY);
+    if (saved === 'list' || saved === 'grid') return saved;
+  } catch {}
+  return 'grid';
 }
 
 export default function TableView() {
@@ -26,7 +36,7 @@ export default function TableView() {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set());
   const [loadingDatabases, setLoadingDatabases] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(loadTableViewMode);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [viewingStructure, setViewingStructure] = useState<string | null>(null);
   const [importingTable, setImportingTable] = useState<string | null>(null);
@@ -222,7 +232,11 @@ export default function TableView() {
           </h2>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
+              onClick={() => {
+                const next = viewMode === 'list' ? 'grid' : 'list';
+                setViewMode(next);
+                localStorage.setItem(TABLE_VIEW_MODE_KEY, next);
+              }}
               className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
               style={{ color: 'var(--neu-text)' }}
               title={viewMode === 'list' ? '切换到网格视图' : '切换到列表视图'}
