@@ -345,8 +345,8 @@ function App() {
                 </div>
               ) : queryResult ? (
                 <ResultTable result={queryResult} sql={savedSql} />
-              ) : currentConnectionId && currentDatabase !== null ? (
-                // 选中数据库但未选中表时：显示数据表视图
+              ) : currentConnectionId && currentDatabase !== null && currentTab?.name !== "新查询" ? (
+                // 选中数据库且非新建查询页时：显示数据表视图
                 <TableView />
               ) : (
                 <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
