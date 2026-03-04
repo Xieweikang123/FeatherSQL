@@ -178,7 +178,7 @@ export default function TableView() {
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-sm" style={{ color: 'var(--neu-text-light)' }}>
-            <div className="mb-3 text-4xl opacity-50">📁</div>
+
             <div className="font-medium">请先选择一个连接</div>
           </div>
         </div>
@@ -378,7 +378,7 @@ export default function TableView() {
                     style={{ color: 'var(--neu-text)' }}
                     title={`左键点击查询表，右键点击查看结构: ${table}`}
                   >
-                    <span className="text-base flex-shrink-0 mt-0.5 opacity-70">📄</span>
+                    <span className="text-sm flex-shrink-0 mt-0.5 opacity-70">📄</span>
                     <span 
                       className="font-normal flex-1 min-w-0 leading-relaxed" 
                       style={{ 
@@ -501,7 +501,7 @@ export default function TableView() {
                     style={{ color: 'var(--neu-text)' }}
                     title={`左键点击查询表，右键点击查看结构: ${table}`}
                   >
-                    <span className="text-base flex-shrink-0 mt-0.5 opacity-70">📄</span>
+                    <span className="text-sm flex-shrink-0 mt-0.5 opacity-70">📄</span>
                     <span 
                       className="font-normal flex-1 min-w-0 leading-relaxed" 
                       style={{ 
@@ -596,7 +596,7 @@ export default function TableView() {
                           }}>
                             ▶
                           </span>
-                          <span className="text-base flex-shrink-0 opacity-70">📁</span>
+
                           <span className="font-medium flex-1 min-w-0 leading-relaxed" style={{ 
                             color: currentDatabase === database ? 'var(--neu-accent)' : 'rgba(240, 240, 240, 0.85)',
                             wordBreak: 'break-word',
@@ -649,7 +649,7 @@ export default function TableView() {
                                 style={{ color: 'var(--neu-text)' }}
                                 title={`左键点击查询表，右键点击查看结构: ${table}`}
                               >
-                                <span className="text-base flex-shrink-0 mt-0.5 opacity-70">📄</span>
+                                <span className="text-sm flex-shrink-0 mt-0.5 opacity-70">📄</span>
                                 <span 
                                   className="font-normal flex-1 min-w-0 leading-relaxed" 
                                   style={{ 
