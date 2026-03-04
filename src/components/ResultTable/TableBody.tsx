@@ -62,7 +62,7 @@ export default function TableBody({
   return (
     <tbody>
       {paginatedRows.map((row, paginatedRowIndex) => {
-        // 计算在原始 filteredRows 中的索引
+        // 计算在原始 filteredRows 中的索引（用于事件处理器，必须传递完整结果中的索引）
         const originalFilteredIndex = (currentPage - 1) * pageSize + paginatedRowIndex;
         let originalRowIndex = result.rows.findIndex((r) => r === row);
         if (originalRowIndex === -1) {
@@ -74,7 +74,7 @@ export default function TableBody({
           <TableRow
             key={originalFilteredIndex}
             row={displayRow}
-            rowIndex={paginatedRowIndex}
+            rowIndex={originalFilteredIndex}
             originalRowIndex={originalRowIndex}
             columns={displayColumns}
             editMode={editMode}

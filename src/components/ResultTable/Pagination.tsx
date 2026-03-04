@@ -20,6 +20,9 @@ export default function Pagination({
   const startRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const endRow = Math.min(currentPage * pageSize, totalRows);
 
+  // 合并每页条数选项：标准选项 + 当全部显示时加入 totalRows（显示为「全部」）
+  const effectiveOptions = [...new Set([...pageSizeOptions, totalRows])].filter((n) => n > 0).sort((a, b) => a - b);
+
   const handlePrevious = () => {
     if (currentPage > 1) {
       onPageChange(currentPage - 1);
@@ -112,9 +115,9 @@ export default function Pagination({
               border: "1px solid var(--neu-dark)",
             }}
           >
-            {pageSizeOptions.map((size) => (
+            {effectiveOptions.map((size) => (
               <option key={size} value={size}>
-                {size}
+                {size === totalRows ? `全部 (${totalRows})` : size}
               </option>
             ))}
           </select>

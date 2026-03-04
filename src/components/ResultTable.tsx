@@ -167,6 +167,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     // 重置到第一页
     setCurrentPage(1);
     setSortConfig([]); // 重置排序
+    // 新查询结果：直接展示全部数据（最多 5000 条，避免性能问题）
+    if (result?.rows?.length > 0) {
+      setPageSize(Math.min(result.rows.length, 5000));
+    }
   }, [result, setEditedData]);
 
   // 构建带 WHERE 条件和 ORDER BY 的 SQL（使用工具函数）
@@ -181,7 +185,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 执行带过滤和排序的 SQL 查询
   const executeFilteredAndSortedSql = useCallback(async (filters: Record<string, string>, sortConfig: Array<{ column: string; direction: 'asc' | 'desc' }>) => {
-    if (!currentConnectionId || !originalSqlRef.current) {
+    // 使用 originalSqlRef，若为空则回退到 actualExecutedSql（处理 sql 为空字符串等边界情况）
+    const baseSql = originalSqlRef.current?.trim() || actualExecutedSqlRef.current?.trim() || currentTab?.actualExecutedSql?.trim() || sql?.trim();
+    if (!currentConnectionId || !baseSql) {
       return;
     }
 
@@ -210,10 +216,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       let sqlToExecute: string;
       if (activeFilters.length === 0 && sortConfig.length === 0) {
         // 没有过滤条件和排序，使用原始 SQL
-        sqlToExecute = originalSqlRef.current;
+        sqlToExecute = baseSql;
       } else {
         // 构建带 WHERE 条件和 ORDER BY 的 SQL
-        sqlToExecute = buildFilteredAndSortedSqlCallback(originalSqlRef.current, filters, sortConfig);
+        sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig);
       }
       
       console.log('executeFilteredAndSortedSql: sqlToExecute =', sqlToExecute);
@@ -258,7 +264,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } finally {
       setIsFiltering(false);
     }
-    }, [currentConnectionId, originalSqlRef, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, currentTab, updateTab, editMode, editing, result]);
+    }, [currentConnectionId, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, currentTab, updateTab, editMode, editing, result, sql]);
 
 
 
@@ -673,48 +679,38 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const handleSort = useCallback((column: string, e: React.MouseEvent) => {
     const isShiftKey = e.shiftKey;
     
-    setSortConfig(prev => {
-      // 查找该列是否已存在排序配置
-      const existingIndex = prev.findIndex(s => s.column === column);
-      
-      let newConfig: Array<{ column: string; direction: 'asc' | 'desc' }>;
-      
-      if (isShiftKey) {
-        // Shift+点击：添加或更新多列排序
-        if (existingIndex !== -1) {
-          // 如果已存在，切换排序方向
-          newConfig = [...prev];
-          newConfig[existingIndex] = {
-            column,
-            direction: newConfig[existingIndex].direction === 'asc' ? 'desc' : 'asc'
-          };
-        } else {
-          // 如果不存在，添加新的排序
-          newConfig = [...prev, { column, direction: 'asc' }];
-        }
+    // 先计算新的排序配置
+    const existingIndex = sortConfig.findIndex(s => s.column === column);
+    let newConfig: Array<{ column: string; direction: 'asc' | 'desc' }>;
+    
+    if (isShiftKey) {
+      // Shift+点击：添加或更新多列排序
+      if (existingIndex !== -1) {
+        newConfig = [...sortConfig];
+        newConfig[existingIndex] = {
+          column,
+          direction: newConfig[existingIndex].direction === 'asc' ? 'desc' : 'asc'
+        };
       } else {
-        // 普通点击：单列排序，清除其他排序
-        if (existingIndex !== -1 && prev.length === 1) {
-          // 如果只有这一列且已存在，切换方向
-          newConfig = [{
-            column,
-            direction: prev[existingIndex].direction === 'asc' ? 'desc' : 'asc'
-          }];
-        } else {
-          // 否则，设置为新的单列排序
-          newConfig = [{ column, direction: 'asc' }];
-        }
+        newConfig = [...sortConfig, { column, direction: 'asc' }];
       }
-      
-      // 排序配置改变后，重新执行查询
-      executeFilteredAndSortedSql(columnFilters, newConfig);
-      
-      // 排序改变时重置到第一页
-      setCurrentPage(1);
-      
-      return newConfig;
-    });
-  }, [columnFilters, executeFilteredAndSortedSql]);
+    } else {
+      // 普通点击：单列排序，清除其他排序
+      if (existingIndex !== -1 && sortConfig.length === 1) {
+        newConfig = [{
+          column,
+          direction: sortConfig[existingIndex].direction === 'asc' ? 'desc' : 'asc'
+        }];
+      } else {
+        newConfig = [{ column, direction: 'asc' }];
+      }
+    }
+    
+    setSortConfig(newConfig);
+    setCurrentPage(1);
+    // 使用 columnFiltersRef 获取最新筛选值，与 handleFilterSearch 保持一致
+    executeFilteredAndSortedSql(columnFiltersRef.current, newConfig);
+  }, [sortConfig, columnFiltersRef, executeFilteredAndSortedSql]);
 
   // 处理序号列点击，选中整行
   const handleRowNumberClick = useCallback((filteredRowIndex: number, e: React.MouseEvent) => {
