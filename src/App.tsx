@@ -193,51 +193,6 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen" style={{ backgroundColor: 'var(--neu-bg)', color: 'var(--neu-text)' }}>
-      {/* Top bar */}
-      <header className="flex items-center justify-between px-5 py-3 neu-raised" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
-        <h1 className="text-xl font-bold" style={{ 
-          background: 'linear-gradient(135deg, var(--neu-accent-light) 0%, var(--neu-accent) 50%, var(--neu-accent-dark) 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text',
-          textShadow: '0 0 20px rgba(91, 155, 213, 0.3)',
-          filter: 'drop-shadow(0 0 2px rgba(91, 155, 213, 0.5))'
-        }}>
-          FeatherSQL
-        </h1>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setHistoryExpanded(!historyExpanded)}
-            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-all duration-200 neu-hover neu-active ${
-              historyExpanded
-                ? "neu-pressed"
-                : "neu-flat"
-            }`}
-            style={{ color: historyExpanded ? 'var(--neu-accent-dark)' : 'var(--neu-text)' }}
-          >
-            {historyExpanded ? "隐藏历史" : "显示历史"}
-          </button>
-          <div className="flex items-center gap-2 px-3 py-1.5 neu-flat rounded-lg">
-            <div
-              className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
-                currentConnectionId 
-                  ? "animate-pulse" 
-                  : ""
-              }`}
-              style={{ 
-                backgroundColor: currentConnectionId ? 'var(--neu-success)' : 'rgba(255, 255, 255, 0.1)',
-                boxShadow: currentConnectionId 
-                  ? '0 0 10px var(--neu-success), 0 0 20px rgba(102, 187, 106, 0.3)' 
-                  : 'inset 0 0 4px rgba(0, 0, 0, 0.5)'
-              }}
-            />
-            <span className="text-sm font-medium" style={{ color: 'var(--neu-text)' }}>
-              {currentConnectionId ? "已连接" : "未连接"}
-            </span>
-          </div>
-        </div>
-      </header>
-
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Connections */}
         <aside 
@@ -276,8 +231,33 @@ function App() {
 
         {/* Main content */}
         <main ref={mainContentRef} className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {/* Tab Bar - 始终显示 */}
-          <TabBar />
+          {/* Tab Bar 行：FeatherSQL + 标签页 + 操作按钮（合并原顶部栏，节省垂直空间） */}
+          <div className="flex items-center gap-2 px-2 py-1 neu-flat overflow-x-auto" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
+            <TabBar />
+            <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+              <button
+                onClick={() => setHistoryExpanded(!historyExpanded)}
+                className={`px-3 py-1 text-xs rounded-lg font-medium transition-all duration-200 neu-hover neu-active ${
+                  historyExpanded ? "neu-pressed" : "neu-flat"
+                }`}
+                style={{ color: historyExpanded ? 'var(--neu-accent-dark)' : 'var(--neu-text)' }}
+              >
+                {historyExpanded ? "隐藏历史" : "显示历史"}
+              </button>
+              <div className="flex items-center gap-1.5 px-2 py-1 neu-flat rounded-lg">
+                <div
+                  className={`w-2 h-2 rounded-full transition-all duration-300 ${currentConnectionId ? "animate-pulse" : ""}`}
+                  style={{
+                    backgroundColor: currentConnectionId ? 'var(--neu-success)' : 'rgba(255, 255, 255, 0.1)',
+                    boxShadow: currentConnectionId ? '0 0 8px var(--neu-success)' : 'inset 0 0 4px rgba(0, 0, 0, 0.5)',
+                  }}
+                />
+                <span className="text-xs font-medium" style={{ color: 'var(--neu-text)' }}>
+                  {currentConnectionId ? "已连接" : "未连接"}
+                </span>
+              </div>
+            </div>
+          </div>
           
           {/* 始终显示 SQL 编辑器 */}
           <>

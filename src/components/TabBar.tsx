@@ -17,7 +17,7 @@ export default function TabBar() {
   };
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1 neu-flat overflow-x-auto" style={{ borderBottom: '1px solid var(--neu-dark)' }}>
+    <div className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
       {tabs.map((tab) => {
         const isActive = tab.id === currentTabId;
         const hasError = tab.error !== null;
