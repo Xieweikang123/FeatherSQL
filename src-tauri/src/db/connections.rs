@@ -1,13 +1,13 @@
+use crate::db::pool_manager::{DatabasePool, PoolManager};
+use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
+use sqlx::Row;
 use std::fs;
 use std::path::PathBuf;
-use sqlx::Row;
-use tiberius::{Config, AuthMethod, Client, QueryItem};
+use tauri::{Manager, State};
+use tiberius::{AuthMethod, Client, Config, QueryItem};
 use tokio::net::TcpStream;
-use tokio_util::compat::{TokioAsyncWriteCompatExt, Compat};
-use futures_util::TryStreamExt;
-use crate::db::pool_manager::{PoolManager, DatabasePool};
+use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 // Helper function to create MSSQL client connection
 async fn create_mssql_client(
@@ -22,18 +22,18 @@ async fn create_mssql_client(
     config.port(port);
     config.authentication(AuthMethod::sql_server(user, password));
     config.trust_cert();
-    
+
     if let Some(db) = database {
         config.database(db);
     }
-    
+
     let tcp = TcpStream::connect(config.get_addr())
         .await
         .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
-    
+
     tcp.set_nodelay(true)
         .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
-    
+
     Client::connect(config, tcp.compat_write())
         .await
         .map_err(|e| format!("MSSQL 连接失败: {}", e))
@@ -100,7 +100,7 @@ pub(crate) fn load_connections(app: &tauri::AppHandle) -> Vec<Connection> {
             return vec![];
         }
     };
-    
+
     // Try to read the connections file if it exists
     if path.exists() {
         match fs::read_to_string(&path) {
@@ -119,12 +119,15 @@ pub(crate) fn load_connections(app: &tauri::AppHandle) -> Vec<Connection> {
             }
         }
     }
-    
+
     // Return empty list if file doesn't exist or any error occurred
     vec![]
 }
 
-pub(crate) fn save_connections(app: &tauri::AppHandle, connections: &[Connection]) -> Result<(), String> {
+pub(crate) fn save_connections(
+    app: &tauri::AppHandle,
+    connections: &[Connection],
+) -> Result<(), String> {
     let path = get_store_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
@@ -143,7 +146,7 @@ pub async fn create_connection(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    
+
     let connection_config = match db_type.as_str() {
         "sqlite" => {
             let filepath = config
@@ -273,9 +276,7 @@ pub async fn create_connection(
 }
 
 #[tauri::command]
-pub async fn get_connections(
-    app: tauri::AppHandle,
-) -> Result<Vec<Connection>, String> {
+pub async fn get_connections(app: tauri::AppHandle) -> Result<Vec<Connection>, String> {
     // load_connections already handles all error cases gracefully
     // (missing directory, missing file, parse errors, etc.)
     Ok(load_connections(&app))
@@ -290,7 +291,7 @@ pub async fn update_connection(
     pool_manager: State<'_, PoolManager>,
 ) -> Result<(), String> {
     let mut connections = load_connections(&app);
-    
+
     if let Some(conn) = connections.iter_mut().find(|c| c.id == id) {
         if let Some(new_name) = name {
             conn.name = new_name;
@@ -307,31 +308,115 @@ pub async fn update_connection(
                     ConnectionConfig::Sqlite { filepath }
                 }
                 "mysql" => {
-                    let host = new_config.get("host").and_then(|v| v.as_str()).unwrap_or("localhost").to_string();
-                    let port = new_config.get("port").and_then(|v| v.as_u64()).unwrap_or(3306) as u16;
-                    let user = new_config.get("user").and_then(|v| v.as_str()).unwrap_or("root").to_string();
-                    let password = new_config.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let database = new_config.get("database").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let ssl = new_config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
-                    ConnectionConfig::Mysql { host, port, user, password, database, ssl }
+                    let host = new_config
+                        .get("host")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("localhost")
+                        .to_string();
+                    let port = new_config
+                        .get("port")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(3306) as u16;
+                    let user = new_config
+                        .get("user")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("root")
+                        .to_string();
+                    let password = new_config
+                        .get("password")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let database = new_config
+                        .get("database")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let ssl = new_config
+                        .get("ssl")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    ConnectionConfig::Mysql {
+                        host,
+                        port,
+                        user,
+                        password,
+                        database,
+                        ssl,
+                    }
                 }
                 "postgres" => {
-                    let host = new_config.get("host").and_then(|v| v.as_str()).unwrap_or("localhost").to_string();
-                    let port = new_config.get("port").and_then(|v| v.as_u64()).unwrap_or(5432) as u16;
-                    let user = new_config.get("user").and_then(|v| v.as_str()).unwrap_or("postgres").to_string();
-                    let password = new_config.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let database = new_config.get("database").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let ssl = new_config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
-                    ConnectionConfig::Postgres { host, port, user, password, database, ssl }
+                    let host = new_config
+                        .get("host")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("localhost")
+                        .to_string();
+                    let port = new_config
+                        .get("port")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(5432) as u16;
+                    let user = new_config
+                        .get("user")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("postgres")
+                        .to_string();
+                    let password = new_config
+                        .get("password")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let database = new_config
+                        .get("database")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let ssl = new_config
+                        .get("ssl")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    ConnectionConfig::Postgres {
+                        host,
+                        port,
+                        user,
+                        password,
+                        database,
+                        ssl,
+                    }
                 }
                 "mssql" => {
-                    let host = new_config.get("host").and_then(|v| v.as_str()).unwrap_or("localhost").to_string();
-                    let port = new_config.get("port").and_then(|v| v.as_u64()).unwrap_or(1433) as u16;
-                    let user = new_config.get("user").and_then(|v| v.as_str()).unwrap_or("sa").to_string();
-                    let password = new_config.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let database = new_config.get("database").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let ssl = new_config.get("ssl").and_then(|v| v.as_bool()).unwrap_or(false);
-                    ConnectionConfig::Mssql { host, port, user, password, database, ssl }
+                    let host = new_config
+                        .get("host")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("localhost")
+                        .to_string();
+                    let port = new_config
+                        .get("port")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(1433) as u16;
+                    let user = new_config
+                        .get("user")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("sa")
+                        .to_string();
+                    let password = new_config
+                        .get("password")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let database = new_config
+                        .get("database")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let ssl = new_config
+                        .get("ssl")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    ConnectionConfig::Mssql {
+                        host,
+                        port,
+                        user,
+                        password,
+                        database,
+                        ssl,
+                    }
                 }
                 _ => return Err("Unsupported database type".to_string()),
             };
@@ -342,7 +427,7 @@ pub async fn update_connection(
     } else {
         return Err("Connection not found".to_string());
     }
-    
+
     save_connections(&app, &connections)?;
     Ok(())
 }
@@ -366,7 +451,7 @@ pub async fn delete_connection(
     let mut connections = load_connections(&app);
     connections.retain(|c| c.id != id);
     save_connections(&app, &connections)?;
-    
+
     // Clear pool cache when connection is deleted
     pool_manager.remove_pool(&id).await;
 
@@ -390,8 +475,15 @@ fn get_connection_string_for_test(config: &ConnectionConfig) -> Result<String, S
             database,
             ssl,
         } => {
-            let db_part = database.as_ref().map(|d| format!("/{}", d)).unwrap_or_default();
-            let ssl_param = if *ssl { "?ssl-mode=REQUIRED" } else { "?ssl-mode=DISABLED" };
+            let db_part = database
+                .as_ref()
+                .map(|d| format!("/{}", d))
+                .unwrap_or_default();
+            let ssl_param = if *ssl {
+                "?ssl-mode=REQUIRED"
+            } else {
+                "?ssl-mode=DISABLED"
+            };
             Ok(format!(
                 "mysql://{}:{}@{}:{}{}{}",
                 user, password, host, port, db_part, ssl_param
@@ -405,8 +497,15 @@ fn get_connection_string_for_test(config: &ConnectionConfig) -> Result<String, S
             database,
             ssl,
         } => {
-            let db_part = database.as_ref().map(|d| format!("/{}", d)).unwrap_or_default();
-            let ssl_param = if *ssl { "?sslmode=require" } else { "?sslmode=disable" };
+            let db_part = database
+                .as_ref()
+                .map(|d| format!("/{}", d))
+                .unwrap_or_default();
+            let ssl_param = if *ssl {
+                "?sslmode=require"
+            } else {
+                "?sslmode=disable"
+            };
             Ok(format!(
                 "postgres://{}:{}@{}:{}{}{}",
                 user, password, host, port, db_part, ssl_param
@@ -421,7 +520,10 @@ fn get_connection_string_for_test(config: &ConnectionConfig) -> Result<String, S
             ssl: _,
         } => {
             // Note: tiberius doesn't use connection strings, but we'll format it for reference
-            let db_part = database.as_ref().map(|d| format!(";database={}", d)).unwrap_or_default();
+            let db_part = database
+                .as_ref()
+                .map(|d| format!(";database={}", d))
+                .unwrap_or_default();
             Ok(format!(
                 "mssql://{}:{}@{}:{}{}",
                 user, password, host, port, db_part
@@ -431,10 +533,7 @@ fn get_connection_string_for_test(config: &ConnectionConfig) -> Result<String, S
 }
 
 #[tauri::command]
-pub async fn test_connection(
-    db_type: String,
-    config: serde_json::Value,
-) -> Result<String, String> {
+pub async fn test_connection(db_type: String, config: serde_json::Value) -> Result<String, String> {
     let connection_config = match db_type.as_str() {
         "sqlite" => {
             let filepath = config
@@ -629,30 +728,35 @@ pub async fn test_connection(
                     if let Some(db) = database {
                         config.database(db);
                     }
-                    
+
                     // Connect to SQL Server
                     let tcp = TcpStream::connect(config.get_addr())
                         .await
                         .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
-                    
+
                     tcp.set_nodelay(true)
                         .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
-                    
+
                     // Create client (tiberius handles encryption internally if needed)
                     let mut client = Client::connect(config, tcp.compat_write())
                         .await
                         .map_err(|e| format!("MSSQL 连接失败: {}", e))?;
-                    
+
                     // Execute a simple query to verify the connection
-                    let mut stream = client.query("SELECT 1", &[]).await
+                    let mut stream = client
+                        .query("SELECT 1", &[])
+                        .await
                         .map_err(|e| format!("MSSQL 查询失败: {}", e))?;
-                    
+
                     // Consume the stream to verify the query executed
-                    while let Some(_row) = stream.try_next().await
-                        .map_err(|e| format!("MSSQL 读取结果失败: {}", e))? {
+                    while let Some(_row) = stream
+                        .try_next()
+                        .await
+                        .map_err(|e| format!("MSSQL 读取结果失败: {}", e))?
+                    {
                         // Just consume rows to verify connection works
                     }
-                    
+
                     Ok("MSSQL 连接成功".to_string())
                 }
                 _ => Err("无效的 MSSQL 配置".to_string()),
@@ -691,25 +795,31 @@ pub async fn list_databases(
                 ssl: _,
             } => {
                 // Connect without specific database to list all databases
-                let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, *port, user, password, None).await?;
-                
+                let mut client: Client<Compat<TcpStream>> =
+                    create_mssql_client(host, *port, user, password, None).await?;
+
                 // Query databases (exclude system databases with database_id <= 4)
-                let mut stream: tiberius::QueryStream<'_> = client.query(
-                    "SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name",
-                    &[]
-                ).await
+                let mut stream: tiberius::QueryStream<'_> = client
+                    .query(
+                        "SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name",
+                        &[],
+                    )
+                    .await
                     .map_err(|e| format!("查询数据库列表失败: {}", e))?;
-                
+
                 let mut databases = Vec::new();
-                while let Some(item) = stream.try_next().await
-                    .map_err(|e| format!("读取结果失败: {}", e))? {
+                while let Some(item) = stream
+                    .try_next()
+                    .await
+                    .map_err(|e| format!("读取结果失败: {}", e))?
+                {
                     if let QueryItem::Row(row) = item {
                         if let Some(name) = row.try_get::<&str, _>(0).ok().flatten() {
                             databases.push(name.to_string());
                         }
                     }
                 }
-                
+
                 return Ok(databases);
             }
             _ => return Err("无效的 MSSQL 配置".to_string()),
@@ -726,25 +836,27 @@ pub async fn list_databases(
                 .fetch_all(&p)
                 .await
                 .map_err(|e| format!("Failed to list databases: {}", e))?;
-            
+
             let databases: Vec<String> = result
                 .into_iter()
                 .map(|row| row.get::<String, _>(0))
                 .collect();
-            
+
             Ok(databases)
         }
         DatabasePool::Postgres(p) => {
-            let result = sqlx::query("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname")
-                .fetch_all(&p)
-                .await
-                .map_err(|e| format!("Failed to list databases: {}", e))?;
-            
+            let result = sqlx::query(
+                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
+            )
+            .fetch_all(&p)
+            .await
+            .map_err(|e| format!("Failed to list databases: {}", e))?;
+
             let databases: Vec<String> = result
                 .into_iter()
                 .map(|row| row.get::<String, _>(0))
                 .collect();
-            
+
             Ok(databases)
         }
         _ => Ok(vec![]),
@@ -777,10 +889,11 @@ pub async fn list_tables(
             } => {
                 // Use specified database or config database
                 let db_name = database.as_deref().or(config_db.as_deref());
-                
+
                 // Create client connection
-                let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, *port, user, password, db_name).await?;
-                
+                let mut client: Client<Compat<TcpStream>> =
+                    create_mssql_client(host, *port, user, password, db_name).await?;
+
                 // Query tables from information_schema (optimized query)
                 let query = if let Some(db) = db_name {
                     format!(
@@ -790,21 +903,25 @@ pub async fn list_tables(
                 } else {
                     "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME".to_string()
                 };
-                
-                let mut stream: tiberius::QueryStream<'_> = client.query(&query, &[])
+
+                let mut stream: tiberius::QueryStream<'_> = client
+                    .query(&query, &[])
                     .await
                     .map_err(|e| format!("查询表列表失败: {}", e))?;
-                
+
                 let mut tables = Vec::new();
-                while let Some(item) = stream.try_next().await
-                    .map_err(|e| format!("读取结果失败: {}", e))? {
+                while let Some(item) = stream
+                    .try_next()
+                    .await
+                    .map_err(|e| format!("读取结果失败: {}", e))?
+                {
                     if let QueryItem::Row(row) = item {
                         if let Some(name) = row.try_get::<&str, _>(0).ok().flatten() {
                             tables.push(name.to_string());
                         }
                     }
                 }
-                
+
                 return Ok(tables);
             }
             _ => return Err("无效的 MSSQL 配置".to_string()),
@@ -812,7 +929,9 @@ pub async fn list_tables(
     }
 
     // Get or create pool (with database if specified)
-    let pool = pool_manager.get_or_create_pool(&connection, database.as_deref()).await?;
+    let pool = pool_manager
+        .get_or_create_pool(&connection, database.as_deref())
+        .await?;
 
     // Query tables
     match pool {
@@ -821,12 +940,12 @@ pub async fn list_tables(
                 .fetch_all(&p)
                 .await
                 .map_err(|e| format!("Failed to list tables: {}", e))?;
-            
+
             let tables: Vec<String> = result
                 .into_iter()
                 .map(|row| row.get::<String, _>(0))
                 .collect();
-            
+
             Ok(tables)
         }
         DatabasePool::Mysql(p) => {
@@ -836,17 +955,17 @@ pub async fn list_tables(
             } else {
                 "SHOW TABLES".to_string()
             };
-            
+
             let result = sqlx::query(&query)
                 .fetch_all(&p)
                 .await
                 .map_err(|e| format!("Failed to list tables: {}", e))?;
-            
+
             let tables: Vec<String> = result
                 .into_iter()
                 .map(|row| row.get::<String, _>(0))
                 .collect();
-            
+
             Ok(tables)
         }
         DatabasePool::Postgres(p) => {
@@ -855,17 +974,17 @@ pub async fn list_tables(
                 "SELECT table_name FROM information_schema.tables 
                  WHERE table_schema = 'public' 
                  AND table_type = 'BASE TABLE'
-                 ORDER BY table_name"
+                 ORDER BY table_name",
             )
-                .fetch_all(&p)
-                .await
-                .map_err(|e| format!("Failed to list tables: {}", e))?;
-            
+            .fetch_all(&p)
+            .await
+            .map_err(|e| format!("Failed to list tables: {}", e))?;
+
             let tables: Vec<String> = result
                 .into_iter()
                 .map(|row| row.get::<String, _>(0))
                 .collect();
-            
+
             Ok(tables)
         }
     }
@@ -907,12 +1026,13 @@ pub async fn describe_table(
                 ssl: _,
             } => {
                 let db_name = database.as_deref().or(config_db.as_deref());
-                let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, *port, user, password, db_name).await?;
-                
+                let mut client: Client<Compat<TcpStream>> =
+                    create_mssql_client(host, *port, user, password, db_name).await?;
+
                 // Escape table name
                 let escaped_table = table_name.replace("'", "''");
                 let escaped_db = db_name.map(|d| d.replace("'", "''"));
-                
+
                 // Query column information from information_schema
                 let query = if let Some(db) = &escaped_db {
                     format!(
@@ -966,27 +1086,41 @@ pub async fn describe_table(
                         escaped_table
                     )
                 };
-                
-                let mut stream: tiberius::QueryStream<'_> = client.query(&query, &[])
+
+                let mut stream: tiberius::QueryStream<'_> = client
+                    .query(&query, &[])
                     .await
                     .map_err(|e| format!("查询表结构失败: {}", e))?;
-                
+
                 let mut columns = Vec::new();
-                while let Some(item) = stream.try_next().await
-                    .map_err(|e| format!("读取结果失败: {}", e))? {
+                while let Some(item) = stream
+                    .try_next()
+                    .await
+                    .map_err(|e| format!("读取结果失败: {}", e))?
+                {
                     if let QueryItem::Row(row) = item {
-                        let name = row.try_get::<&str, _>(0).ok().flatten()
+                        let name = row
+                            .try_get::<&str, _>(0)
+                            .ok()
+                            .flatten()
                             .ok_or_else(|| "无法获取列名".to_string())?
                             .to_string();
-                        let data_type = row.try_get::<&str, _>(1).ok().flatten()
+                        let data_type = row
+                            .try_get::<&str, _>(1)
+                            .ok()
+                            .flatten()
                             .unwrap_or("")
                             .to_string();
                         let nullable_str = row.try_get::<&str, _>(2).ok().flatten().unwrap_or("NO");
                         let nullable = nullable_str == "YES";
-                        let default = row.try_get::<&str, _>(3).ok().flatten().map(|s| s.to_string());
+                        let default = row
+                            .try_get::<&str, _>(3)
+                            .ok()
+                            .flatten()
+                            .map(|s| s.to_string());
                         let is_pk = row.try_get::<i32, _>(4).ok().flatten().unwrap_or(0) == 1;
                         let is_identity = row.try_get::<i32, _>(5).ok().flatten().unwrap_or(0) == 1;
-                        
+
                         columns.push(ColumnInfo {
                             name,
                             data_type,
@@ -997,7 +1131,7 @@ pub async fn describe_table(
                         });
                     }
                 }
-                
+
                 return Ok(columns);
             }
             _ => return Err("无效的 MSSQL 配置".to_string()),
@@ -1005,7 +1139,9 @@ pub async fn describe_table(
     }
 
     // Get or create pool (with database if specified)
-    let pool = pool_manager.get_or_create_pool(&connection, database.as_deref()).await?;
+    let pool = pool_manager
+        .get_or_create_pool(&connection, database.as_deref())
+        .await?;
 
     // Query table structure
     match pool {
@@ -1016,7 +1152,7 @@ pub async fn describe_table(
                 .fetch_all(&p)
                 .await
                 .map_err(|e| format!("查询表结构失败: {}", e))?;
-            
+
             let columns: Vec<ColumnInfo> = result
                 .into_iter()
                 .map(|row| {
@@ -1026,7 +1162,7 @@ pub async fn describe_table(
                     let notnull: i64 = row.get(3);
                     let default: Option<String> = row.get(4);
                     let pk: i64 = row.get(5);
-                    
+
                     ColumnInfo {
                         name,
                         data_type,
@@ -1037,7 +1173,7 @@ pub async fn describe_table(
                     }
                 })
                 .collect();
-            
+
             Ok(columns)
         }
         DatabasePool::Mysql(p) => {
@@ -1049,12 +1185,12 @@ pub async fn describe_table(
             } else {
                 format!("SHOW COLUMNS FROM `{}`", escaped_table)
             };
-            
+
             let result = sqlx::query(&query)
                 .fetch_all(&p)
                 .await
                 .map_err(|e| format!("查询表结构失败: {}", e))?;
-            
+
             let columns: Vec<ColumnInfo> = result
                 .into_iter()
                 .map(|row| {
@@ -1064,7 +1200,7 @@ pub async fn describe_table(
                     let key: String = row.get(3);
                     let default: Option<String> = row.get(4);
                     let extra: String = row.get(5);
-                    
+
                     ColumnInfo {
                         name: field,
                         data_type: type_str,
@@ -1075,7 +1211,7 @@ pub async fn describe_table(
                     }
                 })
                 .collect();
-            
+
             Ok(columns)
         }
         DatabasePool::Postgres(p) => {
@@ -1103,12 +1239,12 @@ pub async fn describe_table(
                 ORDER BY c.ordinal_position",
                 escaped_table
             );
-            
+
             let result = sqlx::query(&query)
                 .fetch_all(&p)
                 .await
                 .map_err(|e| format!("查询表结构失败: {}", e))?;
-            
+
             let columns: Vec<ColumnInfo> = result
                 .into_iter()
                 .map(|row| {
@@ -1118,7 +1254,7 @@ pub async fn describe_table(
                     let default: Option<String> = row.get(3);
                     let is_pk: bool = row.get(4);
                     let is_auto: bool = row.get(5);
-                    
+
                     ColumnInfo {
                         name,
                         data_type,
@@ -1129,9 +1265,8 @@ pub async fn describe_table(
                     }
                 })
                 .collect();
-            
+
             Ok(columns)
         }
     }
 }
-

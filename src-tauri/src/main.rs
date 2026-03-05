@@ -4,15 +4,19 @@
 mod db;
 mod error;
 
-use crate::db::connections::{create_connection, get_connections, update_connection, delete_connection, disconnect_connection, test_connection, list_databases, list_tables, describe_table};
+use crate::db::connections::{
+    create_connection, delete_connection, describe_table, disconnect_connection, get_connections,
+    list_databases, list_tables, test_connection, update_connection,
+};
 use crate::db::execute::execute_sql;
+use crate::db::history::{add_sql_history, delete_sql_history, get_sql_history};
 use crate::db::pool_manager::PoolManager;
-use crate::db::history::{add_sql_history, get_sql_history, delete_sql_history};
 use crate::db::settings::{get_settings, update_settings};
 use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Initialize pool manager

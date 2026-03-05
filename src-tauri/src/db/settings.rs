@@ -62,7 +62,7 @@ pub async fn update_settings(
     app: AppHandle,
 ) -> Result<AppSettings, String> {
     let mut settings = load_settings(&app);
-    
+
     if let Some(count) = max_history_count {
         // Validate: must be between 1 and 100000
         if count < 1 || count > 100000 {
@@ -70,8 +70,7 @@ pub async fn update_settings(
         }
         settings.max_history_count = count;
     }
-    
+
     save_settings(&app, &settings)?;
     Ok(settings)
 }
-

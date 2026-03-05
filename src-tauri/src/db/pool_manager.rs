@@ -1,8 +1,8 @@
+use crate::db::connections::{Connection, ConnectionConfig};
+use sqlx::Pool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use sqlx::Pool;
-use crate::db::connections::{Connection, ConnectionConfig};
 
 #[derive(Clone)]
 pub enum DatabasePool {
@@ -57,7 +57,10 @@ impl PoolManager {
         Ok(pool)
     }
 
-    pub async fn get_pool_without_db(&self, connection: &Connection) -> Result<DatabasePool, String> {
+    pub async fn get_pool_without_db(
+        &self,
+        connection: &Connection,
+    ) -> Result<DatabasePool, String> {
         self.get_or_create_pool(connection, None).await
     }
 
@@ -85,7 +88,11 @@ impl PoolManager {
             } => {
                 let db_name = database.or(config_db.as_deref());
                 let db_part = db_name.map(|d| format!("/{}", d)).unwrap_or_default();
-                let ssl_param = if *ssl { "?ssl-mode=REQUIRED" } else { "?ssl-mode=DISABLED" };
+                let ssl_param = if *ssl {
+                    "?ssl-mode=REQUIRED"
+                } else {
+                    "?ssl-mode=DISABLED"
+                };
                 let connection_string = format!(
                     "mysql://{}:{}@{}:{}{}{}",
                     user, password, host, port, db_part, ssl_param
@@ -107,7 +114,11 @@ impl PoolManager {
             } => {
                 let db_name = database.or(config_db.as_deref());
                 let db_part = db_name.map(|d| format!("/{}", d)).unwrap_or_default();
-                let ssl_param = if *ssl { "?sslmode=require" } else { "?sslmode=disable" };
+                let ssl_param = if *ssl {
+                    "?sslmode=require"
+                } else {
+                    "?sslmode=disable"
+                };
                 let connection_string = format!(
                     "postgres://{}:{}@{}:{}{}{}",
                     user, password, host, port, db_part, ssl_param
@@ -127,15 +138,9 @@ impl PoolManager {
 
     async fn check_pool_health(pool: &DatabasePool) -> bool {
         match pool {
-            DatabasePool::Sqlite(p) => {
-                sqlx::query("SELECT 1").execute(p).await.is_ok()
-            }
-            DatabasePool::Mysql(p) => {
-                sqlx::query("SELECT 1").execute(p).await.is_ok()
-            }
-            DatabasePool::Postgres(p) => {
-                sqlx::query("SELECT 1").execute(p).await.is_ok()
-            }
+            DatabasePool::Sqlite(p) => sqlx::query("SELECT 1").execute(p).await.is_ok(),
+            DatabasePool::Mysql(p) => sqlx::query("SELECT 1").execute(p).await.is_ok(),
+            DatabasePool::Postgres(p) => sqlx::query("SELECT 1").execute(p).await.is_ok(),
         }
     }
 
@@ -150,4 +155,3 @@ impl PoolManager {
         pools.clear();
     }
 }
-

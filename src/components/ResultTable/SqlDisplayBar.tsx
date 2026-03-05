@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import ViewStructureButton from "./ViewStructureButton";
 import type { ExportFormat } from "../../utils/exportUtils";
 
@@ -38,7 +39,10 @@ export default function SqlDisplayBar({
   const [copied, setCopied] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
 
   const handleCopySql = async () => {
     // 复制实际执行的 SQL
@@ -53,11 +57,25 @@ export default function SqlDisplayBar({
     }
   };
 
+  // 打开菜单时计算位置并更新（用于 Portal 定位）
+  useEffect(() => {
+    if (showExportMenu && exportButtonRef.current) {
+      const rect = exportButtonRef.current.getBoundingClientRect();
+      setMenuPosition({ top: rect.bottom + 4, left: rect.right - 180 });
+    } else {
+      setMenuPosition(null);
+    }
+  }, [showExportMenu]);
+
   // 处理导出菜单点击外部关闭
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
-        setShowExportMenu(false);
+      const target = event.target as Node;
+      if (exportMenuRef.current && !exportMenuRef.current.contains(target)) {
+        const portalMenu = document.getElementById('export-menu-portal');
+        if (!portalMenu?.contains(target)) {
+          setShowExportMenu(false);
+        }
       }
     };
 
@@ -72,6 +90,7 @@ export default function SqlDisplayBar({
   const handleExport = async (format: ExportFormat, exportSelected: boolean) => {
     if (onExport) {
       setShowExportMenu(false);
+      setExportError(null);
       try {
         await onExport(format, exportSelected);
         // 显示成功提示
@@ -85,7 +104,9 @@ export default function SqlDisplayBar({
         setTimeout(() => setExportSuccess(null), 3000);
       } catch (error) {
         console.error('Export error:', error);
-        // 错误信息已经在 onExport 中记录
+        const message = error instanceof Error ? error.message : '导出失败';
+        setExportError(message);
+        setTimeout(() => setExportError(null), 3000);
       }
     } else {
       setShowExportMenu(false);
@@ -148,6 +169,7 @@ export default function SqlDisplayBar({
         {onExport && (
           <div className="relative" ref={exportMenuRef}>
             <button
+              ref={exportButtonRef}
               onClick={() => setShowExportMenu(!showExportMenu)}
               className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
               style={{ color: "var(--neu-text-light)" }}
@@ -170,10 +192,32 @@ export default function SqlDisplayBar({
                 ✓ {exportSuccess}
               </div>
             )}
-            {showExportMenu && (
+            {exportError && (
               <div
-                className="absolute right-0 mt-1 neu-raised rounded-lg shadow-lg py-1 z-50"
-                style={{ minWidth: "180px" }}
+                className="absolute right-0 mt-1 px-3 py-2 text-xs rounded-lg shadow-lg z-50 neu-raised"
+                style={{
+                  backgroundColor: 'var(--neu-warning)',
+                  color: '#fff',
+                  minWidth: '150px',
+                  whiteSpace: 'nowrap',
+                  animation: 'fadeIn 0.3s ease-in',
+                  fontWeight: '500'
+                }}
+              >
+                ⚠ {exportError}
+              </div>
+            )}
+            {showExportMenu && menuPosition && createPortal(
+              <div
+                id="export-menu-portal"
+                className="neu-raised rounded-lg shadow-lg py-1"
+                style={{
+                  position: 'fixed',
+                  top: menuPosition.top,
+                  left: menuPosition.left,
+                  minWidth: "180px",
+                  zIndex: 9999,
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="px-2 py-1 text-xs font-semibold" style={{ color: "var(--neu-text-light)", borderBottom: "1px solid var(--neu-dark)" }}>
@@ -228,7 +272,8 @@ export default function SqlDisplayBar({
                     </button>
                   </>
                 )}
-              </div>
+              </div>,
+              document.body
             )}
           </div>
         )}

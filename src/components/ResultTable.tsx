@@ -868,7 +868,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       }
 
       if (rowsToExport.length === 0) {
-        return;
+        throw new Error(exportSelected ? '没有选中的行可导出' : '没有数据可导出');
       }
 
       // 尝试从 SQL 中提取表名

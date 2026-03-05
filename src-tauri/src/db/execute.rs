@@ -1,13 +1,13 @@
-use serde::{Deserialize, Serialize};
 use crate::db::connections::{load_connections, ConnectionConfig};
-use crate::db::pool_manager::{PoolManager, DatabasePool};
 use crate::db::history;
-use tauri::State;
-use sqlx::{Row, Column};
-use tiberius::{Config, AuthMethod, Client, QueryItem};
-use tokio::net::TcpStream;
-use tokio_util::compat::{TokioAsyncWriteCompatExt, Compat};
+use crate::db::pool_manager::{DatabasePool, PoolManager};
 use futures_util::TryStreamExt;
+use serde::{Deserialize, Serialize};
+use sqlx::{Column, Row};
+use tauri::State;
+use tiberius::{AuthMethod, Client, Config, QueryItem};
+use tokio::net::TcpStream;
+use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 /// Convert a tiberius row value to JSON value
 fn mssql_value_to_json(row: &tiberius::Row, index: usize) -> serde_json::Value {
@@ -19,7 +19,7 @@ fn mssql_value_to_json(row: &tiberius::Row, index: usize) -> serde_json::Value {
         serde_json::Value::Number(v.into())
     } else if let Some(v) = row.try_get::<f64, _>(index).ok().flatten() {
         serde_json::Value::Number(
-            serde_json::Number::from_f64(v).unwrap_or(serde_json::Number::from(0))
+            serde_json::Number::from_f64(v).unwrap_or(serde_json::Number::from(0)),
         )
     } else if let Some(v) = row.try_get::<bool, _>(index).ok().flatten() {
         serde_json::Value::Bool(v)
@@ -46,18 +46,18 @@ async fn create_mssql_client(
     config.port(port);
     config.authentication(AuthMethod::sql_server(user, password));
     config.trust_cert();
-    
+
     if let Some(db) = database {
         config.database(db);
     }
-    
+
     let tcp = TcpStream::connect(config.get_addr())
         .await
         .map_err(|e| format!("无法连接到服务器 {}:{} - {}", host, port, e))?;
-    
+
     tcp.set_nodelay(true)
         .map_err(|e| format!("设置 TCP 选项失败: {}", e))?;
-    
+
     Client::connect(config, tcp.compat_write())
         .await
         .map_err(|e| format!("MSSQL 连接失败: {}", e))
@@ -104,32 +104,32 @@ pub async fn execute_sql(
                     password,
                     database.as_deref().or(config_db.as_deref()),
                     &sql,
-                ).await
+                )
+                .await
             }
             _ => Err("无效的 MSSQL 配置".to_string()),
         }
     } else {
         // Get or create pool (with database if specified)
-        let pool = pool_manager.get_or_create_pool(connection, database.as_deref()).await?;
+        let pool = pool_manager
+            .get_or_create_pool(connection, database.as_deref())
+            .await?;
 
         // Execute SQL based on database type
         match pool {
-            DatabasePool::Sqlite(p) => {
-                execute_sql_sqlite(&p, &sql).await
-            }
-            DatabasePool::Mysql(p) => {
-                execute_sql_mysql(&p, &sql).await
-            }
-            DatabasePool::Postgres(p) => {
-                execute_sql_postgres(&p, &sql).await
-            }
+            DatabasePool::Sqlite(p) => execute_sql_sqlite(&p, &sql).await,
+            DatabasePool::Mysql(p) => execute_sql_mysql(&p, &sql).await,
+            DatabasePool::Postgres(p) => execute_sql_postgres(&p, &sql).await,
         }
     };
 
     // Save to history
-    let rows_affected = result.as_ref().ok().and_then(|qr| extract_rows_affected(qr));
+    let rows_affected = result
+        .as_ref()
+        .ok()
+        .and_then(|qr| extract_rows_affected(qr));
     let error_msg = result.as_ref().err().map(|e| e.clone());
-    
+
     if let Err(e) = history::add_sql_history(
         connection_id.clone(),
         connection_name,
@@ -138,7 +138,9 @@ pub async fn execute_sql(
         error_msg,
         rows_affected,
         app.clone(),
-    ).await {
+    )
+    .await
+    {
         eprintln!("Failed to save SQL history: {}", e);
     }
 
@@ -150,16 +152,12 @@ fn extract_rows_affected(query_result: &QueryResult) -> Option<u64> {
     if query_result.rows.is_empty() {
         return None;
     }
-    
+
     if query_result.columns.len() == 1 && query_result.columns[0] == "affected_rows" {
         // Try to extract the number from the first row
-        query_result.rows[0].get(0).and_then(|val| {
-            match val {
-                serde_json::Value::Number(n) => {
-                    n.as_u64().or_else(|| n.as_i64().map(|i| i as u64))
-                }
-                _ => None,
-            }
+        query_result.rows[0].get(0).and_then(|val| match val {
+            serde_json::Value::Number(n) => n.as_u64().or_else(|| n.as_i64().map(|i| i as u64)),
+            _ => None,
         })
     } else {
         Some(query_result.rows.len() as u64)
@@ -178,7 +176,7 @@ macro_rules! row_to_json_values {
                     serde_json::Value::Number(v.into())
                 } else if let Ok(v) = $row.try_get::<f64, _>(i) {
                     serde_json::Value::Number(
-                        serde_json::Number::from_f64(v).unwrap_or(serde_json::Number::from(0))
+                        serde_json::Number::from_f64(v).unwrap_or(serde_json::Number::from(0)),
                     )
                 } else if let Ok(v) = $row.try_get::<bool, _>(i) {
                     serde_json::Value::Bool(v)
@@ -203,7 +201,7 @@ async fn execute_sql_sqlite(
 ) -> Result<QueryResult, String> {
     // Try to execute as a query first (SELECT statements)
     let query_result = sqlx::query(sql).fetch_all(pool).await;
-    
+
     match query_result {
         Ok(rows) => {
             // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
@@ -214,7 +212,7 @@ async fn execute_sql_sqlite(
                 } else {
                     sql.to_string()
                 };
-                
+
                 match sqlx::query(&limit_query).fetch_all(pool).await {
                     Ok(limit_rows) => {
                         if !limit_rows.is_empty() {
@@ -254,14 +252,12 @@ async fn execute_sql_sqlite(
         Err(_) => {
             // If query fails, try to execute as a command (INSERT, UPDATE, DELETE, etc.)
             match sqlx::query(sql).execute(pool).await {
-                Ok(result) => {
-                    Ok(QueryResult {
-                        columns: vec!["affected_rows".to_string()],
-                        rows: vec![vec![serde_json::Value::Number(
-                            serde_json::Number::from(result.rows_affected())
-                        )]],
-                    })
-                }
+                Ok(result) => Ok(QueryResult {
+                    columns: vec!["affected_rows".to_string()],
+                    rows: vec![vec![serde_json::Value::Number(serde_json::Number::from(
+                        result.rows_affected(),
+                    ))]],
+                }),
                 Err(e) => Err(format!("SQL execution failed: {}", e)),
             }
         }
@@ -274,7 +270,7 @@ async fn execute_sql_mysql(
 ) -> Result<QueryResult, String> {
     // Try to execute as a query first (SELECT statements)
     let query_result = sqlx::query(sql).fetch_all(pool).await;
-    
+
     match query_result {
         Ok(rows) => {
             // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
@@ -285,7 +281,7 @@ async fn execute_sql_mysql(
                 } else {
                     sql.to_string()
                 };
-                
+
                 match sqlx::query(&limit_query).fetch_all(pool).await {
                     Ok(limit_rows) => {
                         if !limit_rows.is_empty() {
@@ -323,14 +319,12 @@ async fn execute_sql_mysql(
         Err(_) => {
             // If query fails, try to execute as a command (INSERT, UPDATE, DELETE, etc.)
             match sqlx::query(sql).execute(pool).await {
-                Ok(result) => {
-                    Ok(QueryResult {
-                        columns: vec!["affected_rows".to_string()],
-                        rows: vec![vec![serde_json::Value::Number(
-                            serde_json::Number::from(result.rows_affected())
-                        )]],
-                    })
-                }
+                Ok(result) => Ok(QueryResult {
+                    columns: vec!["affected_rows".to_string()],
+                    rows: vec![vec![serde_json::Value::Number(serde_json::Number::from(
+                        result.rows_affected(),
+                    ))]],
+                }),
                 Err(e) => Err(format!("SQL execution failed: {}", e)),
             }
         }
@@ -343,7 +337,7 @@ async fn execute_sql_postgres(
 ) -> Result<QueryResult, String> {
     // Try to execute as a query first (SELECT statements)
     let query_result = sqlx::query(sql).fetch_all(pool).await;
-    
+
     match query_result {
         Ok(rows) => {
             // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
@@ -351,12 +345,13 @@ async fn execute_sql_postgres(
                 // If no rows, try to get column info by executing a LIMIT 0 query
                 // Check if SQL already has LIMIT clause
                 let sql_upper = sql.trim().to_uppercase();
-                let limit_query = if sql_upper.starts_with("SELECT") && !sql_upper.contains("LIMIT") {
+                let limit_query = if sql_upper.starts_with("SELECT") && !sql_upper.contains("LIMIT")
+                {
                     format!("{} LIMIT 0", sql.trim_end_matches(';').trim())
                 } else {
                     sql.to_string()
                 };
-                
+
                 match sqlx::query(&limit_query).fetch_all(pool).await {
                     Ok(limit_rows) => {
                         if !limit_rows.is_empty() {
@@ -394,14 +389,12 @@ async fn execute_sql_postgres(
         Err(_) => {
             // If query fails, try to execute as a command (INSERT, UPDATE, DELETE, etc.)
             match sqlx::query(sql).execute(pool).await {
-                Ok(result) => {
-                    Ok(QueryResult {
-                        columns: vec!["affected_rows".to_string()],
-                        rows: vec![vec![serde_json::Value::Number(
-                            serde_json::Number::from(result.rows_affected())
-                        )]],
-                    })
-                }
+                Ok(result) => Ok(QueryResult {
+                    columns: vec!["affected_rows".to_string()],
+                    rows: vec![vec![serde_json::Value::Number(serde_json::Number::from(
+                        result.rows_affected(),
+                    ))]],
+                }),
                 Err(e) => Err(format!("SQL execution failed: {}", e)),
             }
         }
@@ -412,26 +405,33 @@ async fn execute_sql_postgres(
 /// Handles patterns like: SELECT ... LIMIT n or SELECT ... LIMIT offset, n
 fn convert_limit_to_top(sql: &str) -> String {
     let sql_upper = sql.to_uppercase();
-    
+
     // Find LIMIT keyword (case-insensitive)
     if let Some(limit_pos) = sql_upper.rfind(" LIMIT ") {
         let sql_before_limit = sql[..limit_pos].trim_end();
-        
+
         // Check if it's a SELECT statement
         if sql_before_limit.trim().to_uppercase().starts_with("SELECT") {
             // Extract the LIMIT clause
             let limit_clause = sql[limit_pos + 7..].trim_start(); // +7 for " LIMIT "
-            
+
             // Parse LIMIT value(s)
             let limit_value = if let Some(comma_pos) = limit_clause.find(',') {
                 // LIMIT offset, count -> use count as TOP value
-                limit_clause[comma_pos + 1..].trim().split_whitespace().next().unwrap_or("100")
+                limit_clause[comma_pos + 1..]
+                    .trim()
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("100")
             } else {
                 // LIMIT count -> use count as TOP value
-                limit_clause.split_whitespace().next().unwrap_or("100")
+                limit_clause
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("100")
                     .trim_end_matches(';')
             };
-            
+
             // Find position after SELECT (handle SELECT DISTINCT/ALL) - case insensitive
             let sql_before_upper = sql_before_limit.to_uppercase();
             let after_select = if sql_before_upper.starts_with("SELECT DISTINCT ") {
@@ -444,9 +444,10 @@ fn convert_limit_to_top(sql: &str) -> String {
                 // Fallback - find SELECT case-insensitively
                 sql_before_upper.find("SELECT").map(|i| i + 7).unwrap_or(0)
             };
-            
+
             // Insert TOP n right after SELECT
-            format!("{}TOP {} {}", 
+            format!(
+                "{}TOP {} {}",
                 &sql_before_limit[..after_select],
                 limit_value,
                 &sql_before_limit[after_select..]
@@ -471,26 +472,32 @@ async fn execute_sql_mssql(
 ) -> Result<QueryResult, String> {
     // Convert LIMIT to TOP for MSSQL compatibility
     let converted_sql = convert_limit_to_top(sql);
-    
+
     // Create client connection using helper function
-    let mut client: Client<Compat<TcpStream>> = create_mssql_client(host, port, user, password, database).await?;
-    
+    let mut client: Client<Compat<TcpStream>> =
+        create_mssql_client(host, port, user, password, database).await?;
+
     // Execute query
-    let mut stream: tiberius::QueryStream<'_> = client.query(&converted_sql, &[])
+    let mut stream: tiberius::QueryStream<'_> = client
+        .query(&converted_sql, &[])
         .await
         .map_err(|e| format!("SQL 执行失败: {}", e))?;
-    
+
     // Collect metadata and rows
     let mut columns = Vec::new();
     let mut rows = Vec::new();
-    
-    while let Some(item) = stream.try_next().await
-        .map_err(|e| format!("读取结果失败: {}", e))? {
+
+    while let Some(item) = stream
+        .try_next()
+        .await
+        .map_err(|e| format!("读取结果失败: {}", e))?
+    {
         match item {
             QueryItem::Metadata(meta) => {
                 // Extract column names from metadata
                 if columns.is_empty() {
-                    columns = meta.columns()
+                    columns = meta
+                        .columns()
                         .iter()
                         .map(|col| col.name().to_string())
                         .collect();
@@ -501,7 +508,7 @@ async fn execute_sql_mssql(
                     // If we haven't received metadata yet, we can't process the row
                     continue;
                 }
-                
+
                 let row_data: Vec<serde_json::Value> = (0..columns.len())
                     .map(|i| mssql_value_to_json(&row, i))
                     .collect();
@@ -509,7 +516,7 @@ async fn execute_sql_mssql(
             }
         }
     }
-    
+
     // If no columns found, this might be a non-query statement (INSERT, UPDATE, DELETE)
     if columns.is_empty() {
         // For non-query statements, we can't get affected rows easily with tiberius
@@ -519,10 +526,6 @@ async fn execute_sql_mssql(
             rows: vec![vec![serde_json::Value::String("执行成功".to_string())]],
         })
     } else {
-        Ok(QueryResult {
-            columns,
-            rows,
-        })
+        Ok(QueryResult { columns, rows })
     }
 }
-

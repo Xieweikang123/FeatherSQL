@@ -154,5 +154,26 @@ function downloadBlob(blob: Blob, filename: string, _mimeType: string): void {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+
+  // Tauri 环境下导出后自动打开下载文件夹
+  openDownloadFolderAfterExport();
+}
+
+/**
+ * 导出完成后打开下载文件夹（仅 Tauri 环境）
+ */
+function openDownloadFolderAfterExport(): void {
+  if (typeof window === 'undefined') return;
+
+  setTimeout(async () => {
+    try {
+      const { downloadDir } = await import('@tauri-apps/api/path');
+      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+      const dir = await downloadDir();
+      await revealItemInDir(dir);
+    } catch {
+      // 非 Tauri 环境或权限不足时静默忽略
+    }
+  }, 500);
 }
 

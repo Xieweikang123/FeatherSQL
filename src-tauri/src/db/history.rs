@@ -1,9 +1,9 @@
+use crate::db::settings;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
-use chrono::Utc;
-use crate::db::settings;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlHistory {
@@ -59,7 +59,7 @@ pub async fn add_sql_history(
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let executed_at = Utc::now().to_rfc3339();
-    
+
     let history_item = SqlHistory {
         id: id.clone(),
         connection_id,
@@ -73,13 +73,13 @@ pub async fn add_sql_history(
 
     let mut history = load_history(&app);
     history.insert(0, history_item); // Insert at the beginning
-    
+
     // Get max history count from settings
     let settings = settings::load_settings(&app);
     if history.len() > settings.max_history_count {
         history.truncate(settings.max_history_count);
     }
-    
+
     save_history(&app, &history)?;
     Ok(id)
 }
@@ -91,27 +91,24 @@ pub async fn get_sql_history(
     app: AppHandle,
 ) -> Result<Vec<SqlHistory>, String> {
     let mut history = load_history(&app);
-    
+
     // Filter by connection_id if provided
     if let Some(conn_id) = connection_id {
         history.retain(|h| h.connection_id == conn_id);
     }
-    
+
     // Apply limit
     if let Some(limit) = limit {
         history.truncate(limit);
     }
-    
+
     Ok(history)
 }
 
 #[tauri::command]
-pub async fn delete_sql_history(
-    id: Option<String>,
-    app: AppHandle,
-) -> Result<(), String> {
+pub async fn delete_sql_history(id: Option<String>, app: AppHandle) -> Result<(), String> {
     let mut history = load_history(&app);
-    
+
     if let Some(history_id) = id {
         // Delete specific history item
         history.retain(|h| h.id != history_id);
@@ -119,8 +116,7 @@ pub async fn delete_sql_history(
         // Clear all history
         history.clear();
     }
-    
+
     save_history(&app, &history)?;
     Ok(())
 }
-

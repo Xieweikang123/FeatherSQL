@@ -20,6 +20,13 @@
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-confirm",
-    "dialog:allow-message"
+    "dialog:allow-message",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "/**" }
+      ]
+    }
   ]
 }
