@@ -25,6 +25,11 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
+        { "path": "$DOWNLOAD" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$HOME/Downloads" },
+        { "path": "$HOME/Downloads/**" },
+        { "path": "C:/Users/**" },
         { "path": "/**" }
       ]
     }

@@ -168,11 +168,11 @@ function openDownloadFolderAfterExport(): void {
   setTimeout(async () => {
     try {
       const { downloadDir } = await import('@tauri-apps/api/path');
-      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+      const { openPath } = await import('@tauri-apps/plugin-opener');
       const dir = await downloadDir();
-      await revealItemInDir(dir);
-    } catch {
-      // 非 Tauri 环境或权限不足时静默忽略
+      await openPath(dir);
+    } catch (e) {
+      console.warn('打开下载文件夹失败:', e);
     }
   }, 500);
 }
