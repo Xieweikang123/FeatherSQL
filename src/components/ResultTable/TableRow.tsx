@@ -15,6 +15,7 @@ interface TableRowProps {
   isCellSelected: (row: number, col: number) => boolean;
   isRowSelected: boolean;
   onCellMouseDown: (rowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
+  onCellClick: (rowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
   onCellDoubleClick: (rowIndex: number, cellIndex: number) => void;
   onCellKeyDown: (e: React.KeyboardEvent, rowIndex: number, cellIndex: number) => void;
   onCellInputChange: (value: string) => void;
@@ -38,6 +39,7 @@ function TableRow({
   isCellSelected,
   isRowSelected,
   onCellMouseDown,
+  onCellClick,
   onCellDoubleClick,
   onCellKeyDown,
   onCellInputChange,
@@ -70,6 +72,8 @@ function TableRow({
       }}
     >
       <td
+        data-row-index={rowIndex}
+        data-cell-index={0}
         className={`px-4 py-2.5 text-center select-none ${isRowSelected ? "font-semibold" : ""}`}
         style={{
           width: "60px",
@@ -129,6 +133,7 @@ function TableRow({
             }}
             title={!isEditing ? String(cell ?? "") : undefined}
             onMouseDown={(e) => onCellMouseDown(rowIndex, cellIndex, e)}
+            onClick={(e) => onCellClick(rowIndex, cellIndex, e)}
             onDoubleClick={() => onCellDoubleClick(rowIndex, cellIndex)}
             onKeyDown={(e) => onCellKeyDown(e, rowIndex, cellIndex)}
             tabIndex={editMode ? 0 : -1}

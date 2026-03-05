@@ -217,7 +217,8 @@ function TableHeader({
                   style={{ 
                     zIndex: 1000,
                     boxSizing: 'border-box',
-                    minWidth: '200px'
+                    minWidth: '200px',
+                    pointerEvents: 'none', // 容器不拦截点击，让下方表格单元格可被拖选
                   }}
                 >
                   <div className="relative">
@@ -229,6 +230,7 @@ function TableHeader({
                       className="w-full px-2.5 py-1.5 pl-7 neu-pressed rounded text-sm focus:outline-none transition-all"
                       style={{
                         color: "var(--neu-text)",
+                        pointerEvents: "auto",
                       } as React.CSSProperties}
                       autoFocus
                       onClick={(e) => e.stopPropagation()}
@@ -247,7 +249,7 @@ function TableHeader({
                     >
                       🔍
                     </span>
-                    <div className="absolute right-2 top-1 flex items-center gap-1">
+                    <div className="absolute right-2 top-1 flex items-center gap-1" style={{ pointerEvents: 'auto' }}>
                       {filterValue && (
                         <button
                           onClick={() => onFilterSearch(column)}

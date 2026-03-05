@@ -45,8 +45,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [actualExecutedSql, setActualExecutedSql] = useState<string | null>(actualExecutedSqlFromStore || sql || null);
   // 使用 ref 来保存 actualExecutedSql，避免被 useEffect 重置
   const actualExecutedSqlRef = useRef<string | null>(actualExecutedSqlFromStore || sql || null);
-  // 跟踪是否刚刚完成拖拽，用于防止在 mouseup 后立即触发新的选择
-  const justFinishedDraggingRef = useRef<boolean>(false);
+  // 用 ref 同步标记是否正在拖拽，避免 isDragging 异步更新导致后续 mousedown 被误拦截
+  const isDraggingRef = useRef(false);
   
   // 保存原始列信息（当查询返回空结果时，保留列信息用于显示表头）
   const originalColumnsRef = useRef<string[]>([]);
@@ -77,7 +77,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     selection, 
     selectionRef, // 用于获取最新选择状态
     clearSelection, 
-    isDragging, 
     setIsDragging, 
     dragStartRef,
     isCellSelected: isCellSelectedHook,
@@ -467,6 +466,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     return isCellSelectedHook(originalRowIndex, cellIndex);
   }, [isCellSelectedHook]);
 
+  // 处理单元格点击（作为 mousedown 的补充，确保点击其他格子能切换选择）
+  const handleCellClick = (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
+    if (!editMode || editing.editingCell) return;
+    if (e.shiftKey || e.ctrlKey || e.metaKey) return; // 修饰键由 mousedown 处理
+    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
+    if (originalRowIndex === -1) return;
+    const clickedCell = { row: originalRowIndex, col: cellIndex };
+    setRectSelection(clickedCell, clickedCell);
+  };
+
   // 处理单元格鼠标按下
   const handleCellMouseDown = (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
     // 检查是否有选中的文本（允许文本选择）
@@ -483,14 +492,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     // 如果正在编辑，不处理选择
     if (editing.editingCell) return;
     
-    // 如果正在拖拽，不处理新的 mousedown（避免在拖拽结束时触发新的选择）
-    if (isDragging) {
-      return;
-    }
-    
-    // 如果刚刚完成拖拽，不处理新的 mousedown（避免在 mouseup 后立即触发新的选择）
-    if (justFinishedDraggingRef.current) {
-      justFinishedDraggingRef.current = false; // 重置标志
+    // 用 ref 判断，避免 isDragging 异步更新导致后续拖选被误拦截
+    if (isDraggingRef.current) {
       return;
     }
     
@@ -499,8 +502,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const isCurrentlySelected = selection && isCellSelected(originalRowIndex, cellIndex);
     
     if (e.shiftKey && selection && selection.range) {
-      // Shift+点击：扩展选择范围（从 range.start 到点击位置）
-      setRectSelection(selection.range.start, clickedCell);
+      // Shift+点击：扩展选择范围（从 range.start 到点击位置），并允许继续拖拽
+      e.preventDefault();
+      const anchor = selection.range.start;
+      setRectSelection(anchor, clickedCell);
+      dragStartRef.current = anchor;
+      isDraggingRef.current = true;
+      setIsDragging(true);
+      attachDragListeners();
     } else if (isCtrlOrCmd) {
       // Ctrl+点击：只影响点击的那个单元格
       e.preventDefault();
@@ -518,59 +527,57 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       setIsDragging(false);
     } else {
       // 普通点击：创建新选择
+      e.preventDefault(); // 阻止浏览器默认行为（如文本选择），确保拖选正常
       setRectSelection(clickedCell, clickedCell);
       dragStartRef.current = clickedCell;
+      isDraggingRef.current = true;
       setIsDragging(true);
+      attachDragListeners();
     }
   };
 
   // 处理单元格鼠标移动（拖拽）
-  const handleCellMouseMove = (filteredRowIndex: number, cellIndex: number) => {
-    if (!editMode || !isDragging || !dragStartRef.current) return;
+  const handleCellMouseMove = useCallback((filteredRowIndex: number, cellIndex: number) => {
+    if (!editMode || !dragStartRef.current) return;
     
     const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
     if (originalRowIndex === -1) return;
     
     const endCell = { row: originalRowIndex, col: cellIndex };
     setRectSelection(dragStartRef.current, endCell);
-  };
+  }, [editMode, getOriginalRowIndex, setRectSelection]);
 
-  // 处理鼠标释放和移动
-  useEffect(() => {
-    if (!isDragging) return;
+  // 用 ref 保存最新的 handleCellMouseMove
+  const handleCellMouseMoveRef = useRef(handleCellMouseMove);
+  handleCellMouseMoveRef.current = handleCellMouseMove;
 
+  // 立即添加拖拽监听器（不等待 React 更新），避免快速拖拽时错过 mousemove
+  const attachDragListeners = useCallback(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      // 鼠标移动时，找到当前悬停的单元格
-      const target = e.target as HTMLElement;
-      const cell = target.closest('td');
+      // 优先用 target，若不在 td 内则用 elementFromPoint（快速拖拽时 target 可能不准）
+      let cell = (e.target as HTMLElement).closest('td');
+      if (!cell && document.elementFromPoint) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        cell = el?.closest?.('td') ?? null;
+      }
       if (cell && cell.dataset.rowIndex !== undefined && cell.dataset.cellIndex !== undefined) {
         const filteredRowIndex = parseInt(cell.dataset.rowIndex);
         const cellIndex = parseInt(cell.dataset.cellIndex);
-        handleCellMouseMove(filteredRowIndex, cellIndex);
+        handleCellMouseMoveRef.current(filteredRowIndex, cellIndex);
       }
     };
 
     const handleMouseUp = () => {
-      if (isDragging) {
-        // 标记刚刚完成拖拽，防止在 mouseup 事件处理期间触发新的选择
-        justFinishedDraggingRef.current = true;
-        // 延迟重置标志，确保所有 mouseup 相关事件处理完成
-        setTimeout(() => {
-          justFinishedDraggingRef.current = false;
-        }, 100);
-      }
+      isDraggingRef.current = false; // 同步重置，确保下次 mousedown 不被拦截
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
       setIsDragging(false);
       dragStartRef.current = null;
     };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-    
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, editMode]);
+  }, [setIsDragging]);
 
   // 批量编辑、复制、粘贴（使用 editing hook）
   const handleBatchEdit = (value: string) => {
@@ -1116,6 +1123,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               pageSize={pageSize}
                     isCellSelected={isCellSelected}
                     onCellMouseDown={handleCellMouseDown}
+                    onCellClick={handleCellClick}
                     onCellDoubleClick={handleCellDoubleClick}
                     onCellKeyDown={handleKeyDown}
                     onCellInputChange={handleCellInputChange}
