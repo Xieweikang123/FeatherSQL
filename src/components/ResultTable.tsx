@@ -440,11 +440,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
 
   // 编辑相关处理函数（使用 editing hook）
+  // 注意：必须使用 filteredRowIndex（显示索引），因为 editedData.rows 与 result.rows 顺序一致（均为当前显示顺序）
+  // 若使用 getOriginalRowIndex 映射到“原始”索引，排序后会导致编辑时取到错误行的内容
   const handleCellDoubleClick = (filteredRowIndex: number, cellIndex: number) => {
     if (!editMode) return;
-    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
-    if (originalRowIndex === -1) return;
-    editing.handleCellDoubleClick(originalRowIndex, cellIndex);
+    if (filteredRowIndex < 0 || filteredRowIndex >= editing.editedData.rows.length) return;
+    editing.handleCellDoubleClick(filteredRowIndex, cellIndex);
   };
 
   const handleCellInputChange = editing.handleCellInputChange;
