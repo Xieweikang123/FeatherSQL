@@ -13,7 +13,7 @@ import TableBody from "./ResultTable/TableBody";
 import EmptyState from "./ResultTable/EmptyState";
 import TableStructure from "./TableStructure";
 import ContextMenu from "./ResultTable/ContextMenu";
-import { exportToCsv, exportToJson, exportToExcel, type ExportFormat } from "../utils/exportUtils";
+import { exportToCsv, exportToJson, exportToExcel, exportToSql, type ExportFormat } from "../utils/exportUtils";
 import Pagination from "./ResultTable/Pagination";
 
 interface ResultTableProps {
@@ -63,6 +63,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   }
   
   const tabColumnFilters = currentTab?.columnFilters || {};
+  const tabColumnFilterModes = currentTab?.columnFilterModes || {};
   
   // 使用自定义 hooks（使用标签页的 columnFilters）
   // 当 isFilterResult 为 true 时，sql 来自筛选结果，不更新 originalSqlRef 以保留原始 SQL
@@ -175,14 +176,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   }, [result, setEditedData]);
 
-  // 构建带 WHERE 条件和 ORDER BY 的 SQL（使用工具函数）
   const buildFilteredAndSortedSqlCallback = useCallback((
     baseSql: string, 
     filters: Record<string, string>,
-    sortConfig: Array<{ column: string; direction: 'asc' | 'desc' }>
+    sortConfig: Array<{ column: string; direction: 'asc' | 'desc' }>,
+    filterModes?: Record<string, 'fuzzy' | 'exact'>
   ): string => {
     const dbType = currentConnection?.type || 'sqlite';
-    return buildFilteredAndSortedSql(baseSql, filters, sortConfig, dbType);
+    return buildFilteredAndSortedSql(baseSql, filters, sortConfig, dbType, filterModes);
   }, [currentConnection]);
 
   // 执行带过滤和排序的 SQL 查询
@@ -225,7 +226,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute = baseSql;
       } else {
         // 构建带 WHERE 条件和 ORDER BY 的 SQL
-        sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig);
+        sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig, tabColumnFilterModes);
       }
       
       const newResult = await executeSql(
@@ -265,7 +266,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } finally {
       setIsFiltering(false);
     }
-    }, [currentConnectionId, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, currentTab, updateTab, editMode, editing, result, sql]);
+    }, [currentConnectionId, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, currentTab, updateTab, editMode, editing, result, sql, tabColumnFilterModes]);
 
 
 
@@ -407,7 +408,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     executeFilteredAndSortedSql(columnFiltersRef.current, []);
   }, [currentTab, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
 
-  // 清除指定列的排序
   const handleClearSortColumn = useCallback((column: string) => {
     if (!currentTab) return;
     const newConfig = sortConfig.filter((s) => s.column !== column);
@@ -415,6 +415,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     setCurrentPage(1);
     executeFilteredAndSortedSql(columnFiltersRef.current, newConfig);
   }, [currentTab, sortConfig, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
+
+  const handleFilterModeChange = useCallback((column: string, mode: 'fuzzy' | 'exact') => {
+    if (!currentTab) return;
+    const newModes = { ...tabColumnFilterModes, [column]: mode };
+    updateTab(currentTab.id, { columnFilterModes: newModes });
+    executeFilteredAndSortedSql(columnFiltersRef.current, sortConfig);
+  }, [currentTab, tabColumnFilterModes, columnFiltersRef, sortConfig, executeFilteredAndSortedSql, updateTab]);
 
   // 组件卸载时清除定时器
   useEffect(() => {
@@ -916,17 +923,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         rows: rowsToExport,
       };
 
-      // 根据格式确定文件扩展名
-      const extensions: Record<ExportFormat, string> = {
-        csv: 'csv',
-        json: 'json',
-        excel: 'xlsx'
-      };
-      const extension = extensions[format];
+      const tableName = (sql && extractTableInfo(sql)?.tableName) || 'exported_data';
+      const dbType = currentConnection?.type || 'sqlite';
+      const database = currentDatabase || null;
 
-      // 使用浏览器下载方式（Tauri 环境下会自动保存到下载目录）
-      const fullFilename = `${filename}.${extension}`;
-      
       switch (format) {
         case 'csv':
           exportToCsv(exportData, filename);
@@ -941,11 +941,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             console.error('Excel export error:', excelError);
           }
           break;
+        case 'sql':
+          exportToSql(exportData, filename, tableName, dbType, database);
+          break;
       }
     } catch (error) {
       console.error('导出错误:', error);
     }
-  }, [selectedRows, editing.editedData.rows, displayColumns, sql]);
+  }, [selectedRows, editing.editedData.rows, displayColumns, sql, currentConnection?.type, currentDatabase]);
 
   // 如果正在查看表结构，显示表结构组件
   if (viewingStructure) {
@@ -1108,11 +1111,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
           <TableHeader
             columns={displayColumns}
             columnFilters={columnFilters}
+            columnFilterModes={tabColumnFilterModes}
             expandedSearchColumn={expandedSearchColumn}
             isFiltering={isFiltering}
             sortConfig={sortConfig}
             onFilterChange={handleFilterChange}
             onFilterSearch={handleFilterSearch}
+            onFilterModeChange={handleFilterModeChange}
             onClearFilter={handleClearFilter}
             onExpandSearch={setExpandedSearchColumn}
             onSort={handleSort}

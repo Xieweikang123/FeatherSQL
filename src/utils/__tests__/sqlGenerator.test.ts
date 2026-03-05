@@ -140,14 +140,16 @@ describe("sqlGenerator", () => {
       const filters = { name: "test" };
 
       const mysqlResult = buildFilteredAndSortedSql(sql, filters, [], "mysql");
-      expect(mysqlResult).toContain("LOWER");
+      expect(mysqlResult).toContain("`name`");
+      expect(mysqlResult).toContain("LIKE");
 
       const postgresResult = buildFilteredAndSortedSql(sql, filters, [], "postgres");
-      expect(postgresResult).toContain("LOWER");
-      expect(postgresResult).toContain("::text");
+      expect(postgresResult).toContain('"name"');
+      expect(postgresResult).toContain("LIKE");
 
       const mssqlResult = buildFilteredAndSortedSql(sql, filters, [], "mssql");
-      expect(mssqlResult).toContain("COLLATE");
+      expect(mssqlResult).toContain("[name]");
+      expect(mssqlResult).toContain("LIKE");
     });
 
     it("should handle WHERE before ORDER BY", () => {
@@ -220,13 +222,16 @@ describe("sqlGenerator", () => {
       const filters = { name: "test" };
 
       const mysqlResult = buildFilteredSql(sql, filters, "mysql");
-      expect(mysqlResult).toContain("LOWER");
+      expect(mysqlResult).toContain("`name`");
+      expect(mysqlResult).toContain("LIKE");
 
       const postgresResult = buildFilteredSql(sql, filters, "postgres");
-      expect(postgresResult).toContain("::text");
+      expect(postgresResult).toContain('"name"');
+      expect(postgresResult).toContain("LIKE");
 
       const mssqlResult = buildFilteredSql(sql, filters, "mssql");
-      expect(mssqlResult).toContain("COLLATE");
+      expect(mssqlResult).toContain("[name]");
+      expect(mssqlResult).toContain("LIKE");
     });
 
     it("should ignore empty filter values", () => {

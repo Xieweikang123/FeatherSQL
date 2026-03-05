@@ -24,6 +24,8 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
   const [previewRows, setPreviewRows] = useState<number>(5);
   const [batchSize, setBatchSize] = useState<number>(100);
   const [skipFirstRow, setSkipFirstRow] = useState<boolean>(false);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; success: number; error: number } | null>(null);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentConnection = connections.find(c => c.id === currentConnectionId);
@@ -56,6 +58,7 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
 
     setLoading(true);
     setIsQuerying(true);
+    setImportErrors([]);
 
     try {
       // 处理跳过第一行的情况
@@ -81,20 +84,35 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
       );
 
       const dbParam = currentConnection.type === "sqlite" ? "" : (currentDatabase || undefined);
+      const total = sqls.length;
 
-      // 执行所有 INSERT 语句
+      // 执行所有 INSERT 语句，实时更新进度
       let successCount = 0;
       let errorCount = 0;
+      const errors: string[] = [];
 
       for (let i = 0; i < sqls.length; i++) {
+        setImportProgress({ current: i + 1, total, success: successCount, error: errorCount });
         try {
           await executeSql(currentConnectionId, sqls[i], dbParam);
           successCount++;
         } catch (error) {
           errorCount++;
           const errorMsg = error instanceof Error ? error.message : String(error);
-          // 继续执行其他语句
+          const batchStart = i * batchSize + 1;
+          const batchEnd = Math.min((i + 1) * batchSize, dataToImport.rows.length);
+          errors.push(`批次 ${i + 1} (行 ${batchStart}-${batchEnd}): ${errorMsg}`);
+          if (errors.length <= 5) {
+            setImportErrors([...errors]);
+          }
         }
+      }
+
+      setImportProgress({ current: total, total, success: successCount, error: errorCount });
+      if (errors.length > 5) {
+        setImportErrors([...errors.slice(0, 5), `... 还有 ${errors.length - 5} 个错误`]);
+      } else {
+        setImportErrors(errors);
       }
 
       if (errorCount === 0) {
@@ -103,9 +121,11 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
+      setImportErrors([errorMsg]);
     } finally {
       setLoading(false);
       setIsQuerying(false);
+      setImportProgress(null);
     }
   };
 
@@ -262,6 +282,37 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
           )}
         </div>
 
+        {/* Import Progress */}
+        {importProgress && (
+          <div className="px-6 py-3 neu-pressed rounded-lg mx-6 mb-3 space-y-2" style={{ border: '1px solid var(--neu-dark)' }}>
+            <div className="flex justify-between text-sm" style={{ color: 'var(--neu-text)' }}>
+              <span>导入进度: {importProgress.current} / {importProgress.total} 批次</span>
+              <span>
+                成功 <span style={{ color: 'var(--neu-success)' }}>{importProgress.success}</span>
+                {importProgress.error > 0 && (
+                  <> · 失败 <span style={{ color: 'var(--neu-error, #e74c3c)' }}>{importProgress.error}</span></>
+                )}
+              </span>
+            </div>
+            <div className="w-full h-2 neu-flat rounded-full overflow-hidden">
+              <div
+                className="h-full transition-all duration-300"
+                style={{
+                  width: `${(importProgress.current / importProgress.total) * 100}%`,
+                  backgroundColor: 'var(--neu-accent)',
+                }}
+              />
+            </div>
+            {importErrors.length > 0 && (
+              <div className="mt-2 text-xs space-y-1 max-h-20 overflow-auto" style={{ color: 'var(--neu-error, #e74c3c)' }}>
+                {importErrors.map((err, i) => (
+                  <div key={i} className="truncate" title={err}>{err}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="px-6 py-4 neu-flat rounded-b-lg flex items-center justify-end gap-3" style={{ borderTop: '1px solid var(--neu-dark)' }}>
           <button
@@ -278,7 +329,7 @@ export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDi
             className="px-4 py-2 rounded transition-all neu-raised hover:neu-hover active:neu-active disabled:opacity-50 font-medium"
             style={{ color: 'var(--neu-success)' }}
           >
-            {loading ? "导入中..." : `导入 ${importData ? importData.rows.length : 0} 行数据`}
+            {loading ? `导入中 ${importProgress ? `(${importProgress.current}/${importProgress.total})` : '...'}` : `导入 ${importData ? importData.rows.length : 0} 行数据`}
           </button>
         </div>
       </div>

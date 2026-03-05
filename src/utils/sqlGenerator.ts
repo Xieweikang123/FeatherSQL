@@ -4,16 +4,17 @@ import type { CellModification } from "../hooks/useEditHistory";
 
 /**
  * 构建带 WHERE 条件和 ORDER BY 的 SQL
+ * @param filterModes 列过滤模式：'fuzzy' 模糊匹配 LIKE %value%，'exact' 精确匹配 = value
  */
 export function buildFilteredAndSortedSql(
   baseSql: string,
   filters: Record<string, string>,
   sortConfig: Array<{ column: string; direction: 'asc' | 'desc' }>,
-  dbType: string
+  dbType: string,
+  filterModes?: Record<string, 'fuzzy' | 'exact'>
 ): string {
   if (!baseSql) return baseSql;
   
-  // 移除注释和多余空白
   const cleaned = baseSql
     .replace(/--.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -21,7 +22,6 @@ export function buildFilteredAndSortedSql(
   
   let sql = cleaned;
   
-  // 1. 处理 WHERE 条件
   const activeFilters = Object.entries(filters).filter(([_, value]) => value.trim() !== "");
   if (activeFilters.length > 0) {
     const hasWhere = /\bWHERE\b/i.test(sql);
@@ -29,10 +29,15 @@ export function buildFilteredAndSortedSql(
     
     activeFilters.forEach(([columnName, filterValue]) => {
       const escapedColumn = escapeIdentifier(columnName, dbType);
-      const escapedValue = escapeSqlValue(`%${filterValue}%`, dbType);
+      const mode = filterModes?.[columnName] ?? 'fuzzy';
       
-      // 使用 LIKE 进行模糊匹配（区分大小写）
-      conditions.push(`${escapedColumn} LIKE ${escapedValue}`);
+      if (mode === 'exact') {
+        const escapedValue = escapeSqlValue(filterValue, dbType);
+        conditions.push(`${escapedColumn} = ${escapedValue}`);
+      } else {
+        const escapedValue = escapeSqlValue(`%${filterValue}%`, dbType);
+        conditions.push(`${escapedColumn} LIKE ${escapedValue}`);
+      }
     });
     
     const whereClause = conditions.join(' AND ');
@@ -173,14 +178,52 @@ export function buildFilteredSql(
 }
 
 /**
+ * 构建 WHERE 子句（优先使用主键列，否则使用所有列）
+ */
+function buildWhereClause(
+  result: QueryResult,
+  rowIndex: number,
+  dbType: string,
+  primaryKeyColumns?: string[]
+): string {
+  const originalRow = result.rows[rowIndex];
+  let columnsToUse: string[] = primaryKeyColumns && primaryKeyColumns.length > 0
+    ? primaryKeyColumns.filter(col => result.columns.includes(col))
+    : result.columns;
+
+  if (columnsToUse.length === 0) {
+    columnsToUse = result.columns;
+  }
+
+  const whereConditions: string[] = [];
+  columnsToUse.forEach((col) => {
+    const colIndex = result.columns.indexOf(col);
+    if (colIndex === -1) return;
+    const originalValue = originalRow[colIndex];
+    const escapedCol = escapeIdentifier(col, dbType);
+
+    if (originalValue === null || originalValue === undefined) {
+      whereConditions.push(`${escapedCol} IS NULL`);
+    } else {
+      const escapedVal = escapeSqlValue(originalValue, dbType);
+      whereConditions.push(`${escapedCol} = ${escapedVal}`);
+    }
+  });
+
+  return whereConditions.join(' AND ');
+}
+
+/**
  * 生成 UPDATE SQL 语句（基于修改记录）
+ * @param primaryKeyColumns 主键列名，若提供则优先用于 WHERE 子句，提高准确性和性能
  */
 export function generateUpdateSql(
   modifications: Map<string, CellModification>,
   sql: string,
   result: QueryResult,
   currentConnection: Connection,
-  currentDatabase: string | null
+  currentDatabase: string | null,
+  primaryKeyColumns?: string[]
 ): string[] {
   if (modifications.size === 0 || !sql || !currentConnection) return [];
   
@@ -190,11 +233,9 @@ export function generateUpdateSql(
   }
   
   const dbType = currentConnection.type;
-  // 如果 SQL 中指定了数据库名，使用 SQL 中的；否则使用当前选择的数据库
   const databaseToUse = tableInfo.database || currentDatabase;
   const escapedTableName = buildTableName(tableInfo.tableName, dbType, databaseToUse);
   
-  // 按行分组修改
   const rowMods = new Map<number, Map<string, any>>();
   
   modifications.forEach((mod) => {
@@ -204,11 +245,9 @@ export function generateUpdateSql(
     rowMods.get(mod.rowIndex)!.set(mod.column, mod.newValue);
   });
   
-  // 生成 UPDATE 语句
   const sqls: string[] = [];
   
   rowMods.forEach((columns, rowIndex) => {
-    // SET 子句
     const setClause = Array.from(columns.entries())
       .map(([col, val]) => {
         const escapedCol = escapeIdentifier(col, dbType);
@@ -217,25 +256,7 @@ export function generateUpdateSql(
       })
       .join(', ');
     
-    // WHERE 子句：使用所有列的原始值来定位行
-    // 注意：这不是最理想的方式，但可以在没有主键的情况下工作
-    const whereConditions: string[] = [];
-    const originalRow = result.rows[rowIndex];
-    
-    result.columns.forEach((col, colIndex) => {
-      const escapedCol = escapeIdentifier(col, dbType);
-      const originalValue = originalRow[colIndex];
-      
-      // 处理 NULL 值
-      if (originalValue === null || originalValue === undefined) {
-        whereConditions.push(`${escapedCol} IS NULL`);
-      } else {
-        const escapedVal = escapeSqlValue(originalValue, dbType);
-        whereConditions.push(`${escapedCol} = ${escapedVal}`);
-      }
-    });
-    
-    const whereClause = whereConditions.join(' AND ');
+    const whereClause = buildWhereClause(result, rowIndex, dbType, primaryKeyColumns);
     
     sqls.push(`UPDATE ${escapedTableName} SET ${setClause} WHERE ${whereClause};`);
   });
@@ -292,6 +313,7 @@ export function generateInsertSql(
 
 /**
  * 生成 UPDATE SQL 语句（基于选中的行）
+ * @param primaryKeyColumns 主键列名，若提供则优先用于 WHERE 子句
  */
 export function generateUpdateSqlForRows(
   selectedRows: Set<number>,
@@ -300,7 +322,8 @@ export function generateUpdateSqlForRows(
   result: QueryResult,
   displayColumns: string[],
   currentConnection: Connection,
-  currentDatabase: string | null
+  currentDatabase: string | null,
+  primaryKeyColumns?: string[]
 ): string | null {
   if (!sql || !currentConnection || selectedRows.size === 0) return null;
   
@@ -313,12 +336,14 @@ export function generateUpdateSqlForRows(
   const databaseToUse = tableInfo.database || currentDatabase;
   const escapedTableName = buildTableName(tableInfo.tableName, dbType, databaseToUse);
   
-  // 获取所有选中的行
   const selectedRowIndices = Array.from(selectedRows).sort((a, b) => a - b);
   
   if (selectedRowIndices.length === 0) return null;
   
-  // 为每行生成 UPDATE 语句
+  const columnsToUse = primaryKeyColumns && primaryKeyColumns.length > 0
+    ? primaryKeyColumns.filter(col => displayColumns.includes(col))
+    : displayColumns;
+
   const sqls: string[] = [];
   
   for (const rowIndex of selectedRowIndices) {
@@ -327,7 +352,6 @@ export function generateUpdateSqlForRows(
     const row = editedData.rows[rowIndex];
     const originalRow = result.rows[rowIndex];
     
-    // 构建 SET 子句（使用当前行的所有值）
     const setClause = displayColumns.map((col, colIndex) => {
       const escapedCol = escapeIdentifier(col, dbType);
       const val = row[colIndex];
@@ -335,9 +359,10 @@ export function generateUpdateSqlForRows(
       return `${escapedCol} = ${escapedVal}`;
     }).join(', ');
     
-    // 构建 WHERE 子句（使用原始行的所有值来定位）
     const whereConditions: string[] = [];
-    displayColumns.forEach((col, colIndex) => {
+    columnsToUse.forEach((col) => {
+      const colIndex = displayColumns.indexOf(col);
+      if (colIndex === -1) return;
       const escapedCol = escapeIdentifier(col, dbType);
       const originalValue = originalRow[colIndex];
       

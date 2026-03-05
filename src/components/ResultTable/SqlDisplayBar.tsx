@@ -97,7 +97,8 @@ export default function SqlDisplayBar({
         const formatNames: Record<ExportFormat, string> = {
           csv: 'CSV',
           json: 'JSON',
-          excel: 'Excel'
+          excel: 'Excel',
+          sql: 'SQL'
         };
         const exportType = exportSelected ? '选中行' : '全部数据';
         setExportSuccess(`已导出 ${formatNames[format]} (${exportType})`);
@@ -244,6 +245,13 @@ export default function SqlDisplayBar({
                 >
                   📊 Excel
                 </button>
+                <button
+                  className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                  style={{ color: "var(--neu-text)" }}
+                  onClick={() => handleExport('sql', false)}
+                >
+                  📝 SQL (INSERT)
+                </button>
                 {hasSelectedRows && (
                   <>
                     <div className="px-2 py-1 text-xs font-semibold mt-1" style={{ color: "var(--neu-text-light)", borderTop: "1px solid var(--neu-dark)", borderBottom: "1px solid var(--neu-dark)" }}>
@@ -269,6 +277,13 @@ export default function SqlDisplayBar({
                       onClick={() => handleExport('excel', true)}
                     >
                       📊 Excel
+                    </button>
+                    <button
+                      className="w-full px-4 py-2 text-left text-sm hover:neu-hover transition-colors"
+                      style={{ color: "var(--neu-text)" }}
+                      onClick={() => handleExport('sql', true)}
+                    >
+                      📝 SQL (INSERT)
                     </button>
                   </>
                 )}

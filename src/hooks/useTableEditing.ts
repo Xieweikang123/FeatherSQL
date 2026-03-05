@@ -3,7 +3,7 @@ import type { QueryResult } from "../lib/commands";
 import type { CellModification } from "./useEditHistory";
 import type { CellSelection } from "./useCellSelection";
 import { useEditHistory } from "./useEditHistory";
-import { executeSql } from "../lib/commands";
+import { executeSql, describeTable } from "../lib/commands";
 import { generateUpdateSql } from "../utils/sqlGenerator";
 import { extractTableInfo } from "../lib/utils";
 
@@ -531,24 +531,31 @@ export function useTableEditing({
     setIsSaving(true);
     
     try {
-      // 提取表信息（包括数据库名）
       const tableInfo = extractTableInfo(sql);
       if (!tableInfo) {
         throw new Error("无法从 SQL 中提取表信息");
       }
       
-      // 确定使用的数据库：优先使用 SQL 中指定的数据库，否则使用当前选择的数据库
       const databaseToUse = tableInfo.database || currentDatabase;
-      // 对于 SQLite，数据库参数应该是空字符串
       const dbParam = currentConnection.type === "sqlite" ? "" : (databaseToUse || undefined);
       
-      // 生成 UPDATE SQL 语句
+      // 获取主键列，优先用于 WHERE 子句
+      let primaryKeyColumns: string[] | undefined;
+      try {
+        const columns = await describeTable(currentConnectionId, tableInfo.tableName, dbParam || undefined);
+        primaryKeyColumns = columns.filter(c => c.primary_key).map(c => c.name);
+        if (primaryKeyColumns.length === 0) primaryKeyColumns = undefined;
+      } catch {
+        // 获取失败时回退到全列 WHERE
+      }
+      
       const updateSqls = generateUpdateSql(
         modifications,
         sql,
         result,
         currentConnection as any,
-        currentDatabase
+        currentDatabase,
+        primaryKeyColumns
       );
       
       if (updateSqls.length === 0) {

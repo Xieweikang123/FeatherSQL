@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
+import { escapeIdentifier, escapeSqlValue, buildTableName } from '../lib/utils';
 
-export type ExportFormat = 'csv' | 'json' | 'excel';
+export type ExportFormat = 'csv' | 'json' | 'excel' | 'sql';
 
 export interface ExportData {
   columns: string[];
@@ -100,6 +101,34 @@ export function generateExcelBuffer(data: ExportData): Uint8Array {
   });
   
   return excelBuffer;
+}
+
+/**
+ * 导出数据为 SQL (INSERT 语句) 格式
+ */
+export function exportToSql(
+  data: ExportData,
+  filename: string,
+  tableName: string,
+  dbType: string = 'sqlite',
+  database?: string | null
+): void {
+  const escapedTableName = buildTableName(tableName, dbType, database);
+  const escapedColumns = data.columns.map(col => escapeIdentifier(col, dbType));
+  const columnsClause = escapedColumns.join(', ');
+
+  const valuesClauses = data.rows.map(row => {
+    const values = row.map(val => escapeSqlValue(val, dbType));
+    return `(${values.join(', ')})`;
+  });
+
+  const insertStatements = valuesClauses.map(values => 
+    `INSERT INTO ${escapedTableName} (${columnsClause}) VALUES ${values};`
+  );
+
+  const sqlContent = insertStatements.join('\n\n');
+  const blob = new Blob([sqlContent], { type: 'text/plain;charset=utf-8;' });
+  downloadBlob(blob, `${filename}.sql`, 'text/plain');
 }
 
 /**

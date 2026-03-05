@@ -1,5 +1,6 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import Editor from "@monaco-editor/react";
+import { format } from "sql-formatter";
 import { useConnectionStore } from "../store/connectionStore";
 import { executeSql, listTables, describeTable, type ColumnInfo } from "../lib/commands";
 
@@ -12,6 +13,21 @@ function getLanguageForDbType(dbType: string | undefined): string {
       return "pgsql";
     case "mssql":
       return "mssql";
+    case "sqlite":
+    default:
+      return "sql";
+  }
+}
+
+// Map database type to sql-formatter language
+function getFormatterLanguage(dbType: string | undefined): string {
+  switch (dbType) {
+    case "mysql":
+      return "mysql";
+    case "postgres":
+      return "postgresql";
+    case "mssql":
+      return "tsql";
     case "sqlite":
     default:
       return "sql";
@@ -228,6 +244,29 @@ export default function SqlEditor() {
     }
   };
 
+  const handleFormat = useCallback(() => {
+    if (!monacoEditorRef.current) return;
+    const sql = editorRef.current || "";
+    if (!sql.trim()) return;
+    try {
+      const formatted = format(sql, {
+        language: getFormatterLanguage(currentConnection?.type),
+        keywordCase: "upper",
+        tabWidth: 2,
+      });
+      monacoEditorRef.current.setValue(formatted);
+      editorRef.current = formatted;
+      if (currentTab) {
+        updateTab(currentTab.id, { sql: formatted });
+      }
+    } catch (err) {
+      console.warn("SQL 格式化失败:", err);
+    }
+  }, [currentConnection?.type, currentTab, updateTab]);
+
+  const handleFormatRef = useRef(handleFormat);
+  handleFormatRef.current = handleFormat;
+
   const handleEditorMount = (editor: any, monaco: any) => {
     monacoEditorRef.current = editor;
     monacoRef.current = monaco;
@@ -236,6 +275,10 @@ export default function SqlEditor() {
     // Add keyboard shortcut: Ctrl+Enter to execute
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       handleExecute();
+    });
+    // Add keyboard shortcut: Ctrl+Shift+F to format
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
+      handleFormatRef.current();
     });
     
     // Helper function to extract table name from SQL (handles backticks and database prefix)
@@ -662,17 +705,27 @@ export default function SqlEditor() {
             </div>
           )}
         </div>
-        <button
-          onClick={handleExecute}
-          disabled={!currentConnectionId}
-          className="px-5 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold neu-raised"
-          style={{ 
-            color: 'var(--neu-accent-dark)',
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          执行 (Ctrl+Enter)
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleFormat}
+            className="px-3 py-2 rounded-lg text-sm font-medium neu-flat hover:neu-hover active:neu-active transition-all"
+            style={{ color: 'var(--neu-text)' }}
+            title="格式化 SQL (Ctrl+Shift+F)"
+          >
+            格式化
+          </button>
+          <button
+            onClick={handleExecute}
+            disabled={!currentConnectionId}
+            className="px-5 py-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold neu-raised"
+            style={{ 
+              color: 'var(--neu-accent-dark)',
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+            }}
+          >
+            执行 (Ctrl+Enter)
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-hidden">
         <Editor

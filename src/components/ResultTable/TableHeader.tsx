@@ -8,11 +8,13 @@ interface SortConfig {
 interface TableHeaderProps {
   columns: string[];
   columnFilters: Record<string, string>;
+  columnFilterModes?: Record<string, 'fuzzy' | 'exact'>;
   expandedSearchColumn: string | null;
   isFiltering: boolean;
   sortConfig: SortConfig[];
   onFilterChange: (columnName: string, value: string) => void;
   onFilterSearch: (columnName: string) => void;
+  onFilterModeChange?: (columnName: string, mode: 'fuzzy' | 'exact') => void;
   onClearFilter: (columnName: string) => void;
   onExpandSearch: (columnName: string | null) => void;
   onSort: (column: string, e: React.MouseEvent) => void;
@@ -22,11 +24,13 @@ interface TableHeaderProps {
 function TableHeader({
   columns,
   columnFilters,
+  columnFilterModes = {},
   expandedSearchColumn,
   isFiltering,
   sortConfig,
   onFilterChange,
   onFilterSearch,
+  onFilterModeChange,
   onClearFilter,
   onExpandSearch,
   onSort,
@@ -251,6 +255,34 @@ function TableHeader({
                       🔍
                     </span>
                     <div className="absolute right-2 top-1 flex items-center gap-1" style={{ pointerEvents: 'auto' }}>
+                      {onFilterModeChange && filterValue && (
+                        <>
+                          <button
+                            onClick={() => onFilterModeChange(column, 'fuzzy')}
+                            className={`text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                              (columnFilterModes[column] ?? 'fuzzy') === 'fuzzy'
+                                ? 'neu-raised font-medium'
+                                : 'neu-flat hover:neu-hover'
+                            }`}
+                            style={{ color: "var(--neu-text)" }}
+                            title="模糊匹配 (LIKE %value%)"
+                          >
+                            模糊
+                          </button>
+                          <button
+                            onClick={() => onFilterModeChange(column, 'exact')}
+                            className={`text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                              columnFilterModes[column] === 'exact'
+                                ? 'neu-raised font-medium'
+                                : 'neu-flat hover:neu-hover'
+                            }`}
+                            style={{ color: "var(--neu-text)" }}
+                            title="精确匹配 (= value)"
+                          >
+                            精确
+                          </button>
+                        </>
+                      )}
                       {filterValue && (
                         <button
                           onClick={() => {
@@ -297,6 +329,7 @@ export default memo(TableHeader, (prevProps, nextProps) => {
   return (
     prevProps.columns === nextProps.columns &&
     JSON.stringify(prevProps.columnFilters) === JSON.stringify(nextProps.columnFilters) &&
+    JSON.stringify(prevProps.columnFilterModes ?? {}) === JSON.stringify(nextProps.columnFilterModes ?? {}) &&
     prevProps.expandedSearchColumn === nextProps.expandedSearchColumn &&
     prevProps.isFiltering === nextProps.isFiltering &&
     JSON.stringify(prevProps.sortConfig) === JSON.stringify(nextProps.sortConfig) &&

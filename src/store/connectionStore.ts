@@ -38,6 +38,7 @@ export interface TabState {
   isQuerying: boolean;
   selectedTable: string | null;
   columnFilters: Record<string, string>;
+  columnFilterModes?: Record<string, 'fuzzy' | 'exact'>; // 列过滤模式：模糊/精确
   sortConfig: SortConfigItem[]; // 列排序配置，持久化到 tab 以在加载时恢复
   sqlToLoad: string | null;
   actualExecutedSql: string | null; // 实际执行的 SQL（包含筛选条件）
