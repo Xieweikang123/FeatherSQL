@@ -41,6 +41,8 @@ export interface TabState {
   sortConfig: SortConfigItem[]; // 列排序配置，持久化到 tab 以在加载时恢复
   sqlToLoad: string | null;
   actualExecutedSql: string | null; // 实际执行的 SQL（包含筛选条件）
+  originalSqlForFilter: string | null; // 用户原始执行的 SQL，用于筛选时作为 base（筛选不修改此值）
+  isFilterResult?: boolean; // 当前 tab.sql 是否来自筛选（用于 useColumnFilters 判断是否更新 originalSqlRef）
 }
 
 interface ConnectionState {
@@ -108,6 +110,7 @@ const createDefaultTab = (name: string = "新查询"): TabState => ({
   sortConfig: [],
   sqlToLoad: null,
   actualExecutedSql: null,
+  originalSqlForFilter: null,
 });
 
 export const useConnectionStore = create<ConnectionState>((set, get) => {

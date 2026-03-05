@@ -3,8 +3,9 @@ import { useConnectionStore } from "../store/connectionStore";
 
 /**
  * Hook to manage column filters with synchronization between ref and state
+ * @param isSqlFromFilter - 当为 true 时，sql 来自筛选结果，不更新 originalSqlRef（保留原始 SQL 供多次筛选使用）
  */
-export function useColumnFilters(sql: string | null | undefined, initialFilters?: Record<string, string>) {
+export function useColumnFilters(sql: string | null | undefined, initialFilters?: Record<string, string>, isSqlFromFilter?: boolean) {
   const { setColumnFilters } = useConnectionStore();
   const [columnFilters, setColumnFiltersState] = useState<Record<string, string>>(initialFilters || {});
   const columnFiltersRef = useRef<Record<string, string>>(initialFilters || {});
@@ -22,19 +23,24 @@ export function useColumnFilters(sql: string | null | undefined, initialFilters?
 
   // Sync ref and state on mount and when SQL changes
   useEffect(() => {
-    if (sql && sql !== originalSqlRef.current) {
-      // SQL changed, clear filters
+    if (!sql) return;
+    if (sql !== originalSqlRef.current) {
+      // sql 来自筛选结果时，不更新 originalSqlRef，避免多次筛选时 base SQL 被覆盖导致语法错误
+      if (isSqlFromFilter) {
+        syncFilters();
+        return;
+      }
+      // SQL 变化（用户执行了新查询），更新 originalSqlRef 并清空筛选
       originalSqlRef.current = sql;
       setColumnFilters({});
       setColumnFiltersState({});
       columnFiltersRef.current = {};
-    } else if (sql) {
+    } else {
       originalSqlRef.current = sql;
-      // Sync ref and state
       syncFilters();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sql]);
+  }, [sql, isSqlFromFilter]);
 
   // Sync filters between ref and state
   const syncFilters = () => {

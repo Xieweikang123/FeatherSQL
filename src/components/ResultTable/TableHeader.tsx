@@ -240,6 +240,7 @@ function TableHeader({
                         } else if (e.key === "Enter") {
                           e.preventDefault();
                           onFilterSearch(column);
+                          onExpandSearch(null);
                         }
                       }}
                     />
@@ -252,7 +253,10 @@ function TableHeader({
                     <div className="absolute right-2 top-1 flex items-center gap-1" style={{ pointerEvents: 'auto' }}>
                       {filterValue && (
                         <button
-                          onClick={() => onFilterSearch(column)}
+                          onClick={() => {
+                            onFilterSearch(column);
+                            onExpandSearch(null);
+                          }}
                           disabled={isFiltering}
                           className="text-xs px-2 py-0.5 rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
                           style={{ color: "var(--neu-accent)" }}

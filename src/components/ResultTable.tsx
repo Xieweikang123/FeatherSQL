@@ -65,7 +65,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const tabColumnFilters = currentTab?.columnFilters || {};
   
   // 使用自定义 hooks（使用标签页的 columnFilters）
-  const { columnFilters, updateFilters, originalSqlRef, columnFiltersRef } = useColumnFilters(sql, tabColumnFilters);
+  // 当 isFilterResult 为 true 时，sql 来自筛选结果，不更新 originalSqlRef 以保留原始 SQL
+  const { columnFilters, updateFilters, originalSqlRef, columnFiltersRef } = useColumnFilters(sql, tabColumnFilters, currentTab?.isFilterResult);
   
   // 同步 columnFilters 到标签页
   useEffect(() => {
@@ -182,10 +183,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
 
   // 执行带过滤和排序的 SQL 查询
   const executeFilteredAndSortedSql = useCallback(async (filters: Record<string, string>, sortConfig: Array<{ column: string; direction: 'asc' | 'desc' }>) => {
-    // 使用 originalSqlRef，若为空则回退到 actualExecutedSql（处理 sql 为空字符串等边界情况）
-    const baseSql = originalSqlRef.current?.trim() || actualExecutedSqlRef.current?.trim() || currentTab?.actualExecutedSql?.trim() || sql?.trim();
+    // 使用 originalSqlForFilter 作为 base，避免多次筛选时在已有 WHERE 上重复插入导致 SQL 语法错误
+    let baseSql = currentTab?.originalSqlForFilter?.trim() || originalSqlRef.current?.trim() || actualExecutedSqlRef.current?.trim() || currentTab?.actualExecutedSql?.trim() || sql?.trim();
     if (!currentConnectionId || !baseSql) {
       return;
+    }
+    // 向后兼容：若 tab 无 originalSqlForFilter（旧数据/恢复的会话），首次筛选时保存当前 base
+    if (currentTab && !currentTab.originalSqlForFilter?.trim()) {
+      updateTab(currentTab.id, { originalSqlForFilter: baseSql });
     }
 
     if (!currentTab) return;
@@ -230,7 +235,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       setActualExecutedSql(sqlToExecute);
       // 同时更新到 store 和 SQL 编辑器，使筛选/排序后的 SQL 反映到编辑器
       if (currentTab) {
-        updateTab(currentTab.id, { sql: sqlToExecute, actualExecutedSql: sqlToExecute });
+        updateTab(currentTab.id, { sql: sqlToExecute, actualExecutedSql: sqlToExecute, isFilterResult: true });
       }
       
       // 更新过滤器状态
