@@ -141,12 +141,12 @@ function TableHeader({
               }}
               title={sortInfo ? `按 ${column} ${sortInfo.direction === 'asc' ? '升序' : '降序'} 排序${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}。再次点击切换，点 × 取消` : `点击排序。Shift+点击可添加多列排序`}
             >
-              <div className="flex items-center gap-2">
-                <span className="flex-1 truncate">{column}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="flex-1 min-w-0 truncate">{column}</span>
                 {/* 排序指示器：已排序显示 ↑/↓，未排序显示可排序提示 ↕ */}
                 {sortInfo ? (
                   <span
-                    className="flex-shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-sm font-medium border"
+                    className="flex-shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded text-sm font-medium border"
                     style={{
                       color: "var(--neu-accent)",
                       backgroundColor: "rgba(91, 155, 213, 0.15)",
@@ -154,7 +154,7 @@ function TableHeader({
                     }}
                     title={`${sortInfo.direction === 'asc' ? '升序' : '降序'}${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}`}
                   >
-                    {sortInfo.direction === 'asc' ? '↑ 升序' : '↓ 降序'}
+                    {sortInfo.direction === 'asc' ? '↑' : '↓'}
                     {sortOrder && sortOrder > 1 && (
                       <span className="text-[10px] font-bold ml-0.5">{sortOrder}</span>
                     )}
