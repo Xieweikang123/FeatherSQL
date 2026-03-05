@@ -187,7 +187,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   }, [currentConnection]);
 
   // 执行带过滤和排序的 SQL 查询
-  const executeFilteredAndSortedSql = useCallback(async (filters: Record<string, string>, sortConfig: Array<{ column: string; direction: 'asc' | 'desc' }>) => {
+  // filterModesOverride: 切换模糊/精确时传入新值，避免闭包中的 tabColumnFilterModes 尚未更新
+  const executeFilteredAndSortedSql = useCallback(async (
+    filters: Record<string, string>, 
+    sortConfig: Array<{ column: string; direction: 'asc' | 'desc' }>,
+    filterModesOverride?: Record<string, 'fuzzy' | 'exact'>
+  ) => {
     // 使用 originalSqlForFilter 作为 base，避免多次筛选时在已有 WHERE 上重复插入导致 SQL 语法错误
     let baseSql = currentTab?.originalSqlForFilter?.trim() || originalSqlRef.current?.trim() || actualExecutedSqlRef.current?.trim() || currentTab?.actualExecutedSql?.trim() || sql?.trim();
     if (!currentConnectionId || !baseSql) {
@@ -226,7 +231,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute = baseSql;
       } else {
         // 构建带 WHERE 条件和 ORDER BY 的 SQL
-        sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig, tabColumnFilterModes);
+        const modes = filterModesOverride ?? tabColumnFilterModes;
+        sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig, modes);
       }
       
       const newResult = await executeSql(
@@ -420,7 +426,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     if (!currentTab) return;
     const newModes = { ...tabColumnFilterModes, [column]: mode };
     updateTab(currentTab.id, { columnFilterModes: newModes });
-    executeFilteredAndSortedSql(columnFiltersRef.current, sortConfig);
+    executeFilteredAndSortedSql(columnFiltersRef.current, sortConfig, newModes);
   }, [currentTab, tabColumnFilterModes, columnFiltersRef, sortConfig, executeFilteredAndSortedSql, updateTab]);
 
   // 组件卸载时清除定时器

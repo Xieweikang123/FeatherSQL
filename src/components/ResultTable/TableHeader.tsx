@@ -225,36 +225,41 @@ function TableHeader({
                     pointerEvents: 'none', // 容器不拦截点击，让下方表格单元格可被拖选
                   }}
                 >
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={filterValue}
-                      onChange={(e) => onFilterChange(column, e.target.value)}
-                      placeholder={`搜索 ${column}...`}
-                      className="w-full px-2.5 py-1.5 pl-7 neu-pressed rounded text-sm focus:outline-none transition-all"
-                      style={{
-                        color: "var(--neu-text)",
-                        pointerEvents: "auto",
-                      } as React.CSSProperties}
-                      autoFocus
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                          onExpandSearch(null);
-                        } else if (e.key === "Enter") {
-                          e.preventDefault();
-                          onFilterSearch(column);
-                          onExpandSearch(null);
-                        }
-                      }}
-                    />
-                    <span
-                      className="absolute left-2 top-1.5 text-xs"
-                      style={{ color: "var(--neu-text-light)" }}
-                    >
-                      🔍
-                    </span>
-                    <div className="absolute right-2 top-1 flex items-center gap-1" style={{ pointerEvents: 'auto' }}>
+                  <div className="relative space-y-2" style={{ pointerEvents: 'auto' }}>
+                    {/* 输入框独占一行，确保始终可见 */}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="flex-shrink-0 text-xs"
+                        style={{ color: "var(--neu-text-light)" }}
+                      >
+                        🔍
+                      </span>
+                      <input
+                        type="text"
+                        value={filterValue}
+                        onChange={(e) => onFilterChange(column, e.target.value)}
+                        placeholder={`搜索 ${column}...`}
+                        className="flex-1 min-w-[120px] w-full px-2.5 py-1.5 neu-pressed rounded text-sm focus:outline-none transition-all"
+                        style={{
+                          color: "var(--neu-text)",
+                          backgroundColor: "var(--neu-bg)",
+                          caretColor: "var(--neu-accent)",
+                        } as React.CSSProperties}
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            onExpandSearch(null);
+                          } else if (e.key === "Enter") {
+                            e.preventDefault();
+                            onFilterSearch(column);
+                            onExpandSearch(null);
+                          }
+                        }}
+                      />
+                    </div>
+                    {/* 按钮单独一行 */}
+                    <div className="flex items-center gap-1 flex-wrap">
                       {onFilterModeChange && filterValue && (
                         <>
                           <button
