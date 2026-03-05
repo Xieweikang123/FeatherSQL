@@ -36,26 +36,12 @@ export default function SqlDisplayBar({
   onExport,
   hasSelectedRows = false,
 }: SqlDisplayBarProps) {
-  const [copied, setCopied] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const exportButtonRef = useRef<HTMLButtonElement>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-
-  const handleCopySql = async () => {
-    // 复制实际执行的 SQL
-    const sqlToCopy = filteredSql || sql;
-    if (!sqlToCopy) return;
-    try {
-      await navigator.clipboard.writeText(sqlToCopy);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error("Failed to copy SQL:", error);
-    }
-  };
 
   // 打开菜单时计算位置并更新（用于 Portal 定位）
   useEffect(() => {
@@ -314,14 +300,6 @@ export default function SqlDisplayBar({
             {isFiltering ? "排序中..." : "清除排序"}
           </button>
         )}
-        <button
-          onClick={handleCopySql}
-          className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
-          style={{ color: "var(--neu-text-light)" }}
-          title="复制 SQL"
-        >
-          {copied ? "✓ 已复制" : "📋 复制"}
-        </button>
       </div>
     </div>
   );
