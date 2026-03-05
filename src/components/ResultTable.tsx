@@ -125,6 +125,10 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     // 只有当SQL变化时才更新原始结果（表示新的查询）
     // 注意：不要在这里重置 actualExecutedSql，因为它可能已经被筛选查询更新了
     if (sql && sql !== originalSqlRef.current) {
+      // sql 来自筛选/排序时（isFilterResult），不重置 sortConfig，否则排序按钮会闪烁消失
+      if (currentTab?.isFilterResult) {
+        return;
+      }
       originalResultRef.current = result;
       // 新查询时，实际执行的SQL就是原始SQL
       // 只有在 SQL prop 真正变化时才重置（表示用户执行了新的查询）
@@ -147,7 +151,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         setActualExecutedSql(actualExecutedSqlRef.current);
       }
     }
-  }, [result, sql]);
+  }, [result, sql, currentTab, updateTab]);
 
   // 当 result 变化时，重置分页和排序
   useEffect(() => {
