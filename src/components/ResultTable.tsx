@@ -630,7 +630,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   };
 
-  // 全局键盘快捷键处理
+  // 全局键盘快捷键处理（选中单元格后即使焦点不在 td 上也能响应）
   useEffect(() => {
     if (!editMode) return;
 
@@ -640,18 +640,30 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         return;
       }
 
+      const sel = selectionRef.current;
+      const hasSelection = sel && sel.cells.size > 0;
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         editing.handleUndo();
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
         editing.handleRedo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && selection) {
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && hasSelection) {
         e.preventDefault();
-        editing.handlePaste(selection);
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selection) {
+        editing.handlePaste(sel);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && hasSelection) {
         e.preventDefault();
-        editing.handleCopy(selection);
+        editing.handleCopy(sel);
+      } else if (!editing.editingCell && hasSelection) {
+        // 批量编辑：选中时直接输入或 Delete，不依赖 td 焦点
+        if (e.key === 'Delete') {
+          e.preventDefault();
+          editing.handleBatchEdit('', sel);
+        } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          editing.handleBatchEdit(e.key, sel);
+        }
       }
     };
 
@@ -659,7 +671,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [editMode, editing, handlePaste, handleCopy, selection]);
+  }, [editMode, editing]);
 
   const handleExitEditMode = () => {
     editing.handleExitEditMode(setEditMode);
