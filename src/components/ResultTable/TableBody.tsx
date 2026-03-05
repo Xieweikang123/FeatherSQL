@@ -37,8 +37,8 @@ interface TableBodyProps {
 
 export default function TableBody({
   paginatedRows,
-  filteredRows,
-  result,
+  filteredRows: _filteredRows,
+  result: _result,
   editedData,
   displayColumns,
   editMode,
@@ -64,12 +64,12 @@ export default function TableBody({
   return (
     <tbody>
       {paginatedRows.map((row, paginatedRowIndex) => {
-        // 计算在原始 filteredRows 中的索引（用于事件处理器，必须传递完整结果中的索引）
+        // 计算在 filteredRows 中的索引（用于事件处理器和显示）
         const originalFilteredIndex = (currentPage - 1) * pageSize + paginatedRowIndex;
-        let originalRowIndex = result.rows.findIndex((r) => r === row);
-        if (originalRowIndex === -1) {
-          originalRowIndex = originalFilteredIndex;
-        }
+        // originalRowIndex：当前结果中的行索引，用于 editedData、save、modifications
+        const originalRowIndex = originalFilteredIndex;
+        // 使用 getOriginalRowIndex 获取原始结果中的行索引，确保与 selectedRows、isCellSelected 的索引体系一致
+        const fullResultRowIndex = getOriginalRowIndex(originalFilteredIndex);
         const displayRow = originalRowIndex < editedData.rows.length ? editedData.rows[originalRowIndex] : row;
         
         return (
@@ -84,8 +84,8 @@ export default function TableBody({
             editingValue={editingValue}
             modifications={modifications}
             selection={selection}
-            isCellSelected={isCellSelected}
-            isRowSelected={selectedRows.has(originalRowIndex)}
+            isCellSelected={(_, col) => isCellSelected(fullResultRowIndex, col)}
+            isRowSelected={selectedRows.has(fullResultRowIndex)}
             onCellMouseDown={onCellMouseDown}
             onCellClick={onCellClick}
             onCellDoubleClick={onCellDoubleClick}

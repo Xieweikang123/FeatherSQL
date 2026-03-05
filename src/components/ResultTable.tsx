@@ -312,7 +312,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     });
     
     return map;
-  }, [filteredRows, result, originalResultRef.current]);
+  }, [filteredRows, result]);
   
   // 分页计算
   const totalRows = filteredRows.length;
@@ -351,10 +351,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const filterValue = currentFilters[columnName] || "";
     const newFilters = { ...currentFilters };
     
-    console.log('handleFilterSearch called for column:', columnName);
-    console.log('currentFilters:', currentFilters);
-    console.log('filterValue:', filterValue);
-    
     if (filterValue.trim() === "") {
       delete newFilters[columnName];
     }
@@ -364,7 +360,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       debounceTimerRef.current = null;
     }
     
-    console.log('Calling executeFilteredAndSortedSql with filters:', newFilters);
     executeFilteredAndSortedSql(newFilters, sortConfig);
   }, [columnFiltersRef, sortConfig, executeFilteredAndSortedSql]);
 
