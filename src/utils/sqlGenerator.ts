@@ -31,15 +31,8 @@ export function buildFilteredAndSortedSql(
       const escapedColumn = escapeIdentifier(columnName, dbType);
       const escapedValue = escapeSqlValue(`%${filterValue}%`, dbType);
       
-      // 使用 LIKE 进行模糊匹配（不区分大小写）
-      if (dbType === 'postgres') {
-        conditions.push(`LOWER(${escapedColumn}::text) LIKE LOWER(${escapedValue})`);
-      } else if (dbType === 'mssql') {
-        conditions.push(`${escapedColumn} LIKE ${escapedValue} COLLATE SQL_Latin1_General_CP1_CI_AS`);
-      } else {
-        // MySQL 和 SQLite
-        conditions.push(`LOWER(${escapedColumn}) LIKE LOWER(${escapedValue})`);
-      }
+      // 使用 LIKE 进行模糊匹配（区分大小写）
+      conditions.push(`${escapedColumn} LIKE ${escapedValue}`);
     });
     
     const whereClause = conditions.join(' AND ');
@@ -142,15 +135,8 @@ export function buildFilteredSql(
     const escapedColumn = escapeIdentifier(columnName, dbType);
     const escapedValue = escapeSqlValue(`%${filterValue}%`, dbType);
     
-    // 使用 LIKE 进行模糊匹配（不区分大小写）
-    if (dbType === 'postgres') {
-      conditions.push(`LOWER(${escapedColumn}::text) LIKE LOWER(${escapedValue})`);
-    } else if (dbType === 'mssql') {
-      conditions.push(`${escapedColumn} LIKE ${escapedValue} COLLATE SQL_Latin1_General_CP1_CI_AS`);
-    } else {
-      // MySQL 和 SQLite
-      conditions.push(`LOWER(${escapedColumn}) LIKE LOWER(${escapedValue})`);
-    }
+    // 使用 LIKE 进行模糊匹配（区分大小写）
+    conditions.push(`${escapedColumn} LIKE ${escapedValue}`);
   });
 
   if (conditions.length === 0) return baseSql;

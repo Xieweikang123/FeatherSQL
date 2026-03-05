@@ -229,9 +229,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       // 保存实际执行的SQL（同时更新 state、ref 和 store）
       actualExecutedSqlRef.current = sqlToExecute;
       setActualExecutedSql(sqlToExecute);
-      // 同时更新到 store，这样即使组件重新创建也能恢复
+      // 同时更新到 store 和 SQL 编辑器，使筛选/排序后的 SQL 反映到编辑器
       if (currentTab) {
-        updateTab(currentTab.id, { actualExecutedSql: sqlToExecute });
+        updateTab(currentTab.id, { sql: sqlToExecute, actualExecutedSql: sqlToExecute });
       }
       
       // 更新过滤器状态
