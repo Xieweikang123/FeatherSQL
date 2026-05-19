@@ -2,7 +2,12 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import Editor from "@monaco-editor/react";
 import { format } from "sql-formatter";
 import { useConnectionStore } from "../store/connectionStore";
-import { executeSql, listTables, describeTable, type ColumnInfo } from "../lib/commands";
+import {
+  selectCurrentConnectionId,
+  selectCurrentDatabase,
+} from "../store/selectors";
+import { listTables, describeTable, type ColumnInfo } from "../lib/commands";
+import { runTabQuery } from "../services/tabQueryService";
 
 // Map database type to Monaco Editor language
 function getLanguageForDbType(dbType: string | undefined): string {
@@ -39,15 +44,12 @@ export default function SqlEditor() {
   const monacoEditorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const isEditorMountedRef = useRef<boolean>(false);
-  const { 
-    connections, 
-    currentConnectionId, 
-    currentDatabase, 
-    getCurrentTab,
-    updateTab,
-    setSelectedTable, 
-    saveWorkspaceState 
-  } = useConnectionStore();
+  const connections = useConnectionStore((s) => s.connections);
+  const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
+  const currentDatabase = useConnectionStore(selectCurrentDatabase);
+  const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
+  const updateTab = useConnectionStore((s) => s.updateTab);
+  const setSelectedTable = useConnectionStore((s) => s.setSelectedTable);
   
   // 获取当前标签页
   const currentTab = getCurrentTab();
@@ -167,10 +169,7 @@ export default function SqlEditor() {
   }, [sqlToLoad, currentTab, updateTab]);
 
   const handleExecute = async () => {
-    if (!currentConnectionId || !currentTab) {
-      if (currentTab) {
-        updateTab(currentTab.id, { error: "请先选择一个连接" });
-      }
+    if (!currentTab) {
       return;
     }
 
@@ -179,60 +178,21 @@ export default function SqlEditor() {
     if (monacoEditorRef.current) {
       const selection = monacoEditorRef.current.getSelection();
       if (selection && !selection.isEmpty()) {
-        // Execute selected text
         sql = monacoEditorRef.current.getModel()?.getValueInRange(selection) || "";
       } else {
-        // No selection, execute all text
         sql = editorRef.current;
       }
     } else {
       sql = editorRef.current;
     }
 
-    sql = sql.trim();
-    if (!sql) {
-      updateTab(currentTab.id, { error: "SQL 查询不能为空" });
-      return;
-    }
-
-    updateTab(currentTab.id, { error: null, isQuerying: true });
-
-    try {
-      const result = await executeSql(currentConnectionId, sql, currentDatabase || undefined);
-      updateTab(currentTab.id, { 
-        queryResult: result, 
-        error: null, 
-        isQuerying: false,
-        sql: sql,
-        columnFilters: {}, // 执行新 SQL 时清理筛选条件
-        actualExecutedSql: sql, // 重置实际执行的 SQL 为新的 SQL
-        originalSqlForFilter: sql, // 保存原始 SQL，筛选时以此为 base
-        isFilterResult: false, // 用户执行的新查询，非筛选结果
-      });
-      // 检查是否是 INSERT/UPDATE/DELETE 语句（返回 affected_rows）
-      const isCommandResult = result.columns.length === 1 && result.columns[0] === "affected_rows";
-      if (isCommandResult && result.rows.length > 0) {
-        const affectedRows = result.rows[0][0];
-      }
-      // Save current SQL to workspace state after successful execution
-      saveWorkspaceState();
-      // History is automatically saved by the backend
-    } catch (error) {
-      const errorMsg = String(error);
-      updateTab(currentTab.id, { 
-        error: errorMsg, 
-        queryResult: null,
-        isQuerying: false,
-        sql: sql,
-        columnFilters: {}, // 执行新 SQL 时清理筛选条件
-        actualExecutedSql: sql, // 重置实际执行的 SQL 为新的 SQL
-        originalSqlForFilter: sql, // 保存原始 SQL，筛选时以此为 base
-        isFilterResult: false, // 用户执行的新查询，非筛选结果
-      });
-      // Save current SQL to workspace state even on error (user might want to retry)
-      saveWorkspaceState();
-      // History is automatically saved by the backend
-    }
+    await runTabQuery({
+      tabId: currentTab.id,
+      sql,
+      connectionId: currentConnectionId,
+      database: currentDatabase,
+      mode: "full",
+    });
   };
 
   const handleEditorChange = (value: string | undefined) => {

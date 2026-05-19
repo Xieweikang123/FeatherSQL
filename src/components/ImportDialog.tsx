@@ -2,6 +2,10 @@ import { useState, useRef } from "react";
 import { readFileContent, generateInsertSql, type ImportData } from "../utils/importUtils";
 import { executeSql } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
+import {
+  selectCurrentConnectionId,
+  selectCurrentDatabase,
+} from "../store/selectors";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 
 interface ImportDialogProps {
@@ -11,12 +15,10 @@ interface ImportDialogProps {
 }
 
 export default function ImportDialog({ tableName, onClose, onSuccess }: ImportDialogProps) {
-  const {
-    currentConnectionId,
-    currentDatabase,
-    connections,
-    setIsQuerying,
-  } = useConnectionStore();
+  const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
+  const currentDatabase = useConnectionStore(selectCurrentDatabase);
+  const connections = useConnectionStore((s) => s.connections);
+  const setIsQuerying = useConnectionStore((s) => s.setIsQuerying);
 
   const [loading, setLoading] = useState(false);
   const [importData, setImportData] = useState<ImportData | null>(null);

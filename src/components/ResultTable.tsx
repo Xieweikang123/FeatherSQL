@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { type QueryResult, executeSql } from "../lib/commands";
+import { type QueryResult } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
+import {
+  selectCurrentConnectionId,
+  selectCurrentDatabase,
+} from "../store/selectors";
+import { runTabQuery } from "../services/tabQueryService";
 import ConfirmDialog from "./ConfirmDialog";
 import { extractTableInfo } from "../lib/utils";
 import { useColumnFilters } from "../hooks/useColumnFilters";
@@ -27,15 +32,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const debounceTimerRef = useRef<number | null>(null);
   
   // 获取连接信息（需要在 useCellSelection 之前获取 editMode）
-  const { 
-    currentConnectionId, 
-    currentDatabase, 
-    connections, 
-    getCurrentTab,
-    updateTab,
-    editMode, // 从 store 读取 editMode
-    setEditMode // 使用 store 的 setEditMode
-  } = useConnectionStore();
+  const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
+  const currentDatabase = useConnectionStore(selectCurrentDatabase);
+  const connections = useConnectionStore((s) => s.connections);
+  const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
+  const updateTab = useConnectionStore((s) => s.updateTab);
+  const editMode = useConnectionStore((s) => s.editMode);
+  const setEditMode = useConnectionStore((s) => s.setEditMode);
   
   // 获取当前标签页
   const currentTab = getCurrentTab();
@@ -235,32 +238,30 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig, modes);
       }
       
-      const newResult = await executeSql(
-        currentConnectionId,
-        sqlToExecute,
-        currentDatabase || undefined
-      );
-      
-      // 保存实际执行的SQL（同时更新 state、ref 和 store）
+      const newResult = await runTabQuery({
+        tabId: currentTab.id,
+        sql: sqlToExecute,
+        connectionId: currentConnectionId,
+        database: currentDatabase,
+        mode: "filter",
+      });
+
+      if (!newResult) {
+        return;
+      }
+
       actualExecutedSqlRef.current = sqlToExecute;
       setActualExecutedSql(sqlToExecute);
-      // 同时更新到 store 和 SQL 编辑器，使筛选/排序后的 SQL 反映到编辑器
-      if (currentTab) {
-        updateTab(currentTab.id, { sql: sqlToExecute, actualExecutedSql: sqlToExecute, isFilterResult: true });
-      }
-      
-      // 更新过滤器状态
+
       updateFilters(filters);
-      
-      // 如果查询返回空结果但没有列信息，尝试从保存的列信息中恢复
+
       if (newResult.columns.length === 0 && originalColumnsRef.current.length > 0) {
-        const resultWithColumns = {
-          ...newResult,
-          columns: originalColumnsRef.current
-        };
-        updateTab(currentTab.id, { queryResult: resultWithColumns, error: null, isQuerying: false });
-      } else {
-        updateTab(currentTab.id, { queryResult: newResult, error: null, isQuerying: false });
+        updateTab(currentTab.id, {
+          queryResult: {
+            ...newResult,
+            columns: originalColumnsRef.current,
+          },
+        });
       }
       // 过滤后重置到第一页
       setCurrentPage(1);
@@ -422,12 +423,18 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     executeFilteredAndSortedSql(columnFiltersRef.current, newConfig);
   }, [currentTab, sortConfig, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
 
-  const handleFilterModeChange = useCallback((column: string, mode: 'fuzzy' | 'exact') => {
+  const handleFilterModeChange = useCallback((column: string, mode: 'fuzzy' | 'exact', filterValueOverride?: string) => {
     if (!currentTab) return;
     const newModes = { ...tabColumnFilterModes, [column]: mode };
     updateTab(currentTab.id, { columnFilterModes: newModes });
-    executeFilteredAndSortedSql(columnFiltersRef.current, sortConfig, newModes);
-  }, [currentTab, tabColumnFilterModes, columnFiltersRef, sortConfig, executeFilteredAndSortedSql, updateTab]);
+    // 点击精确时传入当前输入值，避免 ref 未同步导致筛选内容为空
+    let filtersToUse = columnFiltersRef.current;
+    if (filterValueOverride !== undefined) {
+      filtersToUse = { ...filtersToUse, [column]: filterValueOverride };
+      updateFilters(filtersToUse);
+    }
+    executeFilteredAndSortedSql(filtersToUse, sortConfig, newModes);
+  }, [currentTab, tabColumnFilterModes, columnFiltersRef, sortConfig, executeFilteredAndSortedSql, updateTab, updateFilters]);
 
   // 组件卸载时清除定时器
   useEffect(() => {

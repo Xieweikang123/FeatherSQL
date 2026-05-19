@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useConnectionStore } from "../store/connectionStore";
-import { listTables, executeSql, listDatabases } from "../lib/commands";
+import {
+  selectCurrentConnectionId,
+  selectCurrentDatabase,
+} from "../store/selectors";
+import { listTables, listDatabases } from "../lib/commands";
+import { runTabQuery } from "../services/tabQueryService";
 import { buildTableName } from "../lib/utils";
 import TableStructure from "./TableStructure";
 import ImportDialog from "./ImportDialog";
@@ -20,16 +25,13 @@ function loadTableViewMode(): 'list' | 'grid' {
 }
 
 export default function TableView() {
-  const {
-    connections,
-    currentConnectionId,
-    currentDatabase,
-    setCurrentDatabase,
-    getCurrentTab,
-    updateTab,
-    setSelectedTable,
-    loadSql,
-  } = useConnectionStore();
+  const connections = useConnectionStore((s) => s.connections);
+  const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
+  const currentDatabase = useConnectionStore(selectCurrentDatabase);
+  const setCurrentDatabase = useConnectionStore((s) => s.setCurrentDatabase);
+  const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
+  const setSelectedTable = useConnectionStore((s) => s.setSelectedTable);
+  const loadSql = useConnectionStore((s) => s.loadSql);
   
   const [databases, setDatabases] = useState<string[]>([]);
   const [databaseTables, setDatabaseTables] = useState<DatabaseTables>({});
@@ -110,14 +112,18 @@ export default function TableView() {
     }
   };
 
-  // Auto-expand current database if set
+  // Load tables when selected database changes
   useEffect(() => {
-    if (currentDatabase && !expandedDatabases.has(currentDatabase)) {
-      setExpandedDatabases(prev => new Set([...prev, currentDatabase]));
+    setSearchQuery("");
+    if (connectionType === "sqlite") {
+      return;
+    }
+    if (currentDatabase) {
+      setExpandedDatabases((prev) => new Set([...prev, currentDatabase]));
       loadTablesForDatabase(currentDatabase);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDatabase]);
+  }, [currentDatabase, connectionType]);
 
   const toggleDatabase = (database: string) => {
     setExpandedDatabases(prev => {
@@ -165,19 +171,16 @@ export default function TableView() {
     // Load SQL into editor
     loadSql(sql);
 
-    // Execute query
     const currentTab = getCurrentTab();
     if (!currentTab) return;
-    
-    updateTab(currentTab.id, { error: null, isQuerying: true });
-    try {
-      const dbParam = currentConnection.type === "sqlite" ? "" : (database || undefined);
-      const result = await executeSql(currentConnectionId, sql, dbParam);
-      updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
-    } catch (error) {
-      const errorMsg = String(error);
-      updateTab(currentTab.id, { error: errorMsg, queryResult: null, isQuerying: false });
-    }
+
+    await runTabQuery({
+      tabId: currentTab.id,
+      sql,
+      connectionId: currentConnectionId,
+      database: connectionType === "sqlite" ? "" : database,
+      mode: "full",
+    });
   };
 
   if (!currentConnectionId) {

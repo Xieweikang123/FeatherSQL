@@ -8,6 +8,8 @@ describe("connectionStore", () => {
     const newTab = {
       id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: "新查询",
+      connectionId: null,
+      database: null,
       sql: "",
       queryResult: null,
       error: null,
@@ -17,11 +19,10 @@ describe("connectionStore", () => {
       sortConfig: [] as Array<{ column: string; direction: 'asc' | 'desc' }>,
       sqlToLoad: null,
       actualExecutedSql: null,
+      originalSqlForFilter: null,
     };
     useConnectionStore.setState({
       connections: [],
-      currentConnectionId: null,
-      currentDatabase: null,
       tabs: [newTab],
       currentTabId: newTab.id,
       editMode: false,
@@ -45,16 +46,45 @@ describe("connectionStore", () => {
       expect(useConnectionStore.getState().connections).toEqual(connections);
     });
 
-    it("should set current connection", () => {
+    it("should set current connection on active tab", () => {
       useConnectionStore.getState().setCurrentConnection("conn-1");
-      expect(useConnectionStore.getState().currentConnectionId).toBe("conn-1");
+      expect(useConnectionStore.getState().getCurrentTab()?.connectionId).toBe(
+        "conn-1"
+      );
     });
 
-    it("should set current database", () => {
+    it("should set current database on active tab", () => {
       useConnectionStore.getState().setCurrentDatabase("mydb");
-      expect(useConnectionStore.getState().currentDatabase).toBe("mydb");
-      // Setting database should clear selected table
+      expect(useConnectionStore.getState().getCurrentTab()?.database).toBe(
+        "mydb"
+      );
       expect(useConnectionStore.getState().getCurrentTab()?.selectedTable).toBeNull();
+    });
+
+    it("should keep connection context per tab when switching tabs", () => {
+      const tabAId = useConnectionStore.getState().currentTabId!;
+      useConnectionStore.getState().setCurrentConnection("conn-a");
+      useConnectionStore.getState().setCurrentDatabase("db-a");
+
+      const tabBId = useConnectionStore.getState().createTab("Tab B");
+      useConnectionStore.getState().setCurrentConnection("conn-b");
+      useConnectionStore.getState().setCurrentDatabase("db-b");
+
+      const tabs = useConnectionStore.getState().tabs;
+      const tabA = tabs.find((t) => t.id === tabAId)!;
+      const tabB = tabs.find((t) => t.id === tabBId)!;
+      expect(tabA.connectionId).toBe("conn-a");
+      expect(tabA.database).toBe("db-a");
+      expect(tabB.connectionId).toBe("conn-b");
+      expect(tabB.database).toBe("db-b");
+
+      useConnectionStore.getState().setCurrentTab(tabA.id);
+      expect(useConnectionStore.getState().getCurrentTab()?.connectionId).toBe(
+        "conn-a"
+      );
+      expect(useConnectionStore.getState().getCurrentTab()?.database).toBe(
+        "db-a"
+      );
     });
 
     it("should set selected table", () => {

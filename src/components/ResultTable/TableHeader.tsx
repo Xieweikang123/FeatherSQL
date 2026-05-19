@@ -14,7 +14,7 @@ interface TableHeaderProps {
   sortConfig: SortConfig[];
   onFilterChange: (columnName: string, value: string) => void;
   onFilterSearch: (columnName: string) => void;
-  onFilterModeChange?: (columnName: string, mode: 'fuzzy' | 'exact') => void;
+  onFilterModeChange?: (columnName: string, mode: 'fuzzy' | 'exact', filterValue?: string) => void;
   onClearFilter: (columnName: string) => void;
   onExpandSearch: (columnName: string | null) => void;
   onSort: (column: string, e: React.MouseEvent) => void;
@@ -38,6 +38,7 @@ function TableHeader({
 }: TableHeaderProps) {
   const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const thRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
+  const filterInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Close search box when clicking outside
   useEffect(() => {
@@ -235,6 +236,7 @@ function TableHeader({
                         🔍
                       </span>
                       <input
+                        ref={(el) => { filterInputRefs.current[column] = el; }}
                         type="text"
                         value={filterValue}
                         onChange={(e) => onFilterChange(column, e.target.value)}
@@ -258,7 +260,7 @@ function TableHeader({
                         }}
                       />
                     </div>
-                    {/* 按钮单独一行 */}
+                    {/* 按钮：模糊/精确，点击精确直接搜索 */}
                     <div className="flex items-center gap-1 flex-wrap">
                       {onFilterModeChange && filterValue && (
                         <>
@@ -275,32 +277,24 @@ function TableHeader({
                             模糊
                           </button>
                           <button
-                            onClick={() => onFilterModeChange(column, 'exact')}
+                            onClick={() => {
+                              // 从 input DOM 读取最新值，避免 React 状态未同步
+                              const currentValue = filterInputRefs.current[column]?.value ?? filterValue;
+                              onFilterModeChange?.(column, 'exact', currentValue);
+                              onExpandSearch(null);
+                            }}
+                            disabled={isFiltering}
                             className={`text-[10px] px-1.5 py-0.5 rounded transition-all ${
                               columnFilterModes[column] === 'exact'
                                 ? 'neu-raised font-medium'
                                 : 'neu-flat hover:neu-hover'
-                            }`}
+                            } disabled:opacity-50 disabled:cursor-not-allowed`}
                             style={{ color: "var(--neu-text)" }}
-                            title="精确匹配 (= value)"
+                            title="精确匹配 (= value)，点击直接搜索"
                           >
-                            精确
+                            {isFiltering ? "⏳" : "精确"}
                           </button>
                         </>
-                      )}
-                      {filterValue && (
-                        <button
-                          onClick={() => {
-                            onFilterSearch(column);
-                            onExpandSearch(null);
-                          }}
-                          disabled={isFiltering}
-                          className="text-xs px-2 py-0.5 rounded transition-all neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--neu-accent)" }}
-                          title="搜索 (Enter)"
-                        >
-                          {isFiltering ? "⏳" : "搜索"}
-                        </button>
                       )}
                       {filterValue && (
                         <button

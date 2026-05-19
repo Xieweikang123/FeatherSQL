@@ -4,6 +4,7 @@ import type { CellModification } from "./useEditHistory";
 import type { CellSelection } from "./useCellSelection";
 import { useEditHistory } from "./useEditHistory";
 import { executeSql, describeTable } from "../lib/commands";
+import { runTabQuery } from "../services/tabQueryService";
 import { generateUpdateSql } from "../utils/sqlGenerator";
 import { extractTableInfo } from "../lib/utils";
 
@@ -585,16 +586,18 @@ export function useTableEditing({
       // 重新执行原始 SQL 查询以刷新数据
       if (!currentTab) return;
       
-      updateTab(currentTab.id, { isQuerying: true });
-      try {
-        const newResult = await executeSql(currentConnectionId, sql, dbParam);
-        updateTab(currentTab.id, { queryResult: newResult, error: null, isQuerying: false });
-        
-        // 清除修改记录
+      const newResult = await runTabQuery({
+        tabId: currentTab.id,
+        sql,
+        connectionId: currentConnectionId,
+        database: databaseToUse,
+        mode: "refresh",
+        saveWorkspace: false,
+      });
+
+      if (newResult) {
         setModifications(new Map());
         setEditedData(newResult);
-      } finally {
-        updateTab(currentTab.id, { isQuerying: false });
       }
     } catch (error) {
       console.error("保存失败:", error);

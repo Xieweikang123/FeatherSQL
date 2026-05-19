@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { useConnectionStore } from "../store/connectionStore";
+import {
+  selectCurrentConnectionId,
+  selectCurrentDatabase,
+} from "../store/selectors";
 import { describeTable, executeSql, type ColumnInfo } from "../lib/commands";
 import { escapeIdentifier, buildTableName } from "../lib/utils";
 import ConfirmDialog from "./ConfirmDialog";
@@ -16,11 +20,9 @@ interface EditableColumnInfo extends ColumnInfo {
 }
 
 export default function TableStructure({ tableName, onClose }: TableStructureProps) {
-  const {
-    currentConnectionId,
-    currentDatabase,
-    connections,
-  } = useConnectionStore();
+  const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
+  const currentDatabase = useConnectionStore(selectCurrentDatabase);
+  const connections = useConnectionStore((s) => s.connections);
 
   const [columns, setColumns] = useState<EditableColumnInfo[]>([]);
   const [originalColumns, setOriginalColumns] = useState<ColumnInfo[]>([]);

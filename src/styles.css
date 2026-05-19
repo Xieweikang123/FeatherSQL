@@ -448,6 +448,427 @@ button:disabled.neu-flat:hover {
   transform: none !important;
 }
 
+/* ============================================
+   左侧边栏 - 资源管理器树
+   ============================================ */
+.sidebar-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(180deg, #222222 0%, var(--neu-bg) 48px);
+}
+
+.sidebar-explorer-header {
+  flex-shrink: 0;
+  padding: 14px 12px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-explorer-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--neu-text-light);
+  margin: 0 0 10px 2px;
+}
+
+.sidebar-toolbar {
+  display: flex;
+  gap: 6px;
+}
+
+.sidebar-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--neu-text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.sidebar-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-btn:active {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-btn--primary {
+  color: var(--neu-accent-light);
+  background: rgba(91, 155, 213, 0.12);
+  border-color: rgba(91, 155, 213, 0.22);
+}
+
+.sidebar-btn--primary:hover {
+  background: rgba(91, 155, 213, 0.18);
+  border-color: rgba(91, 155, 213, 0.35);
+}
+
+.sidebar-btn--active {
+  background: rgba(91, 155, 213, 0.14);
+  border-color: rgba(91, 155, 213, 0.28);
+  color: var(--neu-accent-light);
+}
+
+.sidebar-btn-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--neu-text-light);
+}
+
+.sidebar-history-panel {
+  margin: 0 0 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  max-height: 260px;
+  overflow: auto;
+}
+
+.sidebar-history-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--neu-text-light);
+}
+
+.sidebar-history-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0.08), transparent);
+}
+
+.sidebar-history-item {
+  display: block;
+  width: calc(100% - 12px);
+  margin: 2px 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--neu-text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.sidebar-history-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-history-item-path {
+  font-weight: 500;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.sidebar-history-item-time {
+  margin-top: 3px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: var(--neu-text-light);
+  opacity: 0.85;
+}
+
+.sidebar-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0 12px;
+}
+
+.sidebar-tree-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--neu-text-light);
+}
+
+.sidebar-tree-empty-icon {
+  margin: 0 auto 12px;
+  color: rgba(255, 255, 255, 0.15);
+}
+
+.sidebar-tree-empty-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--neu-text);
+  margin-bottom: 4px;
+}
+
+.sidebar-tree-empty-hint {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.sidebar-tree-group {
+  margin-bottom: 2px;
+}
+
+.sidebar-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  margin: 1px 6px;
+  padding: 0 6px 0 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--neu-text);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  position: relative;
+}
+
+.sidebar-tree-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sidebar-tree-row--active {
+  background: rgba(91, 155, 213, 0.16);
+  color: var(--neu-accent-light);
+}
+
+.sidebar-tree-row--active:hover {
+  background: rgba(91, 155, 213, 0.2);
+}
+
+.sidebar-tree-row--flash {
+  animation: sidebarRowFlash 1s ease;
+}
+
+@keyframes sidebarRowFlash {
+  0%, 100% { background: rgba(91, 155, 213, 0.16); }
+  50% { background: rgba(91, 155, 213, 0.38); }
+}
+
+.sidebar-tree-row--connecting {
+  background: rgba(255, 167, 38, 0.08);
+}
+
+.sidebar-tree-row--connection {
+  font-weight: 500;
+}
+
+.sidebar-tree-indent-1 {
+  margin-left: 14px;
+  margin-right: 6px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-tree-indent-2 {
+  margin-left: 28px;
+  margin-right: 6px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-tree-row--table {
+  min-height: 26px;
+  font-size: 11px;
+  color: var(--neu-text-light);
+}
+
+.sidebar-tree-row--table:hover,
+.sidebar-tree-row--table.sidebar-tree-row--active {
+  color: var(--neu-text);
+}
+
+.sidebar-chevron-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--neu-text-light);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.15s ease;
+}
+
+.sidebar-chevron-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--neu-text);
+}
+
+.sidebar-chevron-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sidebar-chevron-btn--open {
+  transform: rotate(90deg);
+}
+
+.sidebar-chevron-placeholder {
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.sidebar-row-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--neu-text-light);
+}
+
+.sidebar-tree-row--active .sidebar-row-icon {
+  color: var(--neu-accent);
+}
+
+.sidebar-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sidebar-status-dot--online {
+  background: var(--neu-success);
+  box-shadow: 0 0 6px rgba(102, 187, 106, 0.5);
+}
+
+.sidebar-status-dot--connecting {
+  background: var(--neu-warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.sidebar-status-dot--offline {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sidebar-type-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  line-height: 1.5;
+}
+
+.sidebar-table-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--neu-text-light);
+  opacity: 0.65;
+  min-width: 14px;
+  text-align: right;
+}
+
+.sidebar-row-actions {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.sidebar-tree-row:hover .sidebar-row-actions,
+.sidebar-tree-row:focus-within .sidebar-row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--neu-text-light);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sidebar-icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--neu-text);
+}
+
+.sidebar-icon-btn--warn:hover:not(:disabled) {
+  color: var(--neu-warning);
+}
+
+.sidebar-icon-btn--danger:hover:not(:disabled) {
+  color: var(--neu-error);
+}
+
+.sidebar-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.sidebar-tree-children {
+  padding: 2px 0 6px;
+}
+
+.sidebar-tree-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 14px 4px 28px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--neu-text-light);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sidebar-tree-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 28px;
+  font-size: 11px;
+  color: var(--neu-text-light);
+}
+
 /* 输入框 placeholder 样式 */
 input::placeholder {
   color: var(--neu-text-light) !important;

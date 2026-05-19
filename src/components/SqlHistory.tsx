@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { getSqlHistory, deleteSqlHistory, getSettings, updateSettings, type SqlHistory, type AppSettings } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
+import { selectCurrentConnectionId } from "../store/selectors";
 
 export default function SqlHistory() {
-  const { currentConnectionId, loadSql } = useConnectionStore();
+  const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
+  const loadSql = useConnectionStore((s) => s.loadSql);
   const [history, setHistory] = useState<SqlHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<SqlHistory | null>(null);

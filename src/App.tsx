@@ -6,6 +6,10 @@ import SqlHistory from "./components/SqlHistory";
 import TableView from "./components/TableView";
 import TabBar from "./components/TabBar";
 import { useConnectionStore } from "./store/connectionStore";
+import {
+  selectCurrentConnectionId,
+  selectShouldShowTableView,
+} from "./store/selectors";
 import { getConnections } from "./lib/commands";
 
 const EDITOR_HEIGHT_RATIO_KEY = "feathersql_editor_height_ratio";
@@ -15,12 +19,10 @@ const SIDEBAR_MAX_WIDTH = 400;
 const SIDEBAR_DEFAULT_WIDTH = 260;
 
 function App() {
-  const { 
-    setConnections, 
-    currentConnectionId, 
-    currentDatabase, 
-    getCurrentTab,
-  } = useConnectionStore();
+  const setConnections = useConnectionStore((s) => s.setConnections);
+  const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
+  const shouldShowTableView = useConnectionStore(selectShouldShowTableView);
+  const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
   
   // 获取当前标签页状态
   const currentTab = getCurrentTab();
@@ -196,14 +198,13 @@ function App() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Connections */}
         <aside 
-          className="flex flex-col flex-shrink-0" 
+          className="flex flex-col flex-shrink-0 overflow-hidden" 
           style={{ 
             width: sidebarWidth,
             minWidth: sidebarWidth,
             maxWidth: sidebarWidth,
-            background: 'var(--neu-bg)',
-            borderRight: '1px solid rgba(255, 255, 255, 0.04)',
-            boxShadow: '1px 0 4px rgba(0, 0, 0, 0.2)',
+            background: 'linear-gradient(180deg, #222222 0%, var(--neu-bg) 120px)',
+            borderRight: '1px solid rgba(255, 255, 255, 0.05)',
           }}
         >
           <ConnectionManager />
@@ -325,8 +326,7 @@ function App() {
                 </div>
               ) : queryResult ? (
                 <ResultTable result={queryResult} sql={savedSql} />
-              ) : currentConnectionId && currentDatabase !== null && currentTab?.name !== "新查询" ? (
-                // 选中数据库且非新建查询页时：显示数据表视图
+              ) : shouldShowTableView ? (
                 <TableView />
               ) : (
                 <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>

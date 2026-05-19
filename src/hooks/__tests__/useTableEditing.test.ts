@@ -30,8 +30,13 @@ vi.mock("../../lib/utils", () => ({
   extractTableInfo: vi.fn(),
 }));
 
+vi.mock("../../services/tabQueryService", () => ({
+  runTabQuery: vi.fn(),
+}));
+
 import { useEditHistory } from "../useEditHistory";
 import { executeSql } from "../../lib/commands";
+import { runTabQuery } from "../../services/tabQueryService";
 import { generateUpdateSql } from "../../utils/sqlGenerator";
 import { extractTableInfo } from "../../lib/utils";
 
@@ -73,6 +78,7 @@ describe("useTableEditing", () => {
 
     vi.mocked(useEditHistory).mockReturnValue(mockEditHistory as any);
     vi.mocked(executeSql).mockResolvedValue(createMockQueryResult());
+    vi.mocked(runTabQuery).mockResolvedValue(createMockQueryResult());
     vi.mocked(generateUpdateSql).mockReturnValue(["UPDATE users SET name = 'test' WHERE id = 1;"]);
     vi.mocked(extractTableInfo).mockReturnValue({ tableName: "users" });
 
@@ -667,7 +673,6 @@ describe("useTableEditing", () => {
 
       expect(generateUpdateSql).toHaveBeenCalled();
       expect(executeSql).toHaveBeenCalled();
-      expect(options.updateTab).toHaveBeenCalled();
       expect(hookResult.current.modifications.size).toBe(0);
     });
 

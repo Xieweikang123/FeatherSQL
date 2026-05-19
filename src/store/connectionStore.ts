@@ -32,6 +32,8 @@ export interface SortConfigItem {
 export interface TabState {
   id: string;
   name: string;
+  connectionId: string | null;
+  database: string | null;
   sql: string;
   queryResult: QueryResult | null;
   error: string | null;
@@ -46,10 +48,8 @@ export interface TabState {
   isFilterResult?: boolean; // 当前 tab.sql 是否来自筛选（用于 useColumnFilters 判断是否更新 originalSqlRef）
 }
 
-interface ConnectionState {
+export interface ConnectionState {
   connections: Connection[];
-  currentConnectionId: string | null;
-  currentDatabase: string | null;
   // 标签页相关
   tabs: TabState[];
   currentTabId: string | null;
@@ -98,10 +98,38 @@ const loadEditMode = (): boolean => {
   return false; // 默认关闭
 };
 
+function buildTabName(
+  table: string,
+  connectionId: string | null,
+  database: string | null,
+  connections: Connection[]
+): string {
+  if (!connectionId) {
+    return table;
+  }
+  const connection = connections.find((c) => c.id === connectionId);
+  if (!connection) {
+    return table;
+  }
+  const parts: string[] = [];
+  if (database && database !== "") {
+    parts.push(database);
+  } else if (connection.type === "sqlite") {
+    parts.push("SQLite");
+  }
+  parts.push(table);
+  return parts.join(".");
+}
+
 // 创建默认标签页
-const createDefaultTab = (name: string = "新查询"): TabState => ({
+const createDefaultTab = (
+  name: string = "新查询",
+  inheritFrom?: TabState | null
+): TabState => ({
   id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
   name,
+  connectionId: inheritFrom?.connectionId ?? null,
+  database: inheritFrom?.database ?? null,
   sql: "",
   queryResult: null,
   error: null,
@@ -120,8 +148,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
   
   return {
     connections: [],
-    currentConnectionId: null,
-    currentDatabase: null,
     tabs: [initialTab],
     currentTabId: initialTab.id,
     editMode: loadEditMode(), // 从 localStorage 加载编辑模式状态
@@ -131,23 +157,32 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     // No auto-save on connections load
   },
   setCurrentConnection: (id) => {
-    set({ currentConnectionId: id });
-    // No auto-save on connection change
+    const currentTab = get().getCurrentTab();
+    if (!currentTab) {
+      return;
+    }
+    get().updateTab(currentTab.id, {
+      connectionId: id,
+      database: null,
+      selectedTable: null,
+    });
   },
   setCurrentDatabase: (database) => {
-    set((state) => {
-      // 更新所有标签页的 selectedTable 为 null（当数据库改变时）
-      const updatedTabs = state.tabs.map(tab => ({
-        ...tab,
-        selectedTable: null,
-      }));
-      return { currentDatabase: database, tabs: updatedTabs };
+    const currentTab = get().getCurrentTab();
+    if (!currentTab) {
+      return;
+    }
+    get().updateTab(currentTab.id, {
+      database,
+      selectedTable: null,
+      queryResult: null,
+      error: null,
     });
-    // No auto-save on database change
   },
   // 标签页操作方法
   createTab: (name) => {
-    const newTab = createDefaultTab(name);
+    const currentTab = get().getCurrentTab();
+    const newTab = createDefaultTab(name, currentTab);
     set((state) => ({
       tabs: [...state.tabs, newTab],
       currentTabId: newTab.id,
@@ -185,21 +220,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
           const updatedTab = { ...tab, ...updates };
           // 如果更新了 selectedTable，自动更新标签页名称
           if (updates.selectedTable !== undefined && updates.selectedTable) {
-            let tabName = updates.selectedTable;
-            if (state.currentConnectionId) {
-              const connection = state.connections.find(c => c.id === state.currentConnectionId);
-              if (connection) {
-                const parts: string[] = [];
-                if (state.currentDatabase && state.currentDatabase !== "") {
-                  parts.push(state.currentDatabase);
-                } else if (connection.type === "sqlite") {
-                  parts.push("SQLite");
-                }
-                parts.push(updates.selectedTable);
-                tabName = parts.join(".");
-              }
-            }
-            updatedTab.name = tabName;
+            updatedTab.name = buildTabName(
+              updates.selectedTable,
+              updatedTab.connectionId,
+              updatedTab.database,
+              state.connections
+            );
           }
           return updatedTab;
         }
@@ -219,20 +245,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     const currentTab = state.getCurrentTab();
     if (currentTab) {
       // 自动更新标签页名称
-      let tabName = table || "新查询";
-      if (table && state.currentConnectionId) {
-        const connection = state.connections.find(c => c.id === state.currentConnectionId);
-        if (connection) {
-          const parts: string[] = [];
-          if (state.currentDatabase && state.currentDatabase !== "") {
-            parts.push(state.currentDatabase);
-          } else if (connection.type === "sqlite") {
-            parts.push("SQLite");
-          }
-          parts.push(table);
-          tabName = parts.join(".");
-        }
-      }
+      const tabName =
+        table && currentTab.connectionId
+          ? buildTabName(
+              table,
+              currentTab.connectionId,
+              currentTab.database,
+              state.connections
+            )
+          : table || "新查询";
       state.updateTab(currentTab.id, { selectedTable: table, name: tabName });
     }
   },
@@ -294,8 +315,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     const state = get();
     const currentTab = state.getCurrentTab();
     const workspaceState: WorkspaceState = {
-      connectionId: state.currentConnectionId,
-      database: state.currentDatabase,
+      connectionId: currentTab?.connectionId ?? null,
+      database: currentTab?.database ?? null,
       table: currentTab?.selectedTable || null,
       sql: currentTab?.sql || null,
     };
@@ -389,17 +410,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
   },
   saveWorkspaceHistory: (name?: string) => {
     const state = get();
-    if (!state.currentConnectionId) {
-      return null;
-    }
-
-    const connection = state.connections.find(c => c.id === state.currentConnectionId);
-    if (!connection) {
-      return null;
-    }
-
     const currentTab = state.getCurrentTab();
-    if (!currentTab) {
+    if (!currentTab?.connectionId) {
+      return null;
+    }
+
+    const connection = state.connections.find(
+      (c) => c.id === currentTab.connectionId
+    );
+    if (!connection) {
       return null;
     }
 
@@ -407,8 +426,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     let historyName = name;
     if (!historyName) {
       const parts: string[] = [connection.name];
-      if (state.currentDatabase && state.currentDatabase !== "") {
-        parts.push(state.currentDatabase);
+      if (currentTab.database && currentTab.database !== "") {
+        parts.push(currentTab.database);
       } else if (connection.type === "sqlite") {
         parts.push("SQLite");
       }
@@ -421,8 +440,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     const history: WorkspaceHistory = {
       id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: historyName,
-      connectionId: state.currentConnectionId,
-      database: state.currentDatabase,
+      connectionId: currentTab.connectionId,
+      database: currentTab.database,
       table: currentTab.selectedTable,
       sql: currentTab.sql,
       savedAt: new Date().toISOString(),
