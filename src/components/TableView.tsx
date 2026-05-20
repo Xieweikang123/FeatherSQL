@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useConnectionStore } from "../store/connectionStore";
 import {
   selectCurrentConnectionId,
@@ -9,6 +9,7 @@ import { runTabQuery } from "../services/tabQueryService";
 import { buildTableName } from "../lib/utils";
 import TableStructure from "./TableStructure";
 import ImportDialog from "./ImportDialog";
+import { IconRefresh, IconSpinner } from "./ConnectionManager/SidebarIcons";
 
 const TABLE_VIEW_MODE_KEY = "feathersql_table_view_mode";
 
@@ -38,6 +39,7 @@ export default function TableView() {
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(new Set());
   const [loadingDatabases, setLoadingDatabases] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(loadTableViewMode);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [viewingStructure, setViewingStructure] = useState<string | null>(null);
@@ -92,8 +94,9 @@ export default function TableView() {
     }
   }, [currentConnectionId, connectionType]);
 
-  const loadTablesForDatabase = async (database: string) => {
-    if (!currentConnectionId || databaseTables[database]) {
+  const loadTablesForDatabase = async (database: string, force = false) => {
+    if (!currentConnectionId) return;
+    if (!force && databaseTables[database]) {
       return; // Already loaded
     }
 
@@ -111,6 +114,46 @@ export default function TableView() {
       });
     }
   };
+
+  const handleRefresh = useCallback(async () => {
+    if (!currentConnectionId || refreshing) return;
+
+    setRefreshing(true);
+    try {
+      if (connectionType === "sqlite") {
+        const tableList = await listTables(currentConnectionId, "");
+        setDatabaseTables({ SQLite: tableList });
+      } else if (currentDatabase) {
+        await loadTablesForDatabase(currentDatabase, true);
+      } else {
+        setLoading(true);
+        const dbList = await listDatabases(currentConnectionId);
+        setDatabases(dbList);
+        await Promise.all(
+          [...expandedDatabases].map((db) => loadTablesForDatabase(db, true))
+        );
+      }
+    } catch {
+      if (connectionType === "sqlite") {
+        setDatabaseTables({});
+      } else if (currentDatabase) {
+        setDatabaseTables((prev) => ({ ...prev, [currentDatabase]: [] }));
+      } else {
+        setDatabases([]);
+      }
+    } finally {
+      if (connectionType !== "sqlite" && !currentDatabase) {
+        setLoading(false);
+      }
+      setRefreshing(false);
+    }
+  }, [
+    connectionType,
+    currentConnectionId,
+    currentDatabase,
+    expandedDatabases,
+    refreshing,
+  ]);
 
   // Load tables when selected database changes
   useEffect(() => {
@@ -237,6 +280,17 @@ export default function TableView() {
           </h2>
           <div className="flex items-center gap-2">
             <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
+              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active disabled:opacity-50"
+              style={{ color: 'var(--neu-text)' }}
+              title="刷新列表"
+            >
+              {refreshing ? <IconSpinner size={14} /> : <IconRefresh size={14} />}
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 const next = viewMode === 'list' ? 'grid' : 'list';
                 setViewMode(next);

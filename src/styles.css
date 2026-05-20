@@ -15,6 +15,9 @@
   --neu-success: #66BB6A;
   --neu-warning: #FFA726;
   --neu-error: #EF5350;
+  --neu-selection-bg: rgba(91, 155, 213, 0.28);
+  --neu-selection-border: var(--neu-accent);
+  --neu-row-selection-bg: rgba(91, 155, 213, 0.14);
 }
 
 html, body {
@@ -70,6 +73,22 @@ html, body {
     inset 0 1px 0 rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.015);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 表格编辑模式 — 单元格/行选中高亮 */
+.edit-cell-selected {
+  background-color: var(--neu-selection-bg) !important;
+  box-shadow: inset 0 0 0 2px var(--neu-selection-border);
+}
+
+.edit-row-selected {
+  background-color: var(--neu-row-selection-bg) !important;
+}
+
+.edit-row-number-selected {
+  background-color: rgba(91, 155, 213, 0.38) !important;
+  color: var(--neu-text) !important;
+  box-shadow: inset 3px 0 0 var(--neu-accent);
 }
 
 /* Hover效果 - 只应用到按钮 */

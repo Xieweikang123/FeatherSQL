@@ -34,6 +34,18 @@ export const selectShouldShowTableView = (state: ConnectionState) => {
   return database !== "";
 };
 
+/** 是否应在主区域显示表列表（已选库且处于浏览表模式，未选具体表） */
+export const selectShouldShowTableBrowser = (state: ConnectionState) => {
+  const tab = selectCurrentTab(state);
+  if (!tab || tab.selectedTable) {
+    return false;
+  }
+  if (!selectShouldShowTableView(state)) {
+    return false;
+  }
+  return tab.showTableBrowser === true;
+};
+
 /** 是否应在主区域显示 SQL 编辑器（查看数据表/表数据时不显示） */
 export const selectShouldShowSqlEditor = (state: ConnectionState) => {
   const tab = selectCurrentTab(state);
@@ -43,7 +55,7 @@ export const selectShouldShowSqlEditor = (state: ConnectionState) => {
   if (tab.selectedTable) {
     return false;
   }
-  if (selectShouldShowTableView(state) && !tab.queryResult) {
+  if (selectShouldShowTableBrowser(state)) {
     return false;
   }
   return true;

@@ -65,20 +65,32 @@ function TableRow({
   return (
     <tr
       key={rowIndex}
-      className={`transition-colors duration-150 group ${isRowSelected ? "neu-raised" : "neu-flat"}`}
-      style={{ 
+      className={`transition-colors duration-150 group ${
+        editMode && isRowSelected
+          ? "edit-row-selected"
+          : isRowSelected
+          ? "neu-raised"
+          : "neu-flat"
+      }`}
+      style={{
         borderBottom: "1px solid var(--neu-dark)",
-        backgroundColor: isRowSelected ? "var(--neu-accent-dark)" : undefined,
       }}
     >
       <td
         data-row-index={rowIndex}
         data-cell-index={0}
-        className={`px-4 py-2.5 text-center select-none ${isRowSelected ? "font-semibold" : ""}`}
+        className={`px-4 py-2.5 text-center select-none ${
+          editMode && isRowSelected ? "edit-row-number-selected font-semibold" : ""
+        }`}
         style={{
           width: "60px",
           minWidth: "60px",
-          color: isRowSelected ? "var(--neu-accent)" : "var(--neu-text-light)",
+          color:
+            editMode && isRowSelected
+              ? undefined
+              : isRowSelected
+              ? "var(--neu-accent)"
+              : "var(--neu-text-light)",
           borderRight: "1px solid var(--neu-dark)",
           cursor: editMode ? "pointer" : "default",
         }}
@@ -109,15 +121,16 @@ function TableRow({
             className={`
               px-4 py-2.5 relative
               ${isEditing ? "neu-pressed" : ""}
-              ${isSelected && !isEditing ? "neu-raised" : ""}
-              ${editMode ? "cursor-cell hover:neu-hover" : "max-w-xs truncate"}
+              ${editMode && isSelected && !isEditing ? "edit-cell-selected" : ""}
+              ${!editMode && isSelected && !isEditing ? "neu-raised" : ""}
+              ${editMode ? "cursor-cell" : "max-w-xs truncate"}
             `}
             style={{
               ...({
                 color: isEditing
-                  ? "var(--neu-accent-dark)"
-                  : isSelected
-                  ? "var(--neu-accent-dark)"
+                  ? "var(--neu-accent-light)"
+                  : editMode && isSelected
+                  ? "var(--neu-text)"
                   : isModified
                   ? "var(--neu-warning)"
                   : "var(--neu-text)",

@@ -87,6 +87,29 @@ describe("connectionStore", () => {
       );
     });
 
+    it("should open new query tab in SQL editor mode, not table browser", () => {
+      const connections: Connection[] = [
+        {
+          id: "conn-1",
+          name: "Test DB",
+          type: "mysql",
+          config: { host: "localhost" },
+        },
+      ];
+      useConnectionStore.getState().setConnections(connections);
+      useConnectionStore.getState().setCurrentConnection("conn-1");
+      useConnectionStore.getState().setCurrentDatabase("mydb");
+
+      const newTabId = useConnectionStore.getState().createTab();
+      const newTab = useConnectionStore
+        .getState()
+        .tabs.find((t) => t.id === newTabId)!;
+
+      expect(newTab.connectionId).toBe("conn-1");
+      expect(newTab.database).toBe("mydb");
+      expect(newTab.showTableBrowser).toBe(false);
+    });
+
     it("should set selected table", () => {
       useConnectionStore.getState().setSelectedTable("users");
       expect(useConnectionStore.getState().getCurrentTab()?.selectedTable).toBe("users");

@@ -10,7 +10,7 @@ import {
   selectCurrentConnectionId,
   selectCurrentTab,
   selectShouldShowSqlEditor,
-  selectShouldShowTableView,
+  selectShouldShowTableBrowser,
 } from "./store/selectors";
 import { getConnections } from "./lib/commands";
 
@@ -23,7 +23,7 @@ const SIDEBAR_DEFAULT_WIDTH = 260;
 function App() {
   const setConnections = useConnectionStore((s) => s.setConnections);
   const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
-  const shouldShowTableView = useConnectionStore(selectShouldShowTableView);
+  const shouldShowTableBrowser = useConnectionStore(selectShouldShowTableBrowser);
   const shouldShowSqlEditor = useConnectionStore(selectShouldShowSqlEditor);
   const currentTab = useConnectionStore(selectCurrentTab);
   
@@ -344,7 +344,7 @@ function App() {
                   result={queryResult}
                   sql={savedSql}
                 />
-              ) : !error && shouldShowTableView && !selectedTable ? (
+              ) : !error && shouldShowTableBrowser ? (
                 <TableView />
               ) : !error ? (
                 <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>

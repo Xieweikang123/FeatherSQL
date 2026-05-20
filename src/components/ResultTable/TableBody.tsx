@@ -1,6 +1,6 @@
-import type { QueryResult } from "../../lib/commands";
 import type { CellModification } from "../../hooks/useEditHistory";
 import type { CellSelection } from "../../hooks/useCellSelection";
+import { applyRowModifications } from "../../utils/resultRowDisplay";
 import TableRow from "./TableRow";
 
 interface EditingCell {
@@ -11,8 +11,6 @@ interface EditingCell {
 interface TableBodyProps {
   paginatedRows: any[][];
   filteredRows: any[][];
-  result: QueryResult;
-  editedData: QueryResult;
   displayColumns: string[];
   editMode: boolean;
   editingCell: EditingCell | null;
@@ -37,7 +35,6 @@ interface TableBodyProps {
 export default function TableBody({
   paginatedRows,
   filteredRows,
-  editedData,
   displayColumns,
   editMode,
   editingCell,
@@ -62,10 +59,7 @@ export default function TableBody({
     <tbody>
       {paginatedRows.map((row, paginatedRowIndex) => {
         const displayRowIndex = (currentPage - 1) * pageSize + paginatedRowIndex;
-        const displayRow =
-          displayRowIndex < editedData.rows.length
-            ? editedData.rows[displayRowIndex]
-            : row;
+        const displayRow = applyRowModifications(row, displayRowIndex, modifications);
 
         return (
           <TableRow

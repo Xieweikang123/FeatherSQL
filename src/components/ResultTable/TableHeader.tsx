@@ -1,9 +1,7 @@
-import React, { useRef, useEffect, memo } from "react";
+import React, { useRef, useEffect, memo, useState } from "react";
+import type { SortAction, SortConfigItem } from "../../utils/sortConfig";
 
-interface SortConfig {
-  column: string;
-  direction: 'asc' | 'desc';
-}
+interface SortConfig extends SortConfigItem {}
 
 interface TableHeaderProps {
   columns: string[];
@@ -17,7 +15,7 @@ interface TableHeaderProps {
   onFilterModeChange?: (columnName: string, mode: 'fuzzy' | 'exact', filterValue?: string) => void;
   onClearFilter: (columnName: string) => void;
   onExpandSearch: (columnName: string | null) => void;
-  onSort: (column: string, e: React.MouseEvent) => void;
+  onApplySort: (column: string, action: SortAction, shiftKey: boolean) => void;
   onClearSortColumn?: (column: string) => void;
 }
 
@@ -33,25 +31,41 @@ function TableHeader({
   onFilterModeChange,
   onClearFilter,
   onExpandSearch,
-  onSort,
+  onApplySort,
   onClearSortColumn,
 }: TableHeaderProps) {
+  const [sortMenuColumn, setSortMenuColumn] = useState<string | null>(null);
   const searchBoxRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const sortMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const thRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
   const filterInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // Close search box when clicking outside
+  // Close search box or sort menu when clicking outside
   useEffect(() => {
-    if (!expandedSearchColumn) return;
+    if (!expandedSearchColumn && !sortMenuColumn) return;
 
     const handleClickOutside = (event: MouseEvent) => {
-      const searchBox = searchBoxRefs.current[expandedSearchColumn];
       const target = event.target as HTMLElement;
 
-      if (searchBox && !searchBox.contains(target)) {
-        const isHeaderButton = target.closest("th")?.querySelector("button");
-        if (!isHeaderButton || !isHeaderButton.contains(target)) {
-          onExpandSearch(null);
+      if (expandedSearchColumn) {
+        const searchBox = searchBoxRefs.current[expandedSearchColumn];
+        if (searchBox && !searchBox.contains(target)) {
+          const isHeaderButton = target.closest("th")?.querySelector("button");
+          if (!isHeaderButton || !isHeaderButton.contains(target)) {
+            onExpandSearch(null);
+          }
+        }
+      }
+
+      if (sortMenuColumn) {
+        const sortMenu = sortMenuRefs.current[sortMenuColumn];
+        if (sortMenu && !sortMenu.contains(target)) {
+          const clickedTh = target.closest("th");
+          const isSameColumnHeader =
+            clickedTh && thRefs.current[sortMenuColumn] === clickedTh;
+          if (!isSameColumnHeader) {
+            setSortMenuColumn(null);
+          }
         }
       }
     };
@@ -64,7 +78,7 @@ function TableHeader({
       clearTimeout(timer);
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [expandedSearchColumn, onExpandSearch]);
+  }, [expandedSearchColumn, sortMenuColumn, onExpandSearch]);
 
   // 更新搜索框宽度以匹配 th 的实际宽度
   useEffect(() => {
@@ -134,13 +148,13 @@ function TableHeader({
                 msUserSelect: 'text',
               }}
               onClick={(e) => {
-                // 如果点击的是搜索按钮，不触发排序
                 if ((e.target as HTMLElement).closest('button')) {
                   return;
                 }
-                onSort(column, e);
+                onExpandSearch(null);
+                setSortMenuColumn((prev) => (prev === column ? null : column));
               }}
-              title={sortInfo ? `按 ${column} ${sortInfo.direction === 'asc' ? '升序' : '降序'} 排序${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}。再次点击切换，点 × 取消` : `点击排序。Shift+点击可添加多列排序`}
+              title={sortInfo ? `按 ${column} ${sortInfo.direction === 'asc' ? '升序' : '降序'} 排序${sortOrder && sortOrder > 1 ? ` (第${sortOrder}优先级)` : ''}。点击列头选择排序方式` : `点击列头选择排序方式。Shift+选择可添加多列排序`}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <span className="flex-1 min-w-0 truncate">{column}</span>
@@ -204,6 +218,66 @@ function TableHeader({
                   <span className="text-xs">🔍</span>
                 </button>
               </div>
+
+              {/* Sort menu */}
+              {sortMenuColumn === column && (
+                <div
+                  ref={(el) => {
+                    sortMenuRefs.current[column] = el;
+                  }}
+                  className="absolute top-full left-0 mt-1 py-1 neu-raised rounded-lg min-w-[140px]"
+                  style={{ zIndex: 1000 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {([
+                    { action: 'asc' as const, label: '↑ 升序' },
+                    { action: 'desc' as const, label: '↓ 降序' },
+                  ]).map(({ action, label }) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className={`w-full px-3 py-1.5 text-left text-xs transition-all hover:neu-hover ${
+                        sortInfo?.direction === action ? 'font-semibold' : ''
+                      }`}
+                      style={{
+                        color: sortInfo?.direction === action ? 'var(--neu-accent)' : 'var(--neu-text)',
+                      }}
+                      onClick={(e) => {
+                        onApplySort(column, action, e.shiftKey);
+                        setSortMenuColumn(null);
+                      }}
+                    >
+                      {label}
+                      {sortInfo?.direction === action && ' ✓'}
+                    </button>
+                  ))}
+                  {sortInfo && onClearSortColumn && (
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left text-xs transition-all hover:neu-hover border-t"
+                      style={{
+                        color: 'var(--neu-text-light)',
+                        borderColor: 'var(--neu-dark)',
+                      }}
+                      onClick={() => {
+                        onClearSortColumn(column);
+                        setSortMenuColumn(null);
+                      }}
+                    >
+                      ✕ 取消排序
+                    </button>
+                  )}
+                  <div
+                    className="px-3 py-1 text-[10px] border-t"
+                    style={{
+                      color: 'var(--neu-text-light)',
+                      borderColor: 'var(--neu-dark)',
+                    }}
+                  >
+                    Shift+点击添加多列排序
+                  </div>
+                </div>
+              )}
 
               {/* Search input box */}
               {isExpanded && (
@@ -332,7 +406,8 @@ export default memo(TableHeader, (prevProps, nextProps) => {
     prevProps.expandedSearchColumn === nextProps.expandedSearchColumn &&
     prevProps.isFiltering === nextProps.isFiltering &&
     JSON.stringify(prevProps.sortConfig) === JSON.stringify(nextProps.sortConfig) &&
-    prevProps.onClearSortColumn === nextProps.onClearSortColumn
+    prevProps.onClearSortColumn === nextProps.onClearSortColumn &&
+    prevProps.onApplySort === nextProps.onApplySort
   );
 });
 

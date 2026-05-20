@@ -14,6 +14,7 @@ import { useColumnFilters } from "../hooks/useColumnFilters";
 import { useCellSelection } from "../hooks/useCellSelection";
 import { useTableEditing } from "../hooks/useTableEditing";
 import { buildFilteredAndSortedSql, generateInsertSql as generateInsertSqlUtil, generateUpdateSqlForRows as generateUpdateSqlForRowsUtil } from "../utils/sqlGenerator";
+import { applySortAction, type SortAction } from "../utils/sortConfig";
 import SqlDisplayBar from "./ResultTable/SqlDisplayBar";
 import TableHeader from "./ResultTable/TableHeader";
 import TableBody from "./ResultTable/TableBody";
@@ -63,10 +64,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   if (result && result.columns.length > 0) {
     originalColumnsRef.current = result.columns;
   }
-  if (result) {
-    originalResultRef.current = result;
-  }
-  
   const tabColumnFilters = currentTab?.columnFilters || {};
   const tabColumnFilterModes = currentTab?.columnFilterModes || {};
   
@@ -643,42 +640,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   };
 
-  // 处理列头排序
-  const handleSort = useCallback((column: string, e: React.MouseEvent) => {
+  // 处理列头排序（通过菜单选择升序/降序/取消）
+  const handleApplySort = useCallback((column: string, action: SortAction, shiftKey: boolean) => {
     if (!currentTab) return;
-    const isShiftKey = e.shiftKey;
-    
-    // 先计算新的排序配置
-    const existingIndex = sortConfig.findIndex(s => s.column === column);
-    let newConfig: Array<{ column: string; direction: 'asc' | 'desc' }>;
-    
-    if (isShiftKey) {
-      // Shift+点击：添加或更新多列排序
-      if (existingIndex !== -1) {
-        newConfig = [...sortConfig];
-        newConfig[existingIndex] = {
-          column,
-          direction: newConfig[existingIndex].direction === 'asc' ? 'desc' : 'asc'
-        };
-      } else {
-        newConfig = [...sortConfig, { column, direction: 'asc' }];
-      }
-    } else {
-      // 普通点击：单列排序，清除其他排序。ASC ↔ DESC 切换，取消请点 ×
-      if (existingIndex !== -1 && sortConfig.length === 1) {
-        newConfig = [{
-          column,
-          direction: sortConfig[existingIndex].direction === 'asc' ? 'desc' : 'asc'
-        }];
-      } else {
-        newConfig = [{ column, direction: 'asc' }];
-      }
-    }
-    
-    // 立即持久化到 tab，否则 isQuerying 会导致 ResultTable 卸载，sortConfig 会丢失
+
+    const newConfig = applySortAction(sortConfig, column, action, shiftKey);
+
     updateTab(currentTab.id, { sortConfig: newConfig });
     setCurrentPage(1);
-    // 使用 columnFiltersRef 获取最新筛选值，与 handleFilterSearch 保持一致
     executeFilteredAndSortedSql(columnFiltersRef.current, newConfig);
   }, [sortConfig, currentTab, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
 
@@ -1084,7 +1053,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             onFilterModeChange={handleFilterModeChange}
             onClearFilter={handleClearFilter}
             onExpandSearch={setExpandedSearchColumn}
-            onSort={handleSort}
+            onApplySort={handleApplySort}
             onClearSortColumn={handleClearSortColumn}
           />
           {filteredRows.length === 0 ? (
@@ -1095,8 +1064,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             <TableBody
               paginatedRows={paginatedRows}
               filteredRows={filteredRows}
-              result={result}
-              editedData={editing.editedData}
               displayColumns={displayColumns}
                     editMode={editMode}
               editingCell={editing.editingCell}

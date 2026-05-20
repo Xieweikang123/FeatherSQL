@@ -98,6 +98,27 @@ export function IconPlug({ className, size = 32 }: IconProps) {
   );
 }
 
+export function IconRefresh({ className, size = defaultSize }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M13.5 2.5v3h-3M2.5 13.5v-3h3"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.2 5.8A5 5 0 0 0 4.2 4.5L2.5 2.5M3.8 10.2a5 5 0 0 0 8 1.3l1.7 2"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconSpinner({ className, size = 14 }: IconProps) {
   return (
     <svg className={`animate-spin ${className ?? ""}`} width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>

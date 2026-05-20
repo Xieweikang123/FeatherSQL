@@ -46,6 +46,7 @@ export interface TabState {
   originalSqlForFilter: string | null; // 用户原始执行的 SQL，用于筛选时作为 base（筛选不修改此值）
   isFilterResult?: boolean; // 当前 tab.sql 是否来自筛选（用于 useColumnFilters 判断是否更新 originalSqlRef）
   editMode?: boolean; // 结果表编辑模式（按标签页）
+  showTableBrowser?: boolean; // 主区域显示表列表（选库浏览）；新查询标签页为 false
 }
 
 export interface ConnectionState {
@@ -129,6 +130,7 @@ const createDefaultTab = (
   actualExecutedSql: null,
   originalSqlForFilter: null,
   editMode: false,
+  showTableBrowser: false,
 });
 
 export const useConnectionStore = create<ConnectionState>((set, get) => {
@@ -153,6 +155,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
       connectionId: id,
       database: null,
       selectedTable: null,
+      showTableBrowser: false,
     });
   },
   setCurrentDatabase: (database) => {
@@ -166,6 +169,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
       queryResult: null,
       error: null,
       editMode: false,
+      showTableBrowser: database !== null,
     });
   },
   // 标签页操作方法
@@ -261,6 +265,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
         sql: "",
         sqlToLoad: null,
         editMode: false,
+        showTableBrowser: false,
       });
       return;
     }
