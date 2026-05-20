@@ -887,15 +887,11 @@ describe("useTableEditing", () => {
     });
   });
 
-  describe("originalResultRef", () => {
-    it("should use originalResultRef for oldValue comparison", () => {
-      const originalResult = createMockQueryResult([[1, "original"]]);
+  describe("oldValue baseline", () => {
+    it("should use current result row for oldValue comparison", () => {
       const currentResult = createMockQueryResult([[1, "current"]]);
-      const originalResultRef = { current: originalResult };
-
       const options = createMockOptions({
         result: currentResult,
-        originalResultRef: originalResultRef as any,
       });
       const { result } = renderHook(() => useTableEditing(options));
 
@@ -911,10 +907,9 @@ describe("useTableEditing", () => {
         result.current.handleCellSave(0, 1);
       });
 
-      // Should use original value from originalResultRef
       expect(result.current.modifications.size).toBe(1);
       const modification = Array.from(result.current.modifications.values())[0];
-      expect(modification.oldValue).toBe("original");
+      expect(modification.oldValue).toBe("current");
     });
   });
 });

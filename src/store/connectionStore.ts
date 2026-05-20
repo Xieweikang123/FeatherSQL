@@ -2,7 +2,6 @@ import { create } from "zustand";
 import type { Connection, QueryResult } from "../lib/commands";
 
 const WORKSPACE_HISTORY_KEY = "feathersql_workspace_history";
-const EDIT_MODE_KEY = "feathersql_edit_mode";
 const MAX_HISTORY_COUNT = 20; // 最多保存20个历史记录
 
 export interface WorkspaceHistory {
@@ -46,6 +45,7 @@ export interface TabState {
   actualExecutedSql: string | null; // 实际执行的 SQL（包含筛选条件）
   originalSqlForFilter: string | null; // 用户原始执行的 SQL，用于筛选时作为 base（筛选不修改此值）
   isFilterResult?: boolean; // 当前 tab.sql 是否来自筛选（用于 useColumnFilters 判断是否更新 originalSqlRef）
+  editMode?: boolean; // 结果表编辑模式（按标签页）
 }
 
 export interface ConnectionState {
@@ -53,8 +53,6 @@ export interface ConnectionState {
   // 标签页相关
   tabs: TabState[];
   currentTabId: string | null;
-  // 编辑模式状态（持久化）
-  editMode: boolean;
 
   setConnections: (connections: Connection[]) => void;
   setCurrentConnection: (id: string | null) => void;
@@ -66,7 +64,10 @@ export interface ConnectionState {
   updateTab: (tabId: string, updates: Partial<TabState>) => void;
   getCurrentTab: () => TabState | null;
   // 向后兼容的方法（操作当前标签页）
-  setSelectedTable: (table: string | null) => void;
+  setSelectedTable: (
+    table: string | null,
+    options?: { preparingQuery?: boolean }
+  ) => void;
   setQueryResult: (result: QueryResult | null) => void;
   setError: (error: string | null) => void;
   loadSql: (sql: string) => void;
@@ -84,19 +85,6 @@ export interface ConnectionState {
   deleteWorkspaceHistory: (id: string) => void;
   clearWorkspaceHistory: () => void;
 }
-
-// 从 localStorage 加载编辑模式状态
-const loadEditMode = (): boolean => {
-  try {
-    const saved = localStorage.getItem(EDIT_MODE_KEY);
-    if (saved !== null) {
-      return JSON.parse(saved) as boolean;
-    }
-  } catch (error) {
-    console.error("Failed to load edit mode:", error);
-  }
-  return false; // 默认关闭
-};
 
 function buildTabName(
   table: string,
@@ -140,6 +128,7 @@ const createDefaultTab = (
   sqlToLoad: null,
   actualExecutedSql: null,
   originalSqlForFilter: null,
+  editMode: false,
 });
 
 export const useConnectionStore = create<ConnectionState>((set, get) => {
@@ -150,7 +139,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     connections: [],
     tabs: [initialTab],
     currentTabId: initialTab.id,
-    editMode: loadEditMode(), // 从 localStorage 加载编辑模式状态
 
   setConnections: (connections) => {
     set({ connections });
@@ -177,6 +165,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
       selectedTable: null,
       queryResult: null,
       error: null,
+      editMode: false,
     });
   },
   // 标签页操作方法
@@ -240,22 +229,60 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     return state.tabs.find(tab => tab.id === state.currentTabId) || null;
   },
   // 向后兼容的方法（操作当前标签页）
-  setSelectedTable: (table) => {
+  setSelectedTable: (table, options) => {
     const state = get();
     const currentTab = state.getCurrentTab();
-    if (currentTab) {
-      // 自动更新标签页名称
-      const tabName =
-        table && currentTab.connectionId
-          ? buildTabName(
-              table,
-              currentTab.connectionId,
-              currentTab.database,
-              state.connections
-            )
-          : table || "新查询";
-      state.updateTab(currentTab.id, { selectedTable: table, name: tabName });
+    if (!currentTab) {
+      return;
     }
+
+    const tabName =
+      table && currentTab.connectionId
+        ? buildTabName(
+            table,
+            currentTab.connectionId,
+            currentTab.database,
+            state.connections
+          )
+        : table || "新查询";
+
+    if (!table) {
+      state.updateTab(currentTab.id, {
+        selectedTable: null,
+        name: tabName,
+        queryResult: null,
+        error: null,
+        isQuerying: false,
+        columnFilters: {},
+        sortConfig: [],
+        actualExecutedSql: null,
+        originalSqlForFilter: null,
+        isFilterResult: false,
+        sql: "",
+        sqlToLoad: null,
+        editMode: false,
+      });
+      return;
+    }
+
+    const updates: Partial<TabState> = {
+      selectedTable: table,
+      name: tabName,
+    };
+
+    if (options?.preparingQuery) {
+      updates.queryResult = null;
+      updates.error = null;
+      updates.isQuerying = true;
+      updates.columnFilters = {};
+      updates.sortConfig = [];
+      updates.actualExecutedSql = null;
+      updates.originalSqlForFilter = null;
+      updates.isFilterResult = false;
+      updates.editMode = false;
+    }
+
+    state.updateTab(currentTab.id, updates);
   },
   setQueryResult: (result) => {
     const currentTab = get().getCurrentTab();
@@ -301,14 +328,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
       get().updateTab(currentTab.id, { columnFilters: filters });
     }
   },
-  // 全局方法
   setEditMode: (editMode) => {
-    set({ editMode });
-    // 持久化编辑模式状态到 localStorage
-    try {
-      localStorage.setItem(EDIT_MODE_KEY, JSON.stringify(editMode));
-    } catch (error) {
-      console.error("Failed to save edit mode:", error);
+    const currentTab = get().getCurrentTab();
+    if (currentTab) {
+      get().updateTab(currentTab.id, { editMode });
     }
   },
   saveWorkspaceState: () => {

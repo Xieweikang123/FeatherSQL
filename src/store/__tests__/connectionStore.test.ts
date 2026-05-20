@@ -20,12 +20,12 @@ describe("connectionStore", () => {
       sqlToLoad: null,
       actualExecutedSql: null,
       originalSqlForFilter: null,
+      editMode: false,
     };
     useConnectionStore.setState({
       connections: [],
       tabs: [newTab],
       currentTabId: newTab.id,
-      editMode: false,
     });
     // Clear localStorage
     localStorage.clear();

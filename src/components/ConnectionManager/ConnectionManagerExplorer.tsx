@@ -61,7 +61,7 @@ export interface ConnectionManagerExplorerProps {
   onDeleteConnection: (e: MouseEvent, id: string) => void;
   onToggleDatabase: (e: MouseEvent, connectionId: string, database: string) => void;
   onDatabaseClick: (e: MouseEvent, connectionId: string, database: string) => void;
-  onTableClick: (e: MouseEvent, database: string, table: string) => void;
+  onTableClick: (e: MouseEvent, connectionId: string, database: string, table: string) => void;
   onTableContextMenu: (e: MouseEvent, database: string, table: string) => void;
 }
 
@@ -341,7 +341,7 @@ export default function ConnectionManagerExplorer(props: ConnectionManagerExplor
                                         key={`${db}-${table}`}
                                         role="button"
                                         tabIndex={0}
-                                        onClick={(e) => onTableClick(e, db, table)}
+                                        onClick={(e) => onTableClick(e, connection.id, db, table)}
                                         onContextMenu={(e) => onTableContextMenu(e, db, table)}
                                         className="sidebar-tree-row sidebar-tree-row--table sidebar-tree-indent-2"
                                         title="左键查询，右键菜单"

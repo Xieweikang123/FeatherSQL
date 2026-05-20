@@ -4,6 +4,8 @@ import { useConnectionStore } from "../store/connectionStore";
 import {
   selectCurrentConnectionId,
   selectCurrentDatabase,
+  selectCurrentTab,
+  selectEditMode,
 } from "../store/selectors";
 import { runTabQuery } from "../services/tabQueryService";
 import ConfirmDialog from "./ConfirmDialog";
@@ -35,13 +37,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
   const currentDatabase = useConnectionStore(selectCurrentDatabase);
   const connections = useConnectionStore((s) => s.connections);
-  const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
+  const currentTab = useConnectionStore(selectCurrentTab);
   const updateTab = useConnectionStore((s) => s.updateTab);
-  const editMode = useConnectionStore((s) => s.editMode);
+  const setSelectedTable = useConnectionStore((s) => s.setSelectedTable);
+  const editMode = useConnectionStore(selectEditMode);
   const setEditMode = useConnectionStore((s) => s.setEditMode);
   
-  // 获取当前标签页
-  const currentTab = getCurrentTab();
+  const selectedTable = currentTab?.selectedTable || null;
   // 从 store 中获取 actualExecutedSql，如果不存在则使用 sql
   const actualExecutedSqlFromStore = currentTab?.actualExecutedSql || null;
   // 保存实际执行到数据库的SQL
@@ -291,46 +293,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   // 计算显示的行数据（排序已在数据库层面完成，这里直接返回）
   const filteredRows = useMemo(() => displayRows, [displayRows]);
   
-  // 建立过滤后的索引到原始索引的映射
-  // 如果result.rows是原始结果，则映射是1:1；如果是过滤后的结果，需要建立映射
-  const filteredToOriginalIndexMap = useMemo(() => {
-    const map = new Map<number, number>();
-    const originalResult = originalResultRef.current;
-    
-    if (!originalResult || !result) {
-      // 如果没有原始结果，假设当前result就是原始的
-      filteredRows.forEach((_, index) => {
-        map.set(index, index);
-      });
-      return map;
-    }
-    
-    // 如果result.rows和originalResult.rows相同，说明没有过滤
-    if (result.rows === originalResult.rows) {
-      filteredRows.forEach((_, index) => {
-        map.set(index, index);
-      });
-      return map;
-    }
-    
-    // 建立映射：对于每个过滤后的行，找到它在原始结果中的索引
-    filteredRows.forEach((filteredRow, filteredIndex) => {
-      const originalIndex = originalResult.rows.findIndex((originalRow) => {
-        // 深度比较行数据
-        if (originalRow.length !== filteredRow.length) return false;
-        return originalRow.every((val, i) => val === filteredRow[i]);
-      });
-      if (originalIndex !== -1) {
-        map.set(filteredIndex, originalIndex);
-      } else {
-        // 如果找不到，可能是新行或数据已变化，使用索引本身
-        map.set(filteredIndex, filteredIndex);
-      }
-    });
-    
-    return map;
-  }, [filteredRows, result]);
-  
   // 分页计算
   const totalRows = filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
@@ -446,88 +408,47 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   }, []);
 
 
-  // 编辑相关处理函数（使用 editing hook）
-  // 注意：必须使用 filteredRowIndex（显示索引），因为 editedData.rows 与 result.rows 顺序一致（均为当前显示顺序）
-  // 若使用 getOriginalRowIndex 映射到“原始”索引，排序后会导致编辑时取到错误行的内容
-  const handleCellDoubleClick = (filteredRowIndex: number, cellIndex: number) => {
+  // 编辑相关处理函数：统一使用当前 result 中的 displayRowIndex
+  const handleCellDoubleClick = (displayRowIndex: number, cellIndex: number) => {
     if (!editMode) return;
-    if (filteredRowIndex < 0 || filteredRowIndex >= editing.editedData.rows.length) return;
-    editing.handleCellDoubleClick(filteredRowIndex, cellIndex);
+    if (displayRowIndex < 0 || displayRowIndex >= editing.editedData.rows.length) return;
+    editing.handleCellDoubleClick(displayRowIndex, cellIndex);
   };
 
   const handleCellInputChange = editing.handleCellInputChange;
   const handleCellSave = editing.handleCellSave;
   const handleCellCancel = editing.handleCellCancel;
 
-  // 获取原始行索引
-  const getOriginalRowIndex = useCallback((filteredRowIndex: number): number => {
-    // 使用映射表获取原始索引
-    const originalIndex = filteredToOriginalIndexMap.get(filteredRowIndex);
-    if (originalIndex !== undefined) {
-      return originalIndex;
-    }
-    // 如果映射表中没有，尝试直接查找
-    const filteredRow = filteredRows[filteredRowIndex];
-    if (!filteredRow) return -1;
-    
-    const originalResult = originalResultRef.current;
-    if (!originalResult) {
-      // 没有原始结果，假设当前索引就是原始索引
-      return filteredRowIndex;
-    }
-    
-    // 在原始结果中查找
-    const foundIndex = originalResult.rows.findIndex((originalRow) => {
-      if (originalRow.length !== filteredRow.length) return false;
-      return originalRow.every((val, i) => val === filteredRow[i]);
-    });
-    
-    return foundIndex !== -1 ? foundIndex : filteredRowIndex;
-  }, [filteredRows, filteredToOriginalIndexMap]);
+  const isCellSelected = isCellSelectedHook;
 
-  // 检查单元格是否在选择范围内
-  const isCellSelected = useCallback((originalRowIndex: number, cellIndex: number): boolean => {
-    if (originalRowIndex === -1) return false;
-    return isCellSelectedHook(originalRowIndex, cellIndex);
-  }, [isCellSelectedHook]);
-
-  // 处理单元格点击（作为 mousedown 的补充，确保点击其他格子能切换选择）
-  const handleCellClick = (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
+  const handleCellClick = (displayRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
     if (!editMode || editing.editingCell) return;
-    if (e.shiftKey || e.ctrlKey || e.metaKey) return; // 修饰键由 mousedown 处理
-    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
-    if (originalRowIndex === -1) return;
-    const clickedCell = { row: originalRowIndex, col: cellIndex };
+    if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (displayRowIndex < 0 || displayRowIndex >= filteredRows.length) return;
+    const clickedCell = { row: displayRowIndex, col: cellIndex };
     setRectSelection(clickedCell, clickedCell);
   };
 
-  // 处理单元格鼠标按下
-  const handleCellMouseDown = (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
-    // 检查是否有选中的文本（允许文本选择）
+  const handleCellMouseDown = (displayRowIndex: number, cellIndex: number, e: React.MouseEvent) => {
     const textSelection = window.getSelection();
     if (textSelection && textSelection.toString().trim().length > 0) {
-      return; // 如果有选中的文本，不处理单元格选择
+      return;
     }
     
     if (!editMode) return;
+    if (displayRowIndex < 0 || displayRowIndex >= filteredRows.length) return;
     
-    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
-    if (originalRowIndex === -1) return;
-    
-    // 如果正在编辑，不处理选择
     if (editing.editingCell) return;
     
-    // 用 ref 判断，避免 isDragging 异步更新导致后续拖选被误拦截
     if (isDraggingRef.current) {
       return;
     }
     
-    const clickedCell = { row: originalRowIndex, col: cellIndex };
+    const clickedCell = { row: displayRowIndex, col: cellIndex };
     const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-    const isCurrentlySelected = selection && isCellSelected(originalRowIndex, cellIndex);
+    const isCurrentlySelected = selection && isCellSelected(displayRowIndex, cellIndex);
     
     if (e.shiftKey && selection && selection.range) {
-      // Shift+点击：扩展选择范围（从 range.start 到点击位置），并允许继续拖拽
       e.preventDefault();
       const anchor = selection.range.start;
       setRectSelection(anchor, clickedCell);
@@ -536,23 +457,19 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       setIsDragging(true);
       attachDragListeners();
     } else if (isCtrlOrCmd) {
-      // Ctrl+点击：只影响点击的那个单元格
       e.preventDefault();
       e.stopPropagation();
       
       if (isCurrentlySelected) {
-        // 如果已选中，只取消选中点击的这个单元格，保留其他选中的单元格
-        removeCellFromSelection(originalRowIndex, cellIndex);
+        removeCellFromSelection(displayRowIndex, cellIndex);
       } else {
-        // 如果未选中，添加到选择中
-        addCellToSelection(originalRowIndex, cellIndex);
+        addCellToSelection(displayRowIndex, cellIndex);
       }
       
       dragStartRef.current = null;
       setIsDragging(false);
     } else {
-      // 普通点击：创建新选择
-      e.preventDefault(); // 阻止浏览器默认行为（如文本选择），确保拖选正常
+      e.preventDefault();
       setRectSelection(clickedCell, clickedCell);
       dragStartRef.current = clickedCell;
       isDraggingRef.current = true;
@@ -561,16 +478,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   };
 
-  // 处理单元格鼠标移动（拖拽）
-  const handleCellMouseMove = useCallback((filteredRowIndex: number, cellIndex: number) => {
+  const handleCellMouseMove = useCallback((displayRowIndex: number, cellIndex: number) => {
     if (!editMode || !dragStartRef.current) return;
+    if (displayRowIndex < 0 || displayRowIndex >= filteredRows.length) return;
     
-    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
-    if (originalRowIndex === -1) return;
-    
-    const endCell = { row: originalRowIndex, col: cellIndex };
+    const endCell = { row: displayRowIndex, col: cellIndex };
     setRectSelection(dragStartRef.current, endCell);
-  }, [editMode, getOriginalRowIndex, setRectSelection]);
+  }, [editMode, filteredRows.length, setRectSelection]);
 
   // 用 ref 保存最新的 handleCellMouseMove
   const handleCellMouseMoveRef = useRef(handleCellMouseMove);
@@ -769,86 +683,68 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   }, [sortConfig, currentTab, columnFiltersRef, executeFilteredAndSortedSql, updateTab]);
 
   // 处理序号列点击，选中整行
-  const handleRowNumberClick = useCallback((filteredRowIndex: number, e: React.MouseEvent) => {
+  const handleRowNumberClick = useCallback((displayRowIndex: number, e: React.MouseEvent) => {
     if (!editMode) return;
-    
-    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
-    if (originalRowIndex === -1) return;
+    if (displayRowIndex < 0 || displayRowIndex >= filteredRows.length) return;
     
     const isCtrlOrCmd = e.ctrlKey || e.metaKey;
     const isShift = e.shiftKey;
     
     if (isShift && selectedRows.size > 0) {
-      // Shift+点击：选择从上次选中的行到当前行的范围
       const lastSelected = Math.max(...Array.from(selectedRows));
-      const minRow = Math.min(lastSelected, originalRowIndex);
-      const maxRow = Math.max(lastSelected, originalRowIndex);
+      const minRow = Math.min(lastSelected, displayRowIndex);
+      const maxRow = Math.max(lastSelected, displayRowIndex);
       const newSelectedRows = new Set(selectedRows);
       for (let i = minRow; i <= maxRow; i++) {
         newSelectedRows.add(i);
       }
       setSelectedRows(newSelectedRows);
       
-      // 同时选中这些行的所有单元格
-      const newSelection: Set<string> = new Set();
-      for (let row = minRow; row <= maxRow; row++) {
-        for (let col = 0; col < displayColumns.length; col++) {
-          newSelection.add(`${row}-${col}`);
-        }
-      }
       setRectSelection(
         { row: minRow, col: 0 },
         { row: maxRow, col: displayColumns.length - 1 }
       );
     } else if (isCtrlOrCmd) {
-      // Ctrl+点击：切换行选择
       const newSelectedRows = new Set(selectedRows);
-      if (newSelectedRows.has(originalRowIndex)) {
-        newSelectedRows.delete(originalRowIndex);
-        // 取消选中该行的所有单元格
+      if (newSelectedRows.has(displayRowIndex)) {
+        newSelectedRows.delete(displayRowIndex);
         for (let col = 0; col < displayColumns.length; col++) {
-          removeCellFromSelection(originalRowIndex, col);
+          removeCellFromSelection(displayRowIndex, col);
         }
       } else {
-        newSelectedRows.add(originalRowIndex);
-        // 选中该行的所有单元格
+        newSelectedRows.add(displayRowIndex);
         for (let col = 0; col < displayColumns.length; col++) {
-          addCellToSelection(originalRowIndex, col);
+          addCellToSelection(displayRowIndex, col);
         }
       }
       setSelectedRows(newSelectedRows);
     } else {
-      // 普通点击：只选中当前行
-      setSelectedRows(new Set([originalRowIndex]));
-      // 选中该行的所有单元格
+      setSelectedRows(new Set([displayRowIndex]));
       setRectSelection(
-        { row: originalRowIndex, col: 0 },
-        { row: originalRowIndex, col: displayColumns.length - 1 }
+        { row: displayRowIndex, col: 0 },
+        { row: displayRowIndex, col: displayColumns.length - 1 }
       );
     }
-  }, [editMode, selectedRows, displayColumns.length, getOriginalRowIndex, setRectSelection, addCellToSelection, removeCellFromSelection]);
+  }, [editMode, selectedRows, displayColumns.length, filteredRows.length, setRectSelection, addCellToSelection, removeCellFromSelection]);
 
-  // 处理右键菜单
-  const handleRowContextMenu = useCallback((filteredRowIndex: number, e: React.MouseEvent) => {
+  const handleRowContextMenu = useCallback((displayRowIndex: number, e: React.MouseEvent) => {
     e.preventDefault();
-    const originalRowIndex = getOriginalRowIndex(filteredRowIndex);
-    if (originalRowIndex === -1) return;
+    if (displayRowIndex < 0 || displayRowIndex >= filteredRows.length) return;
     
-    // 如果右键点击的行不在选中列表中，先选中它
-    if (!selectedRows.has(originalRowIndex)) {
-      setSelectedRows(new Set([originalRowIndex]));
+    if (!selectedRows.has(displayRowIndex)) {
+      setSelectedRows(new Set([displayRowIndex]));
       setRectSelection(
-        { row: originalRowIndex, col: 0 },
-        { row: originalRowIndex, col: displayColumns.length - 1 }
+        { row: displayRowIndex, col: 0 },
+        { row: displayRowIndex, col: displayColumns.length - 1 }
       );
     }
     
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
-      rowIndex: originalRowIndex,
+      rowIndex: displayRowIndex,
     });
-  }, [selectedRows, displayColumns.length, getOriginalRowIndex, setRectSelection]);
+  }, [selectedRows, displayColumns.length, filteredRows.length, setRectSelection]);
 
   // 生成 INSERT 和 UPDATE 语句（使用工具函数）
   const generateInsertSqlCallback = useCallback((): string | null => {
@@ -1016,6 +912,20 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               className="px-4 py-2 neu-flat flex items-center gap-3"
               style={{ borderBottom: "1px solid var(--neu-dark)", display: "flex", flexWrap: "nowrap", overflow: "hidden" }}
             >
+              {selectedTable && (
+                <>
+                  <button
+                    onClick={() => setSelectedTable(null)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active flex-shrink-0"
+                    style={{ color: 'var(--neu-text)' }}
+                    title="返回表视图"
+                  >
+                    <span>←</span>
+                    <span>返回</span>
+                  </button>
+                  <div className="w-px h-6 flex-shrink-0" style={{ backgroundColor: "var(--neu-dark)" }} />
+                </>
+              )}
               {/* 编辑模式工具栏部分 */}
               {editMode && (
                 <>
@@ -1086,6 +996,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                       >
                         {editing.isSaving ? "保存中..." : `💾 保存 (${editing.modifications.size})`}
                       </button>
+                    )}
+                    {editing.saveSuccess && (
+                      <span className="text-xs" style={{ color: "var(--neu-success)" }}>
+                        保存成功
+                      </span>
+                    )}
+                    {editing.saveError && (
+                      <span className="text-xs max-w-xs truncate" style={{ color: "var(--neu-error)" }} title={editing.saveError}>
+                        保存失败: {editing.saveError}
+                      </span>
                     )}
                     <button
                       onClick={handleExitEditMode}
@@ -1196,7 +1116,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                     onCellCancel={handleCellCancel}
                     onRowNumberClick={handleRowNumberClick}
                     onRowContextMenu={handleRowContextMenu}
-              getOriginalRowIndex={getOriginalRowIndex}
                   />
             )}
         </table>

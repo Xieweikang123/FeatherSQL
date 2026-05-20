@@ -13,6 +13,9 @@ export const selectCurrentConnectionId = (state: ConnectionState) =>
 export const selectCurrentDatabase = (state: ConnectionState) =>
   selectCurrentTab(state)?.database ?? null;
 
+export const selectEditMode = (state: ConnectionState) =>
+  selectCurrentTab(state)?.editMode ?? false;
+
 /** 是否应在主区域显示数据表列表（已选连接且已选数据库 / SQLite 已连接） */
 export const selectShouldShowTableView = (state: ConnectionState) => {
   const tab = selectCurrentTab(state);
@@ -29,4 +32,19 @@ export const selectShouldShowTableView = (state: ConnectionState) => {
     return database === "";
   }
   return database !== "";
+};
+
+/** 是否应在主区域显示 SQL 编辑器（查看数据表/表数据时不显示） */
+export const selectShouldShowSqlEditor = (state: ConnectionState) => {
+  const tab = selectCurrentTab(state);
+  if (!tab) {
+    return true;
+  }
+  if (tab.selectedTable) {
+    return false;
+  }
+  if (selectShouldShowTableView(state) && !tab.queryResult) {
+    return false;
+  }
+  return true;
 };

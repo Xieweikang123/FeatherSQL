@@ -39,7 +39,6 @@ describe("tabQueryService", () => {
       ],
       tabs: [tab],
       currentTabId: "tab-1",
-      editMode: false,
     });
   });
 

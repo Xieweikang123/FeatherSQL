@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { QueryResult } from "../lib/commands";
 
 export interface CellModification {
@@ -8,107 +8,91 @@ export interface CellModification {
   newValue: any;
 }
 
-interface EditHistoryState {
+export interface EditHistoryState {
   editedData: QueryResult;
   modifications: Map<string, CellModification>;
 }
 
 const MAX_HISTORY_SIZE = 50;
 
-/**
- * 高效的深拷贝函数，专门用于 QueryResult 结构
- * 比 JSON.parse(JSON.stringify()) 更快，特别是对于大数据集
- */
 function deepCopyQueryResult(data: QueryResult): QueryResult {
   return {
     columns: [...data.columns],
-    rows: data.rows.map(row => [...row]),
+    rows: data.rows.map((row) => [...row]),
+  };
+}
+
+function copyState(state: EditHistoryState): EditHistoryState {
+  return {
+    editedData: deepCopyQueryResult(state.editedData),
+    modifications: new Map(state.modifications),
   };
 }
 
 /**
- * Hook to manage edit history (undo/redo) for table editing
+ * 管理表格编辑的 undo/redo（双栈）
  */
-export function useEditHistory(initialData: QueryResult) {
-  const [history, setHistory] = useState<EditHistoryState[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const historyIndexRef = useRef(-1);
+export function useEditHistory() {
+  const undoStackRef = useRef<EditHistoryState[]>([]);
+  const redoStackRef = useRef<EditHistoryState[]>([]);
+  const [revision, setRevision] = useState(0);
 
-  // Sync historyIndexRef with historyIndex
-  useEffect(() => {
-    historyIndexRef.current = historyIndex;
-  }, [historyIndex]);
+  const bump = useCallback(() => setRevision((n) => n + 1), []);
 
-  const saveToHistory = (editedData: QueryResult, modifications: Map<string, CellModification>) => {
-    const currentState: EditHistoryState = {
-      editedData: deepCopyQueryResult(editedData), // 使用优化的深拷贝
-      modifications: new Map(modifications),
-    };
+  const saveToHistory = useCallback(
+    (editedData: QueryResult, modifications: Map<string, CellModification>) => {
+      undoStackRef.current = [
+        ...undoStackRef.current,
+        copyState({ editedData, modifications }),
+      ].slice(-MAX_HISTORY_SIZE);
+      redoStackRef.current = [];
+      bump();
+    },
+    [bump]
+  );
 
-    const currentIndex = historyIndexRef.current;
-
-    setHistory((prevHistory) => {
-      const newHistory = prevHistory.slice(0, currentIndex + 1);
-      newHistory.push(currentState);
-      if (newHistory.length > MAX_HISTORY_SIZE) {
-        return newHistory.slice(-MAX_HISTORY_SIZE);
+  const undo = useCallback(
+    (current: EditHistoryState): EditHistoryState | null => {
+      if (undoStackRef.current.length === 0) {
+        return null;
       }
-      return newHistory;
-    });
+      redoStackRef.current = [...redoStackRef.current, copyState(current)];
+      const previous = undoStackRef.current[undoStackRef.current.length - 1];
+      undoStackRef.current = undoStackRef.current.slice(0, -1);
+      bump();
+      return copyState(previous);
+    },
+    [bump]
+  );
 
-    const newIndex = currentIndex + 1;
-    const finalIndex = newIndex >= MAX_HISTORY_SIZE ? MAX_HISTORY_SIZE - 1 : newIndex;
-    setHistoryIndex(finalIndex);
-    historyIndexRef.current = finalIndex;
-  };
-
-  const undo = (): EditHistoryState | null => {
-    const currentIndex = historyIndexRef.current;
-    if (currentIndex < 0) {
-      return null;
-    }
-
-    const previousState = history[currentIndex];
-    if (previousState) {
-      const newIndex = currentIndex - 1;
-      setHistoryIndex(newIndex);
-      historyIndexRef.current = newIndex;
-      return previousState;
-    }
-    return null;
-  };
-
-  const redo = (): EditHistoryState | null => {
-    const currentIndex = historyIndexRef.current;
-    if (currentIndex >= history.length - 1) {
-      return null;
-    }
-
-    const nextState = history[currentIndex + 1];
-    if (nextState) {
-      const newIndex = currentIndex + 1;
-      setHistoryIndex(newIndex);
-      historyIndexRef.current = newIndex;
-      return nextState;
-    }
-    return null;
-  };
+  const redo = useCallback(
+    (current: EditHistoryState): EditHistoryState | null => {
+      if (redoStackRef.current.length === 0) {
+        return null;
+      }
+      undoStackRef.current = [...undoStackRef.current, copyState(current)];
+      const next = redoStackRef.current[redoStackRef.current.length - 1];
+      redoStackRef.current = redoStackRef.current.slice(0, -1);
+      bump();
+      return copyState(next);
+    },
+    [bump]
+  );
 
   const reset = useCallback(() => {
-    setHistory([]);
-    setHistoryIndex(-1);
-    historyIndexRef.current = -1;
-  }, []);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    bump();
+  }, [bump]);
+
+  void revision;
 
   return {
-    history,
-    historyIndex,
-    canUndo: historyIndex >= 0,
-    canRedo: historyIndex < history.length - 1,
+    canUndo: undoStackRef.current.length > 0,
+    canRedo: redoStackRef.current.length > 0,
     saveToHistory,
     undo,
     redo,
     reset,
   };
 }
-

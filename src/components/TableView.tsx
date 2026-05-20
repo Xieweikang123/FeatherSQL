@@ -154,12 +154,14 @@ export default function TableView() {
     }
 
     // Set current database if different
-    if (connectionType !== "sqlite" && database !== currentDatabase) {
-      setCurrentDatabase(database);
+    const targetDatabase = connectionType === "sqlite" ? "" : database;
+    const latestTab = getCurrentTab();
+    if (latestTab?.database !== targetDatabase) {
+      setCurrentDatabase(targetDatabase);
     }
 
-    // Set selected table - this will switch to SQL editor view
-    setSelectedTable(tableName);
+    // Set selected table - switch to table data view
+    setSelectedTable(tableName, { preparingQuery: true });
 
     // Build escaped table name with database prefix if needed
     const escapedTableName = buildTableName(tableName, currentConnection.type, database);

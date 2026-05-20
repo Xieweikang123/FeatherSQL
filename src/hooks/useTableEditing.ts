@@ -45,6 +45,8 @@ export function useTableEditing({
   const [editingValue, setEditingValue] = useState<string>("");
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   
   // 使用 ref 来存储最新的修改记录，处理快速连续输入时状态还没更新的情况
   const modificationsRef = useRef<Map<string, CellModification>>(new Map());
@@ -60,7 +62,7 @@ export function useTableEditing({
   }, [editedData]);
   
   // 使用编辑历史 hook
-  const editHistory = useEditHistory(editedData);
+  const editHistory = useEditHistory();
   
   // 使用 ref 来存储稳定的函数引用，避免无限循环
   const clearSelectionRef = useRef(clearSelection);
@@ -91,21 +93,21 @@ export function useTableEditing({
   
   // 撤销
   const handleUndo = useCallback(() => {
-    const previousState = editHistory.undo();
+    const previousState = editHistory.undo({ editedData, modifications });
     if (previousState) {
       setEditedData(previousState.editedData);
       setModifications(previousState.modifications);
     }
-  }, [editHistory]);
-  
+  }, [editHistory, editedData, modifications]);
+
   // 重做
   const handleRedo = useCallback(() => {
-    const nextState = editHistory.redo();
+    const nextState = editHistory.redo({ editedData, modifications });
     if (nextState) {
       setEditedData(nextState.editedData);
       setModifications(nextState.modifications);
     }
-  }, [editHistory]);
+  }, [editHistory, editedData, modifications]);
   
   // 撤销所有改动
   const handleResetAll = useCallback(() => {
@@ -136,20 +138,14 @@ export function useTableEditing({
     if (!editingCell || editingCell.row !== rowIndex || editingCell.col !== cellIndex) return;
     
     const column = result.columns[cellIndex];
-    
-    // 使用原始结果获取oldValue，而不是当前result（可能是过滤后的）
-    let oldValue: any;
-    if (originalResultRef?.current && rowIndex < originalResultRef.current.rows.length) {
-      oldValue = originalResultRef.current.rows[rowIndex][cellIndex];
-    } else if (rowIndex < result.rows.length) {
-      // 如果没有原始结果，使用当前result
-      oldValue = result.rows[rowIndex][cellIndex];
-    } else {
-      // 索引超出范围
+
+    if (rowIndex < 0 || rowIndex >= result.rows.length) {
       setEditingCell(null);
       setEditingValue("");
       return;
     }
+
+    const oldValue = result.rows[rowIndex][cellIndex];
     
     const newValue = editingValue.trim() === "" ? null : editingValue;
     
@@ -183,7 +179,7 @@ export function useTableEditing({
     
     setEditingCell(null);
     setEditingValue("");
-  }, [editingCell, editingValue, result.columns, result.rows, saveToHistory, editedData, modifications, originalResultRef]);
+  }, [editingCell, editingValue, result.columns, result.rows, saveToHistory, editedData, modifications]);
   
   const handleCellCancel = useCallback(() => {
     setEditingCell(null);
@@ -213,8 +209,7 @@ export function useTableEditing({
     const sortedCellsForCollection = Array.from(selection.cells).sort();
     for (const cellKey of sortedCellsForCollection) {
       const [row, col] = cellKey.split('-').map(Number);
-      // 使用原始结果获取原始值
-      const originalValue = originalResultRef?.current?.rows[row]?.[col] ?? result.rows[row]?.[col];
+      const baselineValue = result.rows[row]?.[col];
       // 检查是否在修改记录中（优先检查 newMods，因为可能在同一函数调用中已经更新）
       const modKey = `${row}-${col}`;
       const isModifiedInNewMods = newMods.has(modKey);
@@ -250,7 +245,7 @@ export function useTableEditing({
       
       // 如果当前值等于原始值且不在修改记录中，说明未修改，使用空字符串作为标记
       // 注意：即使字符串表示相同，如果已经在修改记录中，也应该使用当前值
-      const valueStr = (!isModified && (currentValue === originalValue || String(currentValue) === String(originalValue)))
+      const valueStr = (!isModified && (currentValue === baselineValue || String(currentValue) === String(baselineValue)))
         ? "" 
         : String(currentValue ?? "");
       currentValues.push(valueStr);
@@ -284,8 +279,7 @@ export function useTableEditing({
     const sortedCells = Array.from(selection.cells).sort();
     for (const cellKey of sortedCells) {
       const [row, col] = cellKey.split('-').map(Number);
-      // 获取原始值和当前编辑后的值（使用原始结果获取原始值）
-      const originalValue = originalResultRef?.current?.rows[row]?.[col] ?? result.rows[row]?.[col];
+      const baselineValue = result.rows[row]?.[col];
       
       // 获取当前值（在更新之前）
       // 优先检查是否已经在本次循环中更新过
@@ -332,7 +326,7 @@ export function useTableEditing({
       // modKey 已经在上面定义过了
       const column = result.columns[col];
       // 如果这个单元格还没有被修改过，使用原始值；否则使用之前的修改记录中的 oldValue
-      const modOldValue = newMods.has(modKey) ? newMods.get(modKey)!.oldValue : originalValue;
+      const modOldValue = newMods.has(modKey) ? newMods.get(modKey)!.oldValue : baselineValue;
       newMods.set(modKey, {
         rowIndex: row,
         column,
@@ -350,7 +344,7 @@ export function useTableEditing({
       editedDataRef.current = newEditedData;
       modificationsRef.current = newMods;
     }
-  }, [result, saveToHistory, originalResultRef]);
+  }, [result, saveToHistory]);
   
   // 复制选中区域
   const handleCopy = useCallback(async (selection: CellSelection | null) => {
@@ -485,8 +479,7 @@ export function useTableEditing({
           continue;
         }
         
-        // 使用原始结果获取oldValue
-        const oldValue = originalResultRef?.current?.rows[row]?.[col] ?? result.rows[row]?.[col];
+        const oldValue = result.rows[row]?.[col];
         const newValue = pasteValue;
         
         // 更新单元格值
@@ -513,7 +506,7 @@ export function useTableEditing({
     } catch (error) {
       console.error('粘贴错误:', error);
     }
-  }, [result, editedData, modifications, saveToHistory, originalResultRef]);
+  }, [result, editedData, modifications, saveToHistory]);
   
   // 保存修改到数据库
   const handleSaveChanges = useCallback(async () => {
@@ -530,7 +523,8 @@ export function useTableEditing({
     }
     
     setIsSaving(true);
-    
+    setSaveError(null);
+    setSaveSuccess(false);
     try {
       const tableInfo = extractTableInfo(sql);
       if (!tableInfo) {
@@ -598,8 +592,10 @@ export function useTableEditing({
       if (newResult) {
         setModifications(new Map());
         setEditedData(newResult);
+        setSaveSuccess(true);
       }
     } catch (error) {
+      setSaveError(String(error));
       console.error("保存失败:", error);
     } finally {
       setIsSaving(false);
@@ -643,6 +639,8 @@ export function useTableEditing({
     editingValue,
     showExitConfirm,
     isSaving,
+    saveError,
+    saveSuccess,
     editHistory,
     
     // 方法

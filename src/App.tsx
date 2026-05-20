@@ -8,6 +8,7 @@ import TabBar from "./components/TabBar";
 import { useConnectionStore } from "./store/connectionStore";
 import {
   selectCurrentConnectionId,
+  selectCurrentTab,
   selectShouldShowSqlEditor,
   selectShouldShowTableView,
 } from "./store/selectors";
@@ -24,14 +25,16 @@ function App() {
   const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
   const shouldShowTableView = useConnectionStore(selectShouldShowTableView);
   const shouldShowSqlEditor = useConnectionStore(selectShouldShowSqlEditor);
-  const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
+  const currentTab = useConnectionStore(selectCurrentTab);
   
   // 获取当前标签页状态
-  const currentTab = getCurrentTab();
   const queryResult = currentTab?.queryResult || null;
   const error = currentTab?.error || null;
   const isQuerying = currentTab?.isQuerying || false;
   const savedSql = currentTab?.sql || null;
+  const selectedTable = currentTab?.selectedTable ?? null;
+  const isLoadingTableData =
+    isQuerying || (!!selectedTable && !queryResult && !error);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
   const [editorHeightRatio, setEditorHeightRatio] = useState<number | null>(null);
@@ -325,7 +328,7 @@ function App() {
                 </div>
               )}
               <div className="flex-1 min-h-0 overflow-auto">
-              {isQuerying ? (
+              {isLoadingTableData ? (
                 <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
                   <div className="flex justify-center mb-3">
                     <svg className="animate-spin h-8 w-8" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -336,8 +339,12 @@ function App() {
                   <div className="text-sm">查询中...</div>
                 </div>
               ) : queryResult ? (
-                <ResultTable result={queryResult} sql={savedSql} />
-              ) : !error && shouldShowTableView ? (
+                <ResultTable
+                  key={`${currentTab?.id ?? ""}-${selectedTable ?? ""}-${savedSql ?? ""}`}
+                  result={queryResult}
+                  sql={savedSql}
+                />
+              ) : !error && shouldShowTableView && !selectedTable ? (
                 <TableView />
               ) : !error ? (
                 <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>

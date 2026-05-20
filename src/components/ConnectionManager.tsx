@@ -11,10 +11,10 @@ import {
   disconnectConnection,
   listDatabases,
   listTables,
-  executeSql,
   type Connection,
 } from "../lib/commands";
 import { buildTableName } from "../lib/utils";
+import { runTabQuery } from "../services/tabQueryService";
 import ConnectionForm from "./ConnectionForm";
 import TableContextMenu from "./ConnectionManager/TableContextMenu";
 import TableStructure from "./TableStructure";
@@ -236,7 +236,9 @@ export default function ConnectionManager() {
 
   const handleDatabaseClick = (e: React.MouseEvent, connectionId: string, database: string) => {
     e.stopPropagation();
-    // Set current database - this will trigger TableView to load tables
+    if (currentConnectionId !== connectionId) {
+      setCurrentConnection(connectionId);
+    }
     setCurrentDatabase(database);
     // Auto-expand if not already expanded
     if (!expandedDatabases.has(database)) {
@@ -245,43 +247,45 @@ export default function ConnectionManager() {
     }
   };
 
-  const handleTableClick = async (e: React.MouseEvent, database: string, table: string) => {
+  const handleTableClick = async (
+    e: React.MouseEvent,
+    connectionId: string,
+    database: string,
+    table: string
+  ) => {
     e.stopPropagation();
-    if (!currentConnectionId) return;
 
-    const connection = connections.find(c => c.id === currentConnectionId);
+    const connection = connections.find((c) => c.id === connectionId);
     if (!connection) return;
 
-    // Set current database if different
-    if (connection.type !== "sqlite" && database !== currentDatabase) {
-      setCurrentDatabase(database);
+    if (currentConnectionId !== connectionId) {
+      setCurrentConnection(connectionId);
     }
 
-    // Set selected table
-    setSelectedTable(table);
+    const targetDatabase = connection.type === "sqlite" ? "" : database;
+    const latestTab = getCurrentTab();
+    if (latestTab?.database !== targetDatabase) {
+      setCurrentDatabase(targetDatabase);
+    }
 
-    // Build escaped table name with database prefix if needed
     const escapedTableName = buildTableName(table, connection.type, database);
     const sql = connection.type === "mssql"
       ? `SELECT TOP 100 * FROM ${escapedTableName}`
       : `SELECT * FROM ${escapedTableName} LIMIT 100`;
 
-    // Load SQL into editor
-    loadSql(sql);
-
-    // Execute query and show table data
     const currentTab = getCurrentTab();
     if (!currentTab) return;
 
-    updateTab(currentTab.id, { error: null, isQuerying: true });
-    try {
-      const dbParam = connection.type === "sqlite" ? "" : (database || undefined);
-      const result = await executeSql(currentConnectionId, sql, dbParam);
-      updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
-    } catch (error) {
-      const errorMsg = String(error);
-      updateTab(currentTab.id, { error: errorMsg, isQuerying: false });
-    }
+    setSelectedTable(table, { preparingQuery: true });
+    loadSql(sql);
+
+    await runTabQuery({
+      tabId: currentTab.id,
+      sql,
+      connectionId,
+      database: connection.type === "sqlite" ? "" : database,
+      mode: "full",
+    });
   };
 
   const handleTableContextMenu = (e: React.MouseEvent, database: string, table: string) => {
@@ -297,42 +301,33 @@ export default function ConnectionManager() {
 
   const handleQueryTable = async () => {
     if (!contextMenu || !currentConnectionId) return;
-    
+
     const { table, database } = contextMenu;
-    const connection = connections.find(c => c.id === currentConnectionId);
+    const connection = connections.find((c) => c.id === currentConnectionId);
     if (!connection) return;
 
-    // Set current database if different
     if (connection.type !== "sqlite" && database !== currentDatabase) {
       setCurrentDatabase(database);
     }
 
-    // Set selected table
-    setSelectedTable(table);
-
-    // Build escaped table name with database prefix if needed
     const escapedTableName = buildTableName(table, connection.type, database);
-    // Use TOP for MSSQL, LIMIT for other databases
-    const sql = connection.type === "mssql" 
+    const sql = connection.type === "mssql"
       ? `SELECT TOP 100 * FROM ${escapedTableName}`
       : `SELECT * FROM ${escapedTableName} LIMIT 100`;
 
-    // Load SQL into editor
-    loadSql(sql);
-
-    // Execute query
     const currentTab = getCurrentTab();
     if (!currentTab) return;
-    
-    updateTab(currentTab.id, { error: null, isQuerying: true });
-    try {
-      const dbParam = connection.type === "sqlite" ? "" : (database || undefined);
-      const result = await executeSql(currentConnectionId, sql, dbParam);
-      updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
-    } catch (error) {
-      const errorMsg = String(error);
-      updateTab(currentTab.id, { error: errorMsg, isQuerying: false });
-    }
+
+    setSelectedTable(table, { preparingQuery: true });
+    loadSql(sql);
+
+    await runTabQuery({
+      tabId: currentTab.id,
+      sql,
+      connectionId: currentConnectionId,
+      database: connection.type === "sqlite" ? "" : database,
+      mode: "full",
+    });
   };
 
   const handleViewStructure = () => {
@@ -553,25 +548,48 @@ export default function ConnectionManager() {
         }
       }
 
-      // Restore table
-      if (savedState.table) {
-        setSelectedTable(savedState.table);
-        // Wait for table to be set
-        let tableAttempts = 0;
-        while (tableAttempts < 20) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-          const store = useConnectionStore.getState();
-          const currentTab = store.getCurrentTab();
-          if (currentTab?.selectedTable === savedState.table) {
-            break;
-          }
-          tableAttempts++;
-        }
+      // Restore table / SQL and run query (otherwise UI stays on "查询中..." forever)
+      const tabAfterRestore = useConnectionStore.getState().getCurrentTab();
+      if (!tabAfterRestore) {
+        return;
       }
 
-      // Restore SQL
-      if (savedState.sql) {
+      const databaseForQuery =
+        connection.type === "sqlite" ? "" : (savedState.database ?? "");
+
+      if (savedState.table) {
+        let sql = savedState.sql?.trim() ?? "";
+        if (!sql) {
+          const escapedTableName = buildTableName(
+            savedState.table,
+            connection.type,
+            savedState.database
+          );
+          sql =
+            connection.type === "mssql"
+              ? `SELECT TOP 100 * FROM ${escapedTableName}`
+              : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+        }
+
+        setSelectedTable(savedState.table, { preparingQuery: true });
+        loadSql(sql);
+
+        await runTabQuery({
+          tabId: tabAfterRestore.id,
+          sql,
+          connectionId: connection.id,
+          database: databaseForQuery,
+          mode: "full",
+        });
+      } else if (savedState.sql?.trim()) {
         loadSql(savedState.sql);
+        await runTabQuery({
+          tabId: tabAfterRestore.id,
+          sql: savedState.sql.trim(),
+          connectionId: connection.id,
+          database: databaseForQuery,
+          mode: "full",
+        });
       }
     } catch (error) {
       const errorMsg = String(error);

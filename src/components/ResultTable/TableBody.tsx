@@ -22,23 +22,21 @@ interface TableBodyProps {
   selectedRows: Set<number>;
   currentPage: number;
   pageSize: number;
-  isCellSelected: (originalRowIndex: number, cellIndex: number) => boolean;
-  onCellMouseDown: (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
-  onCellClick: (filteredRowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
-  onCellDoubleClick: (filteredRowIndex: number, cellIndex: number) => void;
-  onCellKeyDown: (e: React.KeyboardEvent, filteredRowIndex: number, cellIndex: number) => void;
+  isCellSelected: (displayRowIndex: number, cellIndex: number) => boolean;
+  onCellMouseDown: (displayRowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
+  onCellClick: (displayRowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
+  onCellDoubleClick: (displayRowIndex: number, cellIndex: number) => void;
+  onCellKeyDown: (e: React.KeyboardEvent, displayRowIndex: number, cellIndex: number) => void;
   onCellInputChange: (value: string) => void;
   onCellSave: (rowIndex: number, cellIndex: number) => void;
   onCellCancel: () => void;
-  onRowNumberClick: (filteredRowIndex: number, e: React.MouseEvent) => void;
-  onRowContextMenu: (filteredRowIndex: number, e: React.MouseEvent) => void;
-  getOriginalRowIndex: (filteredRowIndex: number) => number;
+  onRowNumberClick: (displayRowIndex: number, e: React.MouseEvent) => void;
+  onRowContextMenu: (displayRowIndex: number, e: React.MouseEvent) => void;
 }
 
 export default function TableBody({
   paginatedRows,
-  filteredRows: _filteredRows,
-  result: _result,
+  filteredRows,
   editedData,
   displayColumns,
   editMode,
@@ -59,33 +57,30 @@ export default function TableBody({
   onCellCancel,
   onRowNumberClick,
   onRowContextMenu,
-  getOriginalRowIndex,
 }: TableBodyProps) {
   return (
     <tbody>
       {paginatedRows.map((row, paginatedRowIndex) => {
-        // 计算在 filteredRows 中的索引（用于事件处理器和显示）
-        const originalFilteredIndex = (currentPage - 1) * pageSize + paginatedRowIndex;
-        // originalRowIndex：当前结果中的行索引，用于 editedData、save、modifications
-        const originalRowIndex = originalFilteredIndex;
-        // 使用 getOriginalRowIndex 获取原始结果中的行索引，确保与 selectedRows、isCellSelected 的索引体系一致
-        const fullResultRowIndex = getOriginalRowIndex(originalFilteredIndex);
-        const displayRow = originalRowIndex < editedData.rows.length ? editedData.rows[originalRowIndex] : row;
-        
+        const displayRowIndex = (currentPage - 1) * pageSize + paginatedRowIndex;
+        const displayRow =
+          displayRowIndex < editedData.rows.length
+            ? editedData.rows[displayRowIndex]
+            : row;
+
         return (
           <TableRow
-            key={originalFilteredIndex}
+            key={displayRowIndex}
             row={displayRow}
-            rowIndex={originalFilteredIndex}
-            originalRowIndex={originalRowIndex}
+            rowIndex={displayRowIndex}
+            originalRowIndex={displayRowIndex}
             columns={displayColumns}
             editMode={editMode}
             editingCell={editingCell}
             editingValue={editingValue}
             modifications={modifications}
             selection={selection}
-            isCellSelected={(_, col) => isCellSelected(fullResultRowIndex, col)}
-            isRowSelected={selectedRows.has(fullResultRowIndex)}
+            isCellSelected={isCellSelected}
+            isRowSelected={selectedRows.has(displayRowIndex)}
             onCellMouseDown={onCellMouseDown}
             onCellClick={onCellClick}
             onCellDoubleClick={onCellDoubleClick}
@@ -95,11 +90,14 @@ export default function TableBody({
             onCellCancel={onCellCancel}
             onRowNumberClick={onRowNumberClick}
             onRowContextMenu={onRowContextMenu}
-            rowNumber={originalFilteredIndex + 1}
+            rowNumber={
+              filteredRows.length > pageSize
+                ? displayRowIndex + 1
+                : displayRowIndex + 1
+            }
           />
         );
       })}
     </tbody>
   );
 }
-
