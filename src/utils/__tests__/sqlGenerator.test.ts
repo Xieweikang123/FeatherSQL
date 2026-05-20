@@ -5,6 +5,10 @@ import {
   generateUpdateSql,
   generateInsertSql,
   generateUpdateSqlForRows,
+  buildTableSelectSql,
+  buildCountSql,
+  applyPagination,
+  stripPaginationClauses,
 } from "../sqlGenerator";
 import type { QueryResult, Connection } from "../../lib/commands";
 import type { CellModification } from "../../hooks/useEditHistory";
@@ -176,6 +180,40 @@ describe("sqlGenerator", () => {
       expect(result).toContain("name");
       expect(result).not.toContain("email");
       expect(result).not.toContain("age");
+    });
+  });
+
+  describe("table browse pagination SQL", () => {
+    it("buildTableSelectSql should not include LIMIT", () => {
+      expect(buildTableSelectSql("users", "mysql", "mydb")).toBe(
+        "SELECT * FROM `mydb`.`users`"
+      );
+    });
+
+    it("applyPagination should add LIMIT and OFFSET for mysql", () => {
+      const sql = "SELECT * FROM `users`";
+      expect(applyPagination(sql, "mysql", { limit: 50, offset: 100 })).toBe(
+        "SELECT * FROM `users` LIMIT 50 OFFSET 100"
+      );
+    });
+
+    it("applyPagination should use TOP for mssql when offset is 0", () => {
+      const sql = "SELECT * FROM [users]";
+      expect(applyPagination(sql, "mssql", { limit: 50 })).toBe(
+        "SELECT TOP 50 * FROM [users]"
+      );
+    });
+
+    it("buildCountSql should convert SELECT to COUNT", () => {
+      expect(
+        buildCountSql("SELECT * FROM `mydb`.`users` WHERE id = 1", "mysql")
+      ).toBe("SELECT COUNT(*) AS __feather_count FROM `mydb`.`users` WHERE id = 1");
+    });
+
+    it("stripPaginationClauses should remove LIMIT", () => {
+      expect(stripPaginationClauses("SELECT * FROM users LIMIT 100", "mysql")).toBe(
+        "SELECT * FROM users"
+      );
     });
   });
 
@@ -666,6 +704,32 @@ describe("sqlGenerator", () => {
         null
       );
       expect(postgresResult).toContain('"id"');
+    });
+  });
+
+  describe("table browse pagination SQL", () => {
+    it("buildTableSelectSql has no LIMIT", () => {
+      expect(buildTableSelectSql("users", "mysql", "mydb")).toBe(
+        "SELECT * FROM `mydb`.`users`"
+      );
+    });
+
+    it("stripPaginationClauses removes LIMIT 100", () => {
+      expect(
+        stripPaginationClauses("SELECT * FROM `t` LIMIT 100", "mysql")
+      ).toBe("SELECT * FROM `t`");
+    });
+
+    it("applyPagination adds LIMIT OFFSET for mysql", () => {
+      expect(
+        applyPagination("SELECT * FROM `t`", "mysql", { limit: 50, offset: 100 })
+      ).toBe("SELECT * FROM `t` LIMIT 50 OFFSET 100");
+    });
+
+    it("buildCountSql converts SELECT to COUNT", () => {
+      expect(buildCountSql("SELECT * FROM `mydb`.`users`", "mysql")).toBe(
+        "SELECT COUNT(*) AS __feather_count FROM `mydb`.`users`"
+      );
     });
   });
 });

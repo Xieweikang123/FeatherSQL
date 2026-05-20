@@ -33,8 +33,10 @@ function App() {
   const isQuerying = currentTab?.isQuerying || false;
   const savedSql = currentTab?.sql || null;
   const selectedTable = currentTab?.selectedTable ?? null;
+  // 已有 queryResult 时保持 ResultTable 挂载（翻页刷新时不卸组件、不丢页码）
   const isLoadingTableData =
-    isQuerying || (!!selectedTable && !queryResult && !error);
+    (!!selectedTable && !queryResult && !error) ||
+    (isQuerying && !queryResult);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [editorHeight, setEditorHeight] = useState<number | null>(null);
   const [editorHeightRatio, setEditorHeightRatio] = useState<number | null>(null);

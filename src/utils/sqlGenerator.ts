@@ -111,6 +111,109 @@ export function buildFilteredAndSortedSql(
   return sql;
 }
 
+/** 打开表浏览时的默认每页行数 */
+export const DEFAULT_TABLE_PAGE_SIZE = 50;
+
+/**
+ * 构建打开表时的基础 SELECT SQL（不含分页）
+ */
+export function buildTableSelectSql(
+  tableName: string,
+  dbType: string,
+  database?: string | null
+): string {
+  const escapedTableName = buildTableName(tableName, dbType, database);
+  return `SELECT * FROM ${escapedTableName}`;
+}
+
+/**
+ * 移除 SQL 中的分页子句（LIMIT / TOP / OFFSET FETCH）
+ */
+export function stripPaginationClauses(sql: string, _dbType?: string): string {
+  let cleaned = sql
+    .replace(/--.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
+
+  cleaned = cleaned.replace(
+    /\s+OFFSET\s+\d+\s+ROWS\s+FETCH\s+NEXT\s+\d+\s+ROWS\s+ONLY/gi,
+    ""
+  );
+  cleaned = cleaned.replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?/gi, "");
+  cleaned = cleaned.replace(/\s+OFFSET\s+\d+/gi, "");
+  cleaned = cleaned.replace(/^SELECT\s+TOP\s+\d+\s+/i, "SELECT ");
+
+  return cleaned.trim();
+}
+
+function removeOrderByClause(sql: string): string {
+  const orderByMatch = sql.match(/\bORDER\s+BY\b/i);
+  if (!orderByMatch || orderByMatch.index === undefined) {
+    return sql;
+  }
+
+  const beforeOrderBy = sql.slice(0, orderByMatch.index).trim();
+  const afterOrderBy = sql.slice(orderByMatch.index + orderByMatch[0].length);
+  const nextClauseMatch = afterOrderBy.match(
+    /\b(LIMIT|OFFSET|FETCH)\b/i
+  );
+
+  if (nextClauseMatch?.index !== undefined) {
+    return `${beforeOrderBy} ${afterOrderBy.slice(nextClauseMatch.index).trim()}`.trim();
+  }
+
+  return beforeOrderBy;
+}
+
+/**
+ * 由 SELECT 查询构建 COUNT SQL（用于分页总数）
+ */
+export function buildCountSql(baseSql: string, dbType: string): string {
+  let sql = stripPaginationClauses(baseSql, dbType);
+  sql = removeOrderByClause(sql);
+
+  const countSql = sql.replace(
+    /^SELECT\s+(?:DISTINCT\s+)?[\s\S]*?\sFROM\s/i,
+    "SELECT COUNT(*) AS __feather_count FROM "
+  );
+
+  if (countSql === sql) {
+    throw new Error("无法从 SQL 构建 COUNT 查询");
+  }
+
+  return countSql;
+}
+
+/**
+ * 为 SELECT 查询添加 LIMIT/OFFSET 分页
+ */
+export function applyPagination(
+  sql: string,
+  dbType: string,
+  options: { limit: number; offset?: number }
+): string {
+  const { limit, offset = 0 } = options;
+  const cleaned = stripPaginationClauses(sql, dbType);
+
+  if (dbType === "mssql") {
+    if (offset === 0) {
+      return cleaned.replace(/^SELECT/i, `SELECT TOP ${limit}`);
+    }
+
+    const hasOrderBy = /\bORDER\s+BY\b/i.test(cleaned);
+    const withOrderBy = hasOrderBy
+      ? cleaned
+      : `${cleaned} ORDER BY (SELECT NULL)`;
+    return `${withOrderBy} OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`;
+  }
+
+  if (offset === 0) {
+    return `${cleaned} LIMIT ${limit}`;
+  }
+
+  return `${cleaned} LIMIT ${limit} OFFSET ${offset}`;
+}
+
 /**
  * 构建带 WHERE 条件的 SQL（保持向后兼容）
  */

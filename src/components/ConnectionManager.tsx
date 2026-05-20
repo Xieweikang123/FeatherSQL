@@ -13,8 +13,8 @@ import {
   listTables,
   type Connection,
 } from "../lib/commands";
-import { buildTableName } from "../lib/utils";
-import { runTabQuery } from "../services/tabQueryService";
+import { runTabQuery, runPaginatedTabQuery } from "../services/tabQueryService";
+import { buildTableSelectSql } from "../utils/sqlGenerator";
 import ConnectionForm from "./ConnectionForm";
 import TableContextMenu from "./ConnectionManager/TableContextMenu";
 import TableStructure from "./TableStructure";
@@ -268,10 +268,7 @@ export default function ConnectionManager() {
       setCurrentDatabase(targetDatabase);
     }
 
-    const escapedTableName = buildTableName(table, connection.type, database);
-    const sql = connection.type === "mssql"
-      ? `SELECT TOP 100 * FROM ${escapedTableName}`
-      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+    const sql = buildTableSelectSql(table, connection.type, database);
 
     const currentTab = getCurrentTab();
     if (!currentTab) return;
@@ -279,9 +276,9 @@ export default function ConnectionManager() {
     setSelectedTable(table, { preparingQuery: true });
     loadSql(sql);
 
-    await runTabQuery({
+    await runPaginatedTabQuery({
       tabId: currentTab.id,
-      sql,
+      baseSql: sql,
       connectionId,
       database: connection.type === "sqlite" ? "" : database,
       mode: "full",
@@ -310,10 +307,7 @@ export default function ConnectionManager() {
       setCurrentDatabase(database);
     }
 
-    const escapedTableName = buildTableName(table, connection.type, database);
-    const sql = connection.type === "mssql"
-      ? `SELECT TOP 100 * FROM ${escapedTableName}`
-      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+    const sql = buildTableSelectSql(table, connection.type, database);
 
     const currentTab = getCurrentTab();
     if (!currentTab) return;
@@ -321,9 +315,9 @@ export default function ConnectionManager() {
     setSelectedTable(table, { preparingQuery: true });
     loadSql(sql);
 
-    await runTabQuery({
+    await runPaginatedTabQuery({
       tabId: currentTab.id,
-      sql,
+      baseSql: sql,
       connectionId: currentConnectionId,
       database: connection.type === "sqlite" ? "" : database,
       mode: "full",
@@ -360,12 +354,7 @@ export default function ConnectionManager() {
     // Set selected table
     setSelectedTable(table);
 
-    // Build escaped table name with database prefix if needed
-    const escapedTableName = buildTableName(table, connection.type, database);
-    // Use TOP for MSSQL, LIMIT for other databases
-    const sql = connection.type === "mssql" 
-      ? `SELECT TOP 100 * FROM ${escapedTableName}`
-      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+    const sql = buildTableSelectSql(table, connection.type, database);
 
     // Load SQL into editor (but don't execute)
     loadSql(sql);
@@ -560,23 +549,19 @@ export default function ConnectionManager() {
       if (savedState.table) {
         let sql = savedState.sql?.trim() ?? "";
         if (!sql) {
-          const escapedTableName = buildTableName(
+          sql = buildTableSelectSql(
             savedState.table,
             connection.type,
             savedState.database
           );
-          sql =
-            connection.type === "mssql"
-              ? `SELECT TOP 100 * FROM ${escapedTableName}`
-              : `SELECT * FROM ${escapedTableName} LIMIT 100`;
         }
 
         setSelectedTable(savedState.table, { preparingQuery: true });
         loadSql(sql);
 
-        await runTabQuery({
+        await runPaginatedTabQuery({
           tabId: tabAfterRestore.id,
-          sql,
+          baseSql: sql,
           connectionId: connection.id,
           database: databaseForQuery,
           mode: "full",

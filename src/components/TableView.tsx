@@ -5,8 +5,8 @@ import {
   selectCurrentDatabase,
 } from "../store/selectors";
 import { listTables, listDatabases } from "../lib/commands";
-import { runTabQuery } from "../services/tabQueryService";
-import { buildTableName } from "../lib/utils";
+import { runPaginatedTabQuery } from "../services/tabQueryService";
+import { buildTableSelectSql } from "../utils/sqlGenerator";
 import TableStructure from "./TableStructure";
 import ImportDialog from "./ImportDialog";
 import { IconRefresh, IconSpinner } from "./ConnectionManager/SidebarIcons";
@@ -206,12 +206,8 @@ export default function TableView() {
     // Set selected table - switch to table data view
     setSelectedTable(tableName, { preparingQuery: true });
 
-    // Build escaped table name with database prefix if needed
-    const escapedTableName = buildTableName(tableName, currentConnection.type, database);
-    // Use TOP for MSSQL, LIMIT for other databases
-    const sql = currentConnection.type === "mssql" 
-      ? `SELECT TOP 100 * FROM ${escapedTableName}`
-      : `SELECT * FROM ${escapedTableName} LIMIT 100`;
+    // Build base SELECT SQL (no hard LIMIT — pagination uses COUNT + LIMIT/OFFSET)
+    const sql = buildTableSelectSql(tableName, currentConnection.type, database);
 
     // Load SQL into editor
     loadSql(sql);
@@ -219,9 +215,9 @@ export default function TableView() {
     const currentTab = getCurrentTab();
     if (!currentTab) return;
 
-    await runTabQuery({
+    await runPaginatedTabQuery({
       tabId: currentTab.id,
-      sql,
+      baseSql: sql,
       connectionId: currentConnectionId,
       database: connectionType === "sqlite" ? "" : database,
       mode: "full",

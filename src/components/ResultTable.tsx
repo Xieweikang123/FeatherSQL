@@ -7,7 +7,7 @@ import {
   selectCurrentTab,
   selectEditMode,
 } from "../store/selectors";
-import { runTabQuery } from "../services/tabQueryService";
+import { runTabQuery, runPaginatedTabQuery } from "../services/tabQueryService";
 import ConfirmDialog from "./ConfirmDialog";
 import { extractTableInfo } from "../lib/utils";
 import { useColumnFilters } from "../hooks/useColumnFilters";
@@ -45,6 +45,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const setEditMode = useConnectionStore((s) => s.setEditMode);
   
   const selectedTable = currentTab?.selectedTable || null;
+  const totalRowCount = currentTab?.totalRowCount ?? null;
+  const isServerPaginated = selectedTable != null && totalRowCount != null;
   // 从 store 中获取 actualExecutedSql，如果不存在则使用 sql
   const actualExecutedSqlFromStore = currentTab?.actualExecutedSql || null;
   // 保存实际执行到数据库的SQL
@@ -98,7 +100,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   
-  // 排序状态：从 tab 读取，排序时组件会因 isQuerying 卸载，需持久化到 store
+  // 排序状态：从 tab 读取并持久化到 store
   const sortConfig = currentTab?.sortConfig ?? [];
   
   const currentConnection = connections.find(c => c.id === currentConnectionId);
@@ -156,6 +158,11 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   }, [result, sql, currentTab, updateTab]);
 
+  // 切换表时重置页码
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedTable]);
+
   // 当 result 变化时，重置分页和排序
   useEffect(() => {
     // 如果查询返回空结果但没有列信息，使用保存的列信息
@@ -170,13 +177,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
     setSelectedRows(new Set());
     setContextMenu(null);
-    // 重置到第一页（排序在 sql 变化时单独重置，避免过滤/排序后误清空）
-    setCurrentPage(1);
-    // 新查询结果：直接展示全部数据（最多 5000 条，避免性能问题）
-    if (result?.rows?.length > 0) {
-      setPageSize(Math.min(result.rows.length, 5000));
+    if (!isServerPaginated) {
+      setCurrentPage(1);
+      if (result?.rows?.length > 0) {
+        setPageSize(Math.min(result.rows.length, 5000));
+      }
     }
-  }, [result, setEditedData]);
+  }, [result, setEditedData, isServerPaginated]);
 
   const buildFilteredAndSortedSqlCallback = useCallback((
     baseSql: string, 
@@ -187,6 +194,63 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     const dbType = currentConnection?.type || 'sqlite';
     return buildFilteredAndSortedSql(baseSql, filters, sortConfig, dbType, filterModes);
   }, [currentConnection]);
+
+  const getBrowseQuerySql = useCallback((): string | null => {
+    const baseSql =
+      currentTab?.originalSqlForFilter?.trim() ||
+      originalSqlRef.current?.trim() ||
+      actualExecutedSqlRef.current?.trim() ||
+      sql?.trim();
+    if (!baseSql) {
+      return null;
+    }
+
+    const activeFilters = Object.entries(columnFilters).filter(
+      ([_, value]) => value.trim() !== ""
+    );
+    if (activeFilters.length === 0 && sortConfig.length === 0) {
+      return baseSql;
+    }
+
+    return buildFilteredAndSortedSqlCallback(
+      baseSql,
+      columnFilters,
+      sortConfig,
+      tabColumnFilterModes
+    );
+  }, [
+    currentTab?.originalSqlForFilter,
+    sql,
+    columnFilters,
+    sortConfig,
+    tabColumnFilterModes,
+    buildFilteredAndSortedSqlCallback,
+  ]);
+
+  const fetchBrowsePage = useCallback(
+    async (page: number, size: number) => {
+      if (!currentConnectionId || !currentTab) {
+        return;
+      }
+
+      const querySql = getBrowseQuerySql();
+      if (!querySql) {
+        return;
+      }
+
+      await runPaginatedTabQuery({
+        tabId: currentTab.id,
+        baseSql: querySql,
+        connectionId: currentConnectionId,
+        database: currentDatabase,
+        mode: "refresh",
+        page,
+        pageSize: size,
+        saveWorkspace: false,
+      });
+    },
+    [currentConnectionId, currentTab, currentDatabase, getBrowseQuerySql]
+  );
 
   // 执行带过滤和排序的 SQL 查询
   // filterModesOverride: 切换模糊/精确时传入新值，避免闭包中的 tabColumnFilterModes 尚未更新
@@ -237,13 +301,24 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         sqlToExecute = buildFilteredAndSortedSqlCallback(baseSql, filters, sortConfig, modes);
       }
       
-      const newResult = await runTabQuery({
-        tabId: currentTab.id,
-        sql: sqlToExecute,
-        connectionId: currentConnectionId,
-        database: currentDatabase,
-        mode: "filter",
-      });
+      const newResult = selectedTable
+        ? await runPaginatedTabQuery({
+            tabId: currentTab.id,
+            baseSql: sqlToExecute,
+            connectionId: currentConnectionId,
+            database: currentDatabase,
+            mode: "filter",
+            page: 1,
+            pageSize,
+            saveWorkspace: false,
+          })
+        : await runTabQuery({
+            tabId: currentTab.id,
+            sql: sqlToExecute,
+            connectionId: currentConnectionId,
+            database: currentDatabase,
+            mode: "filter",
+          });
 
       if (!newResult) {
         return;
@@ -272,7 +347,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } finally {
       setIsFiltering(false);
     }
-    }, [currentConnectionId, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, currentTab, updateTab, editMode, editing, result, sql, tabColumnFilterModes]);
+    }, [currentConnectionId, currentDatabase, buildFilteredAndSortedSqlCallback, updateFilters, currentTab, updateTab, editMode, editing, result, sql, tabColumnFilterModes, selectedTable, pageSize]);
 
 
 
@@ -291,13 +366,37 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const filteredRows = useMemo(() => displayRows, [displayRows]);
   
   // 分页计算
-  const totalRows = filteredRows.length;
+  const totalRows = isServerPaginated ? (totalRowCount ?? 0) : filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const paginatedRows = useMemo(() => {
+    if (isServerPaginated) {
+      return filteredRows;
+    }
     const startIndex = (currentPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
     return filteredRows.slice(startIndex, endIndex);
-  }, [filteredRows, currentPage, pageSize]);
+  }, [filteredRows, currentPage, pageSize, isServerPaginated]);
+
+  const handlePageChange = useCallback(
+    (page: number) => {
+      setCurrentPage(page);
+      if (isServerPaginated) {
+        void fetchBrowsePage(page, pageSize);
+      }
+    },
+    [isServerPaginated, fetchBrowsePage, pageSize]
+  );
+
+  const handlePageSizeChange = useCallback(
+    (size: number) => {
+      setPageSize(size);
+      setCurrentPage(1);
+      if (isServerPaginated) {
+        void fetchBrowsePage(1, size);
+      }
+    },
+    [isServerPaginated, fetchBrowsePage]
+  );
   
   // 当页码超出范围时，调整到有效范围
   useEffect(() => {
@@ -1094,11 +1193,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         totalPages={totalPages}
         pageSize={pageSize}
         totalRows={totalRows}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setCurrentPage(1); // 改变每页行数时重置到第一页
-        }}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
       />
       
       {/* 右键菜单 */}

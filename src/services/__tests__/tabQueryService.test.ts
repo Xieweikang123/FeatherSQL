@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { runTabQuery } from "../tabQueryService";
+import { runTabQuery, runPaginatedTabQuery } from "../tabQueryService";
 import { useConnectionStore } from "../../store/connectionStore";
 
 vi.mock("../../lib/commands", () => ({
@@ -56,6 +56,7 @@ describe("tabQueryService", () => {
     expect(tab?.actualExecutedSql).toBe("SELECT 1");
     expect(tab?.originalSqlForFilter).toBe("SELECT 1");
     expect(tab?.isFilterResult).toBe(false);
+    expect(tab?.totalRowCount).toBeNull();
     expect(tab?.isQuerying).toBe(false);
   });
 
@@ -95,6 +96,35 @@ describe("tabQueryService", () => {
     expect(tab?.columnFilters).toEqual({ col: "x" });
     expect(tab?.isFilterResult).toBe(true);
     expect(tab?.sqlToLoad).toBe("SELECT 1 WHERE id=1");
+    expect(tab?.isQuerying).toBe(false);
+  });
+
+  it("runPaginatedTabQuery runs COUNT and paginated SELECT", async () => {
+    vi.mocked(executeSql).mockImplementation(async (_connId, sql) => {
+      if (sql.includes("COUNT")) {
+        return { columns: ["__feather_count"], rows: [[250]] };
+      }
+      return { columns: ["id"], rows: [[51], [52]] };
+    });
+
+    await runPaginatedTabQuery({
+      baseSql: "SELECT * FROM `mydb`.`users`",
+      mode: "full",
+      saveWorkspace: false,
+      page: 2,
+      pageSize: 50,
+    });
+
+    expect(executeSql).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(executeSql).mock.calls[0][1]).toContain("COUNT");
+    expect(vi.mocked(executeSql).mock.calls[1][1]).toBe(
+      "SELECT * FROM `mydb`.`users` LIMIT 50 OFFSET 50"
+    );
+
+    const tab = useConnectionStore.getState().getCurrentTab();
+    expect(tab?.totalRowCount).toBe(250);
+    expect(tab?.sql).toBe("SELECT * FROM `mydb`.`users`");
+    expect(tab?.queryResult?.rows).toHaveLength(2);
     expect(tab?.isQuerying).toBe(false);
   });
 });
