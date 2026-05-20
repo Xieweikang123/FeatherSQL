@@ -103,10 +103,15 @@ describe("connectionStore", () => {
       expect(useConnectionStore.getState().getCurrentTab()?.error).toBeNull();
     });
 
-    it("should set error", () => {
+    it("should set error without clearing query result", () => {
+      const result: QueryResult = {
+        columns: ["id"],
+        rows: [[1]],
+      };
+      useConnectionStore.getState().setQueryResult(result);
       useConnectionStore.getState().setError("Test error");
       expect(useConnectionStore.getState().getCurrentTab()?.error).toBe("Test error");
-      expect(useConnectionStore.getState().getCurrentTab()?.queryResult).toBeNull();
+      expect(useConnectionStore.getState().getCurrentTab()?.queryResult).toEqual(result);
     });
 
     it("should set isQuerying", () => {

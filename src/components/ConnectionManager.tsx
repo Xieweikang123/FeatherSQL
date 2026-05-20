@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import ConfirmDialog from "./ConfirmDialog";
 import { useConnectionStore } from "../store/connectionStore";
 import {
   selectCurrentConnectionId,
@@ -36,6 +37,7 @@ export default function ConnectionManager() {
   const restoreWorkspaceHistory = useConnectionStore((s) => s.restoreWorkspaceHistory);
   const deleteWorkspaceHistory = useConnectionStore((s) => s.deleteWorkspaceHistory);
   const loadSql = useConnectionStore((s) => s.loadSql);
+  const currentTabId = useConnectionStore((s) => s.currentTabId);
   const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
   const updateTab = useConnectionStore((s) => s.updateTab);
   const [showForm, setShowForm] = useState(false);
@@ -50,6 +52,12 @@ export default function ConnectionManager() {
   const [showHistory, setShowHistory] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; table: string; database: string } | null>(null);
   const [viewingStructure, setViewingStructure] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<
+    | { type: "deleteConnection"; id: string }
+    | { type: "deleteWorkspaceHistory"; historyId: string }
+    | null
+  >(null);
+  const lastSidebarConnectionRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadConnections();
@@ -136,8 +144,12 @@ export default function ConnectionManager() {
   };
 
 
-  const loadTablesForDatabase = async (connectionId: string, database: string) => {
-    if (databaseTables[database]) {
+  const loadTablesForDatabase = async (
+    connectionId: string,
+    database: string,
+    force = false
+  ) => {
+    if (!force && databaseTables[database]) {
       return; // Already loaded
     }
 
@@ -155,6 +167,58 @@ export default function ConnectionManager() {
       });
     }
   };
+
+  const syncSidebarToCurrentTab = useCallback(async () => {
+    const tab = getCurrentTab();
+    if (!tab?.connectionId) {
+      if (lastSidebarConnectionRef.current !== null) {
+        setDatabases([]);
+        setDatabaseTables({});
+        setExpandedConnections(new Set());
+        setExpandedDatabases(new Set());
+        lastSidebarConnectionRef.current = null;
+      }
+      return;
+    }
+
+    const connection = connections.find((c) => c.id === tab.connectionId);
+    if (!connection) {
+      return;
+    }
+
+    if (lastSidebarConnectionRef.current !== tab.connectionId) {
+      setDatabaseTables({});
+      setDatabases([]);
+      lastSidebarConnectionRef.current = tab.connectionId;
+    }
+
+    setExpandedConnections(new Set([connection.id]));
+
+    try {
+      if (
+        connection.type === "mysql" ||
+        connection.type === "postgres" ||
+        connection.type === "mssql"
+      ) {
+        await listDatabases(connection.id);
+        await loadDatabases(connection.id);
+      }
+    } catch {
+      setDatabases([]);
+    }
+
+    if (tab.database !== null) {
+      const dbKey = connection.type === "sqlite" ? "" : tab.database;
+      setExpandedDatabases(new Set([dbKey]));
+      await loadTablesForDatabase(connection.id, dbKey, true);
+    } else {
+      setExpandedDatabases(new Set());
+    }
+  }, [connections, getCurrentTab]);
+
+  useEffect(() => {
+    void syncSidebarToCurrentTab();
+  }, [currentTabId, syncSidebarToCurrentTab]);
 
   const toggleDatabase = (e: React.MouseEvent, connectionId: string, database: string) => {
     e.stopPropagation();
@@ -216,7 +280,7 @@ export default function ConnectionManager() {
       updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
     } catch (error) {
       const errorMsg = String(error);
-      updateTab(currentTab.id, { error: errorMsg, queryResult: null, isQuerying: false });
+      updateTab(currentTab.id, { error: errorMsg, isQuerying: false });
     }
   };
 
@@ -267,7 +331,7 @@ export default function ConnectionManager() {
       updateTab(currentTab.id, { queryResult: result, error: null, isQuerying: false });
     } catch (error) {
       const errorMsg = String(error);
-      updateTab(currentTab.id, { error: errorMsg, queryResult: null, isQuerying: false });
+      updateTab(currentTab.id, { error: errorMsg, isQuerying: false });
     }
   };
 
@@ -337,24 +401,27 @@ export default function ConnectionManager() {
     setExpandedConnections(newExpanded);
   };
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
+  const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (confirm("????????????????????")) {
-      try {
-        await deleteConnection(id);
-        if (currentConnectionId === id) {
-          setCurrentConnection(null);
-          setDatabases([]);
-          setDatabaseTables({});
-          setExpandedDatabases(new Set());
-        }
-        // Remove from expanded connections
-        const newExpanded = new Set(expandedConnections);
-        newExpanded.delete(id);
-        setExpandedConnections(newExpanded);
-        loadConnections();
-      } catch (error) {
+    setPendingConfirm({ type: "deleteConnection", id });
+  };
+
+  const confirmDeleteConnection = async (id: string) => {
+    try {
+      await deleteConnection(id);
+      if (currentConnectionId === id) {
+        setCurrentConnection(null);
+        setDatabases([]);
+        setDatabaseTables({});
+        setExpandedDatabases(new Set());
+        lastSidebarConnectionRef.current = null;
       }
+      const newExpanded = new Set(expandedConnections);
+      newExpanded.delete(id);
+      setExpandedConnections(newExpanded);
+      loadConnections();
+    } catch (error) {
+      console.error("Failed to delete connection:", error);
     }
   };
 
@@ -388,7 +455,7 @@ export default function ConnectionManager() {
 
   const handleRestoreWorkspace = async (historyId?: string) => {
     let savedState;
-    let historyName = "?????????";
+    let historyName = "最近工作区";
     
     if (historyId) {
       const history = restoreWorkspaceHistory(historyId);
@@ -442,7 +509,7 @@ export default function ConnectionManager() {
         // Final check
         const finalStore = useConnectionStore.getState();
         if (finalStore.getCurrentTab()?.connectionId !== connection.id) {
-          throw new Error(`????: ${connection.name}`);
+          throw new Error(`连接失败: ${connection.name}`);
         }
       } else {
         // Ensure connection is expanded even if already connected
@@ -513,12 +580,7 @@ export default function ConnectionManager() {
 
   const handleDeleteHistory = (e: React.MouseEvent, historyId: string) => {
     e.stopPropagation();
-    if (confirm("????????????????????????")) {
-      deleteWorkspaceHistory(historyId);
-      // Force re-render by toggling showHistory
-      setShowHistory(false);
-      setTimeout(() => setShowHistory(true), 10);
-    }
+    setPendingConfirm({ type: "deleteWorkspaceHistory", historyId });
   };
 
 
@@ -604,6 +666,37 @@ export default function ConnectionManager() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={pendingConfirm?.type === "deleteConnection"}
+        title="删除连接"
+        message="确定要删除此连接吗？该操作不可恢复。"
+        confirmText="删除"
+        type="danger"
+        onConfirm={() => {
+          const id = pendingConfirm?.type === "deleteConnection" ? pendingConfirm.id : "";
+          setPendingConfirm(null);
+          if (id) void confirmDeleteConnection(id);
+        }}
+        onCancel={() => setPendingConfirm(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingConfirm?.type === "deleteWorkspaceHistory"}
+        title="删除工作区历史"
+        message="确定要删除这条工作区历史记录吗？"
+        confirmText="删除"
+        type="danger"
+        onConfirm={() => {
+          if (pendingConfirm?.type === "deleteWorkspaceHistory") {
+            deleteWorkspaceHistory(pendingConfirm.historyId);
+            setShowHistory(false);
+            setTimeout(() => setShowHistory(true), 10);
+          }
+          setPendingConfirm(null);
+        }}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </>
   );
 }

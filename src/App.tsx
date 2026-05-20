@@ -8,6 +8,7 @@ import TabBar from "./components/TabBar";
 import { useConnectionStore } from "./store/connectionStore";
 import {
   selectCurrentConnectionId,
+  selectShouldShowSqlEditor,
   selectShouldShowTableView,
 } from "./store/selectors";
 import { getConnections } from "./lib/commands";
@@ -22,6 +23,7 @@ function App() {
   const setConnections = useConnectionStore((s) => s.setConnections);
   const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
   const shouldShowTableView = useConnectionStore(selectShouldShowTableView);
+  const shouldShowSqlEditor = useConnectionStore(selectShouldShowSqlEditor);
   const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
   
   // 获取当前标签页状态
@@ -260,61 +262,70 @@ function App() {
             </div>
           </div>
           
-          {/* 始终显示 SQL 编辑器 */}
           <>
-            {/* SQL Editor */}
-            <div 
-              className="flex flex-col min-h-0"
-              style={{ 
-                height: editorHeight !== null ? `${editorHeight}px` : undefined,
-                flex: editorHeight === null ? 1 : undefined
-              }}
-            >
-              <SqlEditor />
-            </div>
+            {shouldShowSqlEditor && (
+              <>
+                {/* SQL Editor */}
+                <div 
+                  className="flex flex-col min-h-0"
+                  style={{ 
+                    height: editorHeight !== null ? `${editorHeight}px` : undefined,
+                    flex: editorHeight === null ? 1 : undefined
+                  }}
+                >
+                  <SqlEditor />
+                </div>
 
-            {/* Resizable divider */}
-            <div
-              onMouseDown={handleMouseDown}
-              className={`h-1.5 cursor-row-resize transition-all duration-200 group neu-flat ${
-                isDragging ? "" : ""
-              }`}
-              style={{ 
-                flexShrink: 0,
-                backgroundColor: isDragging ? 'var(--neu-accent)' : 'var(--neu-bg)'
-              }}
-            >
-              <div className="h-full w-full flex items-center justify-center">
-                <div className={`w-16 h-1 rounded-full transition-all duration-200 ${
-                  isDragging 
-                    ? "" 
-                    : ""
-                }`} 
-                style={{ 
-                  backgroundColor: isDragging ? 'var(--neu-accent-light)' : 'rgba(255, 255, 255, 0.1)',
-                  boxShadow: isDragging ? '0 0 4px var(--neu-accent)' : 'none'
-                }} />
-              </div>
-            </div>
+                {/* Resizable divider */}
+                <div
+                  onMouseDown={handleMouseDown}
+                  className={`h-1.5 cursor-row-resize transition-all duration-200 group neu-flat ${
+                    isDragging ? "" : ""
+                  }`}
+                  style={{ 
+                    flexShrink: 0,
+                    backgroundColor: isDragging ? 'var(--neu-accent)' : 'var(--neu-bg)'
+                  }}
+                >
+                  <div className="h-full w-full flex items-center justify-center">
+                    <div className={`w-16 h-1 rounded-full transition-all duration-200 ${
+                      isDragging 
+                        ? "" 
+                        : ""
+                    }`} 
+                    style={{ 
+                      backgroundColor: isDragging ? 'var(--neu-accent-light)' : 'rgba(255, 255, 255, 0.1)',
+                      boxShadow: isDragging ? '0 0 4px var(--neu-accent)' : 'none'
+                    }} />
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Result Table or TableView */}
             <div 
-              className="overflow-auto neu-flat"
+              className="flex flex-col min-h-0 overflow-hidden neu-flat"
               style={{ 
-                flex: editorHeight !== null ? 1 : undefined,
-                height: editorHeight !== null ? undefined : "256px",
-                borderTop: '1px solid var(--neu-dark)'
+                flex: shouldShowSqlEditor ? (editorHeight !== null ? 1 : undefined) : 1,
+                height: shouldShowSqlEditor ? (editorHeight !== null ? undefined : "256px") : undefined,
+                borderTop: shouldShowSqlEditor ? '1px solid var(--neu-dark)' : undefined
               }}
             >
-              {error ? (
-                <div className="p-4 neu-pressed rounded-lg m-4" style={{ 
-                  borderLeft: '4px solid var(--neu-error)',
-                  color: 'var(--neu-error)'
-                }}>
-                  <div className="font-semibold mb-1">错误:</div>
-                  <div className="text-sm">{error}</div>
+              {error && (
+                <div
+                  className="flex-shrink-0 px-4 py-2 neu-pressed"
+                  style={{
+                    borderBottom: "1px solid var(--neu-dark)",
+                    borderLeft: "4px solid var(--neu-error)",
+                    color: "var(--neu-error)",
+                  }}
+                >
+                  <div className="font-semibold text-xs mb-0.5">查询错误</div>
+                  <div className="text-sm break-words">{error}</div>
                 </div>
-              ) : isQuerying ? (
+              )}
+              <div className="flex-1 min-h-0 overflow-auto">
+              {isQuerying ? (
                 <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
                   <div className="flex justify-center mb-3">
                     <svg className="animate-spin h-8 w-8" style={{ color: 'var(--neu-accent)' }} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -326,9 +337,9 @@ function App() {
                 </div>
               ) : queryResult ? (
                 <ResultTable result={queryResult} sql={savedSql} />
-              ) : shouldShowTableView ? (
+              ) : !error && shouldShowTableView ? (
                 <TableView />
-              ) : (
+              ) : !error ? (
                 <div className="p-8 text-center" style={{ color: 'var(--neu-text-light)' }}>
                   <div className="text-4xl mb-3 opacity-50">📊</div>
                   <div className="text-sm">执行 SQL 查询以查看结果</div>
@@ -336,7 +347,8 @@ function App() {
                     <div className="mt-4 text-xs opacity-70">请先选择一个连接和数据库</div>
                   )}
                 </div>
-              )}
+              ) : null}
+              </div>
             </div>
           </>
         </main>

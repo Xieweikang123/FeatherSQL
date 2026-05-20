@@ -121,21 +121,17 @@ export async function runTabQuery(
     if (mode === "full") {
       store.updateTab(tabId, {
         error: errorMsg,
-        queryResult: null,
         isQuerying: false,
         sql,
-        ...fullMetadata,
       });
     } else if (mode === "filter") {
       store.updateTab(tabId, {
         error: errorMsg,
-        queryResult: null,
         isQuerying: false,
       });
     } else {
       store.updateTab(tabId, {
         error: errorMsg,
-        queryResult: null,
         isQuerying: false,
       });
     }

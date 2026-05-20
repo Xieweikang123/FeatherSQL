@@ -60,6 +60,30 @@ describe("tabQueryService", () => {
     expect(tab?.isQuerying).toBe(false);
   });
 
+  it("should preserve query result when execution fails", async () => {
+    const previousResult = {
+      columns: ["id"],
+      rows: [[99]],
+    };
+    useConnectionStore.setState({
+      tabs: [
+        {
+          ...useConnectionStore.getState().tabs[0],
+          queryResult: previousResult,
+        },
+      ],
+    });
+
+    vi.mocked(executeSql).mockRejectedValue(new Error("syntax error"));
+
+    await runTabQuery({ sql: "SELECT bad", mode: "full", saveWorkspace: false });
+
+    const tab = useConnectionStore.getState().getCurrentTab();
+    expect(tab?.error).toContain("syntax error");
+    expect(tab?.queryResult).toEqual(previousResult);
+    expect(tab?.isQuerying).toBe(false);
+  });
+
   it("filter mode preserves filters and marks filter result", async () => {
     vi.mocked(executeSql).mockResolvedValue({
       columns: ["id"],

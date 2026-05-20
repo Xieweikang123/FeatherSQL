@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getSqlHistory, deleteSqlHistory, getSettings, updateSettings, type SqlHistory, type AppSettings } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
 import { selectCurrentConnectionId } from "../store/selectors";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function SqlHistory() {
   const currentConnectionId = useConnectionStore(selectCurrentConnectionId);
@@ -13,6 +14,7 @@ export default function SqlHistory() {
   const [settings, setSettings] = useState<AppSettings>({ max_history_count: 1000 });
   const [maxHistoryInput, setMaxHistoryInput] = useState<string>("1000");
   const [savingSettings, setSavingSettings] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const loadHistory = async () => {
     setLoading(true);
@@ -111,7 +113,7 @@ export default function SqlHistory() {
             刷新
           </button>
           <button
-            onClick={() => handleDelete()}
+            onClick={() => setShowClearConfirm(true)}
             className="px-3 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
             style={{ color: 'var(--neu-error)' }}
             title="清空所有历史记录"
@@ -270,6 +272,23 @@ export default function SqlHistory() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={showClearConfirm}
+        title="清空 SQL 历史"
+        message={
+          currentConnectionId
+            ? "确定要清空当前连接下的所有 SQL 执行历史吗？此操作不可恢复。"
+            : "确定要清空所有 SQL 执行历史吗？此操作不可恢复。"
+        }
+        confirmText="清空"
+        type="danger"
+        onConfirm={() => {
+          setShowClearConfirm(false);
+          void handleDelete();
+        }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 }

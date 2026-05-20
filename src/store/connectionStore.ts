@@ -266,7 +266,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
   setError: (error) => {
     const currentTab = get().getCurrentTab();
     if (currentTab) {
-      get().updateTab(currentTab.id, { error, queryResult: null });
+      get().updateTab(currentTab.id, { error });
     }
   },
   loadSql: (sql) => {
