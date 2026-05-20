@@ -30,6 +30,16 @@ export function useColumnFilters(sql: string | null | undefined, initialFilters?
         syncFilters();
         return;
       }
+      const hasRestoredFilters =
+        initialFilters &&
+        Object.values(initialFilters).some((value) => value.trim() !== "");
+      if (hasRestoredFilters) {
+        originalSqlRef.current = sql;
+        setColumnFiltersState(initialFilters);
+        columnFiltersRef.current = initialFilters;
+        lastFiltersRef.current = initialFilters;
+        return;
+      }
       // SQL 变化（用户执行了新查询），更新 originalSqlRef 并清空筛选
       originalSqlRef.current = sql;
       setColumnFilters({});

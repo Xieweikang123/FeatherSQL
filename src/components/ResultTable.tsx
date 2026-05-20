@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { type QueryResult } from "../lib/commands";
+import { type QueryResult, describeTable } from "../lib/commands";
 import { useConnectionStore } from "../store/connectionStore";
 import {
   selectCurrentConnectionId,
@@ -14,6 +14,10 @@ import { useColumnFilters } from "../hooks/useColumnFilters";
 import { useCellSelection } from "../hooks/useCellSelection";
 import { useTableEditing } from "../hooks/useTableEditing";
 import { buildFilteredAndSortedSql, generateInsertSql as generateInsertSqlUtil, generateUpdateSqlForRows as generateUpdateSqlForRowsUtil } from "../utils/sqlGenerator";
+import {
+  loadTableBrowseMemory,
+  saveTableBrowseMemory,
+} from "../utils/tableBrowseMemory";
 import { applySortAction, type SortAction } from "../utils/sortConfig";
 import SqlDisplayBar from "./ResultTable/SqlDisplayBar";
 import TableHeader from "./ResultTable/TableHeader";
@@ -32,6 +36,8 @@ interface ResultTableProps {
 export default function ResultTable({ result, sql }: ResultTableProps) {
   const [expandedSearchColumn, setExpandedSearchColumn] = useState<string | null>(null);
   const [isFiltering, setIsFiltering] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadingTableColumns, setLoadingTableColumns] = useState(false);
   const debounceTimerRef = useRef<number | null>(null);
   
   // 获取连接信息（需要在 useCellSelection 之前获取 editMode）
@@ -40,6 +46,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const connections = useConnectionStore((s) => s.connections);
   const currentTab = useConnectionStore(selectCurrentTab);
   const updateTab = useConnectionStore((s) => s.updateTab);
+  const createTab = useConnectionStore((s) => s.createTab);
   const setSelectedTable = useConnectionStore((s) => s.setSelectedTable);
   const editMode = useConnectionStore(selectEditMode);
   const setEditMode = useConnectionStore((s) => s.setEditMode);
@@ -119,6 +126,20 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     originalResultRef,
   });
 
+  const tableInfoFromSql = useMemo(() => {
+    if (!sql) return null;
+    return extractTableInfo(sql);
+  }, [sql]);
+
+  const canAddRow = !!tableInfoFromSql?.tableName;
+
+  const pendingChangeCount = useMemo(() => {
+    const newRows = Math.max(0, editing.editedData.rows.length - result.rows.length);
+    return editing.modifications.size + newRows;
+  }, [editing.modifications.size, editing.editedData.rows.length, result.rows.length]);
+
+  const hasPendingEdits = pendingChangeCount > 0;
+
   // Extract setEditedData for stable reference
   const setEditedData = editing.setEditedData;
 
@@ -132,6 +153,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     if (sql && sql !== originalSqlRef.current) {
       // sql 来自筛选/排序时（isFilterResult），不重置 sortConfig，否则排序按钮会闪烁消失
       if (currentTab?.isFilterResult) {
+        return;
+      }
+      // 表浏览切换/重新打开时保留 sortConfig（由 tableBrowseMemory 恢复）
+      if (currentTab?.selectedTable) {
+        originalResultRef.current = result;
+        actualExecutedSqlRef.current = sql;
+        setActualExecutedSql(sql);
         return;
       }
       originalResultRef.current = result;
@@ -158,10 +186,106 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
   }, [result, sql, currentTab, updateTab]);
 
-  // 切换表时重置页码
+  // 切换表时恢复分页设置
   useEffect(() => {
+    if (!selectedTable || !currentConnectionId) {
+      return;
+    }
+
+    const memory = loadTableBrowseMemory(
+      currentConnectionId,
+      currentDatabase,
+      selectedTable
+    );
+    setPageSize(memory?.pageSize ?? 50);
     setCurrentPage(1);
-  }, [selectedTable]);
+  }, [selectedTable, currentConnectionId, currentDatabase]);
+
+  // 持久化表浏览偏好（排序、筛选、分页大小）
+  useEffect(() => {
+    if (!selectedTable || !currentConnectionId) {
+      return;
+    }
+
+    saveTableBrowseMemory(currentConnectionId, currentDatabase, selectedTable, {
+      sortConfig,
+      columnFilters,
+      columnFilterModes: tabColumnFilterModes,
+      pageSize,
+    });
+  }, [
+    selectedTable,
+    currentConnectionId,
+    currentDatabase,
+    sortConfig,
+    columnFilters,
+    tabColumnFilterModes,
+    pageSize,
+  ]);
+
+  // 空表无列信息时，从表结构补全列名以显示表头
+  useEffect(() => {
+    if (
+      !selectedTable ||
+      !currentConnectionId ||
+      !result ||
+      result.columns.length > 0
+    ) {
+      setLoadingTableColumns(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingTableColumns(true);
+
+    void (async () => {
+      try {
+        const dbParam =
+          currentConnection?.type === "sqlite"
+            ? ""
+            : currentDatabase || undefined;
+        const structure = await describeTable(
+          currentConnectionId,
+          selectedTable,
+          dbParam
+        );
+        if (cancelled || !currentTab) {
+          return;
+        }
+
+        const columns = structure.map((col) => col.name);
+        if (columns.length === 0) {
+          return;
+        }
+
+        originalColumnsRef.current = columns;
+        updateTab(currentTab.id, {
+          queryResult: {
+            ...result,
+            columns,
+          },
+        });
+      } catch (error) {
+        console.error("Failed to load table columns:", error);
+      } finally {
+        if (!cancelled) {
+          setLoadingTableColumns(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedTable,
+    currentConnectionId,
+    currentDatabase,
+    currentConnection?.type,
+    result,
+    currentTab,
+    updateTab,
+  ]);
 
   // 当 result 变化时，重置分页和排序
   useEffect(() => {
@@ -248,6 +372,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         pageSize: size,
         saveWorkspace: false,
       });
+
+      const executedSql = useConnectionStore
+        .getState()
+        .tabs.find((t) => t.id === currentTab.id)?.actualExecutedSql;
+      if (executedSql) {
+        actualExecutedSqlRef.current = executedSql;
+        setActualExecutedSql(executedSql);
+      }
     },
     [currentConnectionId, currentTab, currentDatabase, getBrowseQuerySql]
   );
@@ -272,9 +404,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     if (!currentTab) return;
     
     // 检查是否有未保存的修改
-    if (editMode && editing.modifications.size > 0) {
+    if (editMode && hasPendingEdits) {
       const shouldContinue = window.confirm(
-        `有 ${editing.modifications.size} 个未保存的修改。应用过滤/排序将清除这些修改，确定要继续吗？`
+        `有 ${pendingChangeCount} 个未保存的修改。应用过滤/排序将清除这些修改，确定要继续吗？`
       );
       if (!shouldContinue) {
         return;
@@ -360,22 +492,30 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     [result]
   );
   
-  const displayRows = useMemo(() => result?.rows || [], [result]);
+  const displayRows = useMemo(() => {
+    if (editMode) {
+      return editing.editedData.rows || [];
+    }
+    return result?.rows || [];
+  }, [editMode, editing.editedData.rows, result?.rows]);
   
   // 计算显示的行数据（排序已在数据库层面完成，这里直接返回）
   const filteredRows = useMemo(() => displayRows, [displayRows]);
   
   // 分页计算
-  const totalRows = isServerPaginated ? (totalRowCount ?? 0) : filteredRows.length;
+  const totalRows =
+    editMode || !isServerPaginated
+      ? filteredRows.length
+      : (totalRowCount ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const paginatedRows = useMemo(() => {
-    if (isServerPaginated) {
+    if (isServerPaginated && !editMode) {
       return filteredRows;
     }
     const startIndex = (currentPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
     return filteredRows.slice(startIndex, endIndex);
-  }, [filteredRows, currentPage, pageSize, isServerPaginated]);
+  }, [filteredRows, currentPage, pageSize, isServerPaginated, editMode]);
 
   const handlePageChange = useCallback(
     (page: number) => {
@@ -726,16 +866,101 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     [columnFilters]
   );
 
-  // 从 SQL 中提取表名
-  const tableInfo = useMemo(() => {
-    if (!sql) return null;
-    return extractTableInfo(sql);
-  }, [sql]);
+  const handleRefresh = useCallback(async () => {
+    if (!currentConnectionId || !currentTab || isRefreshing || isFiltering) {
+      return;
+    }
 
-  // 处理查看表结构
+    if (editMode && hasPendingEdits) {
+      const shouldContinue = window.confirm(
+        `有 ${pendingChangeCount} 个未保存的修改。刷新将清除这些修改，确定要继续吗？`
+      );
+      if (!shouldContinue) {
+        return;
+      }
+      editing.setModifications(new Map());
+      editing.setEditedData(result);
+      editing.editHistory.reset();
+    }
+
+    setIsRefreshing(true);
+    try {
+      if (isServerPaginated) {
+        await fetchBrowsePage(currentPage, pageSize);
+      } else if (hasActiveFilters || sortConfig.length > 0) {
+        await executeFilteredAndSortedSql(columnFilters, sortConfig);
+      } else {
+        const sqlToRun =
+          actualExecutedSqlRef.current?.trim() ||
+          actualExecutedSql?.trim() ||
+          sql?.trim();
+        if (!sqlToRun) {
+          return;
+        }
+        await runTabQuery({
+          tabId: currentTab.id,
+          sql: sqlToRun,
+          connectionId: currentConnectionId,
+          database: currentDatabase,
+          mode: "refresh",
+          saveWorkspace: false,
+        });
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [
+    currentConnectionId,
+    currentTab,
+    isRefreshing,
+    isFiltering,
+    editMode,
+    editing,
+    result,
+    isServerPaginated,
+    fetchBrowsePage,
+    currentPage,
+    pageSize,
+    hasActiveFilters,
+    sortConfig,
+    executeFilteredAndSortedSql,
+    columnFilters,
+    actualExecutedSql,
+    sql,
+    currentDatabase,
+  ]);
+
+  const handleOpenInNewTab = useCallback(() => {
+    const sqlToOpen = isServerPaginated
+      ? getBrowseQuerySql()
+      : actualExecutedSqlRef.current?.trim() ||
+        actualExecutedSql?.trim() ||
+        sql?.trim();
+    if (!sqlToOpen) {
+      return;
+    }
+
+    const newTabId = createTab();
+    updateTab(newTabId, {
+      sql: sqlToOpen,
+      sqlToLoad: sqlToOpen,
+      selectedTable: null,
+      queryResult: null,
+      error: null,
+      showTableBrowser: false,
+    });
+  }, [
+    isServerPaginated,
+    getBrowseQuerySql,
+    actualExecutedSql,
+    sql,
+    createTab,
+    updateTab,
+  ]);
+
   const handleViewStructure = () => {
-    if (tableInfo && tableInfo.tableName) {
-      setViewingStructure(tableInfo.tableName);
+    if (tableInfoFromSql && tableInfoFromSql.tableName) {
+      setViewingStructure(tableInfoFromSql.tableName);
     }
   };
 
@@ -951,6 +1176,14 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   // 如果完全没有列信息（包括保存的列信息），显示"无数据返回"
   // 注意：INSERT/UPDATE/DELETE 语句会返回 affected_rows 列，应该正常显示
   if (displayColumns.length === 0) {
+    if (loadingTableColumns && selectedTable) {
+      return (
+        <div className="p-4 text-center" style={{ color: 'var(--neu-text-light)' }}>
+          加载表结构...
+        </div>
+      );
+    }
+
     return (
       <div className="p-4 text-center" style={{ color: 'var(--neu-text-light)' }}>
         无数据返回
@@ -964,7 +1197,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       <ConfirmDialog
         isOpen={editing.showExitConfirm}
         title="退出编辑模式"
-        message={`有 ${editing.modifications.size} 个未保存的修改，确定要退出编辑模式吗？退出后这些修改将丢失。`}
+        message={`有 ${pendingChangeCount} 个未保存的修改，确定要退出编辑模式吗？退出后这些修改将丢失。`}
         confirmText="确定退出"
         cancelText="取消"
         type="warning"
@@ -1001,9 +1234,9 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                     <span className="text-xs font-semibold" style={{ color: "var(--neu-accent)" }}>
                       编辑模式
                     </span>
-                    {editing.modifications.size > 0 && (
+                    {hasPendingEdits && (
                       <span className="text-xs" style={{ color: "var(--neu-warning)" }}>
-                        ({editing.modifications.size} 个未保存的修改)
+                        ({pendingChangeCount} 个未保存的修改)
                       </span>
                     )}
                     {selection && (
@@ -1031,7 +1264,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                     >
                       ↷ 重做
                     </button>
-                    {editing.modifications.size > 0 && (
+                    {(hasPendingEdits || editing.modifications.size > 0) && (
                       <button
                         onClick={editing.handleResetAll}
                         className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
@@ -1039,6 +1272,21 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                         title="撤销所有改动"
                       >
                         ↶ 撤销所有
+                      </button>
+                    )}
+                    {canAddRow && (
+                      <button
+                        onClick={() => {
+                          const newRowIndex = editing.handleAddRow();
+                          if (newRowIndex !== null) {
+                            setCurrentPage(Math.floor(newRowIndex / pageSize) + 1);
+                          }
+                        }}
+                        className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
+                        style={{ color: "var(--neu-accent)" }}
+                        title="在表尾添加一行"
+                      >
+                        ＋ 添加行
                       </button>
                     )}
                     {selection && (
@@ -1054,7 +1302,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                         ✕
                       </button>
                     )}
-                    {editing.modifications.size > 0 && (
+                    {hasPendingEdits && (
                       <button
                         onClick={handleSaveChanges}
                         disabled={editing.isSaving || !currentConnectionId}
@@ -1062,7 +1310,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                         style={{ color: "var(--neu-success)" }}
                         title="保存所有修改到数据库"
                       >
-                        {editing.isSaving ? "保存中..." : `💾 保存 (${editing.modifications.size})`}
+                        {editing.isSaving ? "保存中..." : `💾 保存 (${pendingChangeCount})`}
                       </button>
                     )}
                     {editing.saveSuccess && (
@@ -1096,13 +1344,16 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                 isFiltering={isFiltering}
                 rowCount={displayRows.length}
                 editMode={editMode}
-                canViewStructure={!!tableInfo?.tableName}
+                canViewStructure={!!tableInfoFromSql?.tableName}
                 onEnterEditMode={() => setEditMode(true)}
                 onClearFilters={handleClearAllFilters}
                 onClearSort={handleClearSort}
                 onViewStructure={handleViewStructure}
                 onExport={handleExport}
                 hasSelectedRows={selectedRows.size > 0}
+                onRefresh={() => void handleRefresh()}
+                isRefreshing={isRefreshing}
+                onOpenInNewTab={handleOpenInNewTab}
               />
             </div>
           );
@@ -1155,7 +1406,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
             onApplySort={handleApplySort}
             onClearSortColumn={handleClearSortColumn}
           />
-          {filteredRows.length === 0 ? (
+          {filteredRows.length === 0 && !editMode ? (
             <tbody>
               <EmptyState hasActiveFilters={hasActiveFilters} columnCount={displayColumns.length} />
             </tbody>
@@ -1172,7 +1423,8 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               selectedRows={selectedRows}
               currentPage={currentPage}
               pageSize={pageSize}
-                    isCellSelected={isCellSelected}
+              initialRowCount={result.rows.length}
+              isCellSelected={isCellSelected}
                     onCellMouseDown={handleCellMouseDown}
                     onCellClick={handleCellClick}
                     onCellDoubleClick={handleCellDoubleClick}

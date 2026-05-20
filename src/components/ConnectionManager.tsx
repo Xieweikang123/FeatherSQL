@@ -13,7 +13,8 @@ import {
   listTables,
   type Connection,
 } from "../lib/commands";
-import { runTabQuery, runPaginatedTabQuery } from "../services/tabQueryService";
+import { runTabQuery } from "../services/tabQueryService";
+import { openTableBrowse } from "../services/tableBrowseService";
 import { buildTableSelectSql } from "../utils/sqlGenerator";
 import ConnectionForm from "./ConnectionForm";
 import TableContextMenu from "./ConnectionManager/TableContextMenu";
@@ -268,20 +269,15 @@ export default function ConnectionManager() {
       setCurrentDatabase(targetDatabase);
     }
 
-    const sql = buildTableSelectSql(table, connection.type, database);
-
     const currentTab = getCurrentTab();
     if (!currentTab) return;
 
-    setSelectedTable(table, { preparingQuery: true });
-    loadSql(sql);
-
-    await runPaginatedTabQuery({
+    await openTableBrowse({
       tabId: currentTab.id,
-      baseSql: sql,
       connectionId,
-      database: connection.type === "sqlite" ? "" : database,
-      mode: "full",
+      connection,
+      database,
+      tableName: table,
     });
   };
 
@@ -307,20 +303,15 @@ export default function ConnectionManager() {
       setCurrentDatabase(database);
     }
 
-    const sql = buildTableSelectSql(table, connection.type, database);
-
     const currentTab = getCurrentTab();
     if (!currentTab) return;
 
-    setSelectedTable(table, { preparingQuery: true });
-    loadSql(sql);
-
-    await runPaginatedTabQuery({
+    await openTableBrowse({
       tabId: currentTab.id,
-      baseSql: sql,
       connectionId: currentConnectionId,
-      database: connection.type === "sqlite" ? "" : database,
-      mode: "full",
+      connection,
+      database,
+      tableName: table,
     });
   };
 
@@ -547,24 +538,12 @@ export default function ConnectionManager() {
         connection.type === "sqlite" ? "" : (savedState.database ?? "");
 
       if (savedState.table) {
-        let sql = savedState.sql?.trim() ?? "";
-        if (!sql) {
-          sql = buildTableSelectSql(
-            savedState.table,
-            connection.type,
-            savedState.database
-          );
-        }
-
-        setSelectedTable(savedState.table, { preparingQuery: true });
-        loadSql(sql);
-
-        await runPaginatedTabQuery({
+        await openTableBrowse({
           tabId: tabAfterRestore.id,
-          baseSql: sql,
           connectionId: connection.id,
-          database: databaseForQuery,
-          mode: "full",
+          connection,
+          database: savedState.database ?? "",
+          tableName: savedState.table,
         });
       } else if (savedState.sql?.trim()) {
         loadSql(savedState.sql);

@@ -5,8 +5,7 @@ import {
   selectCurrentDatabase,
 } from "../store/selectors";
 import { listTables, listDatabases } from "../lib/commands";
-import { runPaginatedTabQuery } from "../services/tabQueryService";
-import { buildTableSelectSql } from "../utils/sqlGenerator";
+import { openTableBrowse } from "../services/tableBrowseService";
 import TableStructure from "./TableStructure";
 import ImportDialog from "./ImportDialog";
 import { IconRefresh, IconSpinner } from "./ConnectionManager/SidebarIcons";
@@ -31,8 +30,6 @@ export default function TableView() {
   const currentDatabase = useConnectionStore(selectCurrentDatabase);
   const setCurrentDatabase = useConnectionStore((s) => s.setCurrentDatabase);
   const getCurrentTab = useConnectionStore((s) => s.getCurrentTab);
-  const setSelectedTable = useConnectionStore((s) => s.setSelectedTable);
-  const loadSql = useConnectionStore((s) => s.loadSql);
   
   const [databases, setDatabases] = useState<string[]>([]);
   const [databaseTables, setDatabaseTables] = useState<DatabaseTables>({});
@@ -204,23 +201,15 @@ export default function TableView() {
     }
 
     // Set selected table - switch to table data view
-    setSelectedTable(tableName, { preparingQuery: true });
-
-    // Build base SELECT SQL (no hard LIMIT — pagination uses COUNT + LIMIT/OFFSET)
-    const sql = buildTableSelectSql(tableName, currentConnection.type, database);
-
-    // Load SQL into editor
-    loadSql(sql);
-
     const currentTab = getCurrentTab();
     if (!currentTab) return;
 
-    await runPaginatedTabQuery({
+    await openTableBrowse({
       tabId: currentTab.id,
-      baseSql: sql,
       connectionId: currentConnectionId,
-      database: connectionType === "sqlite" ? "" : database,
-      mode: "full",
+      connection: currentConnection,
+      database,
+      tableName,
     });
   };
 

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import ViewStructureButton from "./ViewStructureButton";
+import { IconRefresh, IconSpinner, IconOpenInNewTab } from "../ConnectionManager/SidebarIcons";
 import type { ExportFormat } from "../../utils/exportUtils";
 
 interface SqlDisplayBarProps {
@@ -18,6 +19,9 @@ interface SqlDisplayBarProps {
   onViewStructure?: () => void;
   onExport?: (format: ExportFormat, exportSelected: boolean) => Promise<void>;
   hasSelectedRows?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  onOpenInNewTab?: () => void;
 }
 
 export default function SqlDisplayBar({
@@ -35,6 +39,9 @@ export default function SqlDisplayBar({
   onViewStructure,
   onExport,
   hasSelectedRows = false,
+  onRefresh,
+  isRefreshing = false,
+  onOpenInNewTab,
 }: SqlDisplayBarProps) {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
@@ -128,6 +135,17 @@ export default function SqlDisplayBar({
         >
           {filteredSql || sql}
         </code>
+        {onOpenInNewTab && (
+          <button
+            type="button"
+            onClick={onOpenInNewTab}
+            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active"
+            style={{ color: "var(--neu-accent)" }}
+            title="在新标签页打开"
+          >
+            <IconOpenInNewTab size={13} />
+          </button>
+        )}
         {hasActiveFilters && (
           <span className="text-xs flex-shrink-0" style={{ color: "var(--neu-accent)" }}>
             {isFiltering ? "(过滤中...)" : `(已过滤: ${rowCount} 条)`}
@@ -140,6 +158,18 @@ export default function SqlDisplayBar({
         )}
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            disabled={isRefreshing || isFiltering}
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ color: "var(--neu-text)" }}
+            title="刷新数据"
+          >
+            {isRefreshing ? <IconSpinner size={14} /> : <IconRefresh size={14} />}
+          </button>
+        )}
         {canViewStructure && onViewStructure && (
           <ViewStructureButton onClick={onViewStructure} />
         )}

@@ -14,6 +14,7 @@ interface TableRowProps {
   selection: CellSelection | null;
   isCellSelected: (row: number, col: number) => boolean;
   isRowSelected: boolean;
+  isNewRow?: boolean;
   onCellMouseDown: (rowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
   onCellClick: (rowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
   onCellDoubleClick: (rowIndex: number, cellIndex: number) => void;
@@ -38,6 +39,7 @@ function TableRow({
   selection: _selection,
   isCellSelected,
   isRowSelected,
+  isNewRow = false,
   onCellMouseDown,
   onCellClick,
   onCellDoubleClick,
@@ -74,6 +76,7 @@ function TableRow({
       }`}
       style={{
         borderBottom: "1px solid var(--neu-dark)",
+        ...(isNewRow ? { backgroundColor: "rgba(var(--neu-accent-rgb, 100, 149, 237), 0.08)" } : {}),
       }}
     >
       <td

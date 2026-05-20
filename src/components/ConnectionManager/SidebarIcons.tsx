@@ -127,3 +127,24 @@ export function IconSpinner({ className, size = 14 }: IconProps) {
     </svg>
   );
 }
+
+export function IconOpenInNewTab({ className, size = defaultSize }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M9 2h5v5M14 2 8 8"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 3H3.5A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5V10"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

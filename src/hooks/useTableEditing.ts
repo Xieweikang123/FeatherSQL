@@ -5,7 +5,7 @@ import type { CellSelection } from "./useCellSelection";
 import { useEditHistory } from "./useEditHistory";
 import { executeSql, describeTable } from "../lib/commands";
 import { runTabQuery } from "../services/tabQueryService";
-import { generateUpdateSql } from "../utils/sqlGenerator";
+import { generateUpdateSql, generateInsertSqlForRowIndices } from "../utils/sqlGenerator";
 import { extractTableInfo } from "../lib/utils";
 
 interface EditingCell {
@@ -51,6 +51,7 @@ export function useTableEditing({
   // 使用 ref 来存储最新的修改记录，处理快速连续输入时状态还没更新的情况
   const modificationsRef = useRef<Map<string, CellModification>>(new Map());
   const editedDataRef = useRef<QueryResult>(result);
+  const initialRowCountRef = useRef(result.rows.length);
   
   // 同步 ref 和 state
   useEffect(() => {
@@ -60,6 +61,10 @@ export function useTableEditing({
   useEffect(() => {
     editedDataRef.current = editedData;
   }, [editedData]);
+
+  useEffect(() => {
+    initialRowCountRef.current = result.rows.length;
+  }, [result]);
   
   // 使用编辑历史 hook
   const editHistory = useEditHistory();
@@ -118,6 +123,51 @@ export function useTableEditing({
     setEditingCell(null);
     setEditingValue("");
   }, [result, editHistory, clearSelection]);
+
+  const getNewRowIndices = useCallback((): number[] => {
+    const initialCount = initialRowCountRef.current;
+    const indices: number[] = [];
+    for (let i = initialCount; i < editedDataRef.current.rows.length; i++) {
+      indices.push(i);
+    }
+    return indices;
+  }, []);
+
+  const hasPendingChanges = useCallback((): boolean => {
+    return modifications.size > 0 || getNewRowIndices().length > 0;
+  }, [modifications.size, getNewRowIndices, editedData.rows.length]);
+
+  const handleAddRow = useCallback((): number | null => {
+    if (!editMode) {
+      return null;
+    }
+
+    if (!sql || !extractTableInfo(sql)) {
+      return null;
+    }
+
+    const columnCount = editedData.columns.length || result.columns.length;
+    if (columnCount === 0) {
+      return null;
+    }
+
+    saveToHistory();
+
+    const newRow = Array(columnCount).fill(null);
+    const newRowIndex = editedData.rows.length;
+    const newEditedData = {
+      ...editedData,
+      columns: editedData.columns.length > 0 ? editedData.columns : [...result.columns],
+      rows: [...editedData.rows, newRow],
+    };
+
+    setEditedData(newEditedData);
+    editedDataRef.current = newEditedData;
+    setEditingCell({ row: newRowIndex, col: 0 });
+    setEditingValue("");
+
+    return newRowIndex;
+  }, [editMode, sql, editedData, result.columns, saveToHistory]);
   
   // 编辑相关处理函数
   const handleCellDoubleClick = useCallback((originalRowIndex: number, cellIndex: number) => {
@@ -137,15 +187,25 @@ export function useTableEditing({
   const handleCellSave = useCallback((rowIndex: number, cellIndex: number) => {
     if (!editingCell || editingCell.row !== rowIndex || editingCell.col !== cellIndex) return;
     
-    const column = result.columns[cellIndex];
+    const columns = editedData.columns.length > 0 ? editedData.columns : result.columns;
+    const column = columns[cellIndex];
 
-    if (rowIndex < 0 || rowIndex >= result.rows.length) {
+    if (rowIndex < 0 || rowIndex >= editedData.rows.length) {
       setEditingCell(null);
       setEditingValue("");
       return;
     }
 
-    const oldValue = result.rows[rowIndex][cellIndex];
+    const isNewRow = rowIndex >= initialRowCountRef.current;
+    if (!isNewRow && rowIndex >= result.rows.length) {
+      setEditingCell(null);
+      setEditingValue("");
+      return;
+    }
+
+    const oldValue = isNewRow
+      ? editedData.rows[rowIndex]?.[cellIndex]
+      : result.rows[rowIndex][cellIndex];
     
     const newValue = editingValue.trim() === "" ? null : editingValue;
     
@@ -165,17 +225,20 @@ export function useTableEditing({
     newEditedData.rows[rowIndex] = [...newEditedData.rows[rowIndex]];
     newEditedData.rows[rowIndex][cellIndex] = newValue;
     setEditedData(newEditedData);
+    editedDataRef.current = newEditedData;
     
-    // 记录修改
-    const modKey = `${rowIndex}-${cellIndex}`;
-    const newMods = new Map(modifications);
-    newMods.set(modKey, {
-      rowIndex,
-      column,
-      oldValue,
-      newValue
-    });
-    setModifications(newMods);
+    if (!isNewRow) {
+      // 记录修改（新增行在保存时统一 INSERT，不写入 modifications）
+      const modKey = `${rowIndex}-${cellIndex}`;
+      const newMods = new Map(modifications);
+      newMods.set(modKey, {
+        rowIndex,
+        column,
+        oldValue,
+        newValue
+      });
+      setModifications(newMods);
+    }
     
     setEditingCell(null);
     setEditingValue("");
@@ -514,7 +577,8 @@ export function useTableEditing({
       return;
     }
     
-    if (modifications.size === 0) {
+    const newRowIndices = getNewRowIndices();
+    if (modifications.size === 0 && newRowIndices.length === 0) {
       return;
     }
     
@@ -543,31 +607,45 @@ export function useTableEditing({
       } catch {
         // 获取失败时回退到全列 WHERE
       }
+
+      const existingRowMods = new Map<string, CellModification>();
+      modifications.forEach((mod, key) => {
+        if (mod.rowIndex < initialRowCountRef.current) {
+          existingRowMods.set(key, mod);
+        }
+      });
       
       const updateSqls = generateUpdateSql(
-        modifications,
+        existingRowMods,
         sql,
         result,
         currentConnection as any,
         currentDatabase,
         primaryKeyColumns
       );
+
+      const insertSqls = generateInsertSqlForRowIndices(
+        newRowIndices,
+        sql,
+        editedData,
+        currentConnection as any,
+        currentDatabase,
+        editedData.columns.length > 0 ? editedData.columns : result.columns
+      );
       
-      if (updateSqls.length === 0) {
+      const allSqls = [...insertSqls, ...updateSqls];
+      if (allSqls.length === 0) {
         return;
       }
       
-      // 执行所有 UPDATE 语句
-      let successCount = 0;
       let failCount = 0;
       
-      for (const updateSql of updateSqls) {
+      for (const statement of allSqls) {
         try {
-          await executeSql(currentConnectionId, updateSql, dbParam);
-          successCount++;
+          await executeSql(currentConnectionId, statement, dbParam);
         } catch (error) {
           failCount++;
-          console.error("Update SQL:", updateSql);
+          console.error("Save SQL:", statement);
           console.error("Database param:", dbParam);
           console.error("Error:", error);
         }
@@ -592,6 +670,8 @@ export function useTableEditing({
       if (newResult) {
         setModifications(new Map());
         setEditedData(newResult);
+        editedDataRef.current = newResult;
+        initialRowCountRef.current = newResult.rows.length;
         setSaveSuccess(true);
       }
     } catch (error) {
@@ -600,18 +680,18 @@ export function useTableEditing({
     } finally {
       setIsSaving(false);
     }
-  }, [currentConnectionId, currentConnection, modifications, sql, result, currentDatabase, currentTab, updateTab]);
+  }, [currentConnectionId, currentConnection, modifications, sql, result, editedData, currentDatabase, currentTab, getNewRowIndices]);
   
   // 退出编辑模式
   const handleExitEditMode = useCallback((setEditMode: (mode: boolean) => void) => {
-    if (modifications.size > 0) {
+    if (hasPendingChanges()) {
       // 显示确认对话框
       setShowExitConfirm(true);
     } else {
       // 没有修改，直接退出
       doExitEditMode(setEditMode);
     }
-  }, [modifications.size]);
+  }, [hasPendingChanges]);
   
   const doExitEditMode = useCallback((setEditMode: (mode: boolean) => void) => {
     setEditedData(result);
@@ -654,7 +734,10 @@ export function useTableEditing({
     handleUndo,
     handleRedo,
     handleResetAll,
+    handleAddRow,
     handleSaveChanges,
+    getNewRowIndices,
+    hasPendingChanges,
     handleExitEditMode,
     handleConfirmExit,
     handleCancelExit,

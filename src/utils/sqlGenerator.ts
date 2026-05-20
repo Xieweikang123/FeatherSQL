@@ -415,6 +415,55 @@ export function generateInsertSql(
 }
 
 /**
+ * 为指定行索引生成 INSERT 语句（用于新增行保存）
+ */
+export function generateInsertSqlForRowIndices(
+  rowIndices: number[],
+  sql: string,
+  editedData: QueryResult,
+  currentConnection: Connection,
+  currentDatabase: string | null,
+  displayColumns?: string[]
+): string[] {
+  if (!sql || !currentConnection || rowIndices.length === 0) {
+    return [];
+  }
+
+  const tableInfo = extractTableInfo(sql);
+  if (!tableInfo?.tableName) {
+    return [];
+  }
+
+  const columns = displayColumns ?? editedData.columns;
+  if (columns.length === 0) {
+    return [];
+  }
+
+  const dbType = currentConnection.type;
+  const databaseToUse = tableInfo.database || currentDatabase;
+  const escapedTableName = buildTableName(tableInfo.tableName, dbType, databaseToUse);
+  const columnNames = columns.map((col) => escapeIdentifier(col, dbType));
+  const columnsClause = columnNames.join(", ");
+
+  const sqls: string[] = [];
+  for (const rowIndex of rowIndices) {
+    if (rowIndex < 0 || rowIndex >= editedData.rows.length) {
+      continue;
+    }
+
+    const row = editedData.rows[rowIndex];
+    const values = columns.map((_, colIndex) =>
+      escapeSqlValue(row[colIndex], dbType)
+    );
+    sqls.push(
+      `INSERT INTO ${escapedTableName} (${columnsClause}) VALUES (${values.join(", ")});`
+    );
+  }
+
+  return sqls;
+}
+
+/**
  * 生成 UPDATE SQL 语句（基于选中的行）
  * @param primaryKeyColumns 主键列名，若提供则优先用于 WHERE 子句
  */

@@ -3,7 +3,7 @@ use crate::db::history;
 use crate::db::pool_manager::{DatabasePool, PoolManager};
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
-use sqlx::{Column, Row};
+use sqlx::{Column, Executor, Row};
 use tauri::State;
 use tiberius::{AuthMethod, Client, Config, QueryItem};
 use tokio::net::TcpStream;
@@ -12,25 +12,48 @@ use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 /// Convert a tiberius row value to JSON value
 fn mssql_value_to_json(row: &tiberius::Row, index: usize) -> serde_json::Value {
     if let Some(v) = row.try_get::<&str, _>(index).ok().flatten() {
-        serde_json::Value::String(v.to_string())
-    } else if let Some(v) = row.try_get::<i32, _>(index).ok().flatten() {
-        serde_json::Value::Number(v.into())
-    } else if let Some(v) = row.try_get::<i64, _>(index).ok().flatten() {
-        serde_json::Value::Number(v.into())
-    } else if let Some(v) = row.try_get::<f64, _>(index).ok().flatten() {
-        serde_json::Value::Number(
-            serde_json::Number::from_f64(v).unwrap_or(serde_json::Number::from(0)),
-        )
-    } else if let Some(v) = row.try_get::<bool, _>(index).ok().flatten() {
-        serde_json::Value::Bool(v)
-    } else {
-        // Try to get as string as fallback
-        row.try_get::<&str, _>(index)
-            .ok()
-            .flatten()
-            .map(|s| serde_json::Value::String(s.to_string()))
-            .unwrap_or(serde_json::Value::Null)
+        return serde_json::Value::String(v.to_string());
     }
+    if let Some(v) = row.try_get::<bool, _>(index).ok().flatten() {
+        return serde_json::Value::Bool(v);
+    }
+    if let Some(v) = row.try_get::<i64, _>(index).ok().flatten() {
+        return serde_json::Value::Number(v.into());
+    }
+    if let Some(v) = row.try_get::<i32, _>(index).ok().flatten() {
+        return serde_json::Value::Number(v.into());
+    }
+    if let Some(v) = row.try_get::<f64, _>(index).ok().flatten() {
+        return serde_json::Number::from_f64(v)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null);
+    }
+    if let Some(v) = row.try_get::<chrono::NaiveDateTime, _>(index).ok().flatten() {
+        return serde_json::Value::String(v.to_string());
+    }
+    if let Some(v) = row
+        .try_get::<chrono::DateTime<chrono::Utc>, _>(index)
+        .ok()
+        .flatten()
+    {
+        return serde_json::Value::String(v.to_string());
+    }
+    if let Some(v) = row.try_get::<chrono::NaiveDate, _>(index).ok().flatten() {
+        return serde_json::Value::String(v.to_string());
+    }
+    if let Some(v) = row.try_get::<chrono::NaiveTime, _>(index).ok().flatten() {
+        return serde_json::Value::String(v.to_string());
+    }
+    if let Some(v) = row.try_get::<&[u8], _>(index).ok().flatten() {
+        if v.len() == 16 {
+            if let Ok(id) = uuid::Uuid::from_slice(v) {
+                return serde_json::Value::String(id.to_string());
+            }
+        }
+        return serde_json::Value::String(bytes_to_display(v));
+    }
+
+    serde_json::Value::Null
 }
 
 /// Helper function to create MSSQL client connection
@@ -164,35 +187,275 @@ fn extract_rows_affected(query_result: &QueryResult) -> Option<u64> {
     }
 }
 
-/// Convert a database row to a vector of JSON values (generic helper)
+fn bytes_to_display(bytes: &[u8]) -> String {
+    if bytes
+        .iter()
+        .all(|&b| b.is_ascii() && !b.is_ascii_control())
+    {
+        String::from_utf8_lossy(bytes).into_owned()
+    } else {
+        bytes
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<String>()
+    }
+}
+
+fn json_number_from_f64(v: f64) -> serde_json::Value {
+    serde_json::Number::from_f64(v)
+        .map(serde_json::Value::Number)
+        .unwrap_or(serde_json::Value::Null)
+}
+
 macro_rules! row_to_json_values {
     ($row:expr, $column_count:expr) => {{
         (0..$column_count)
             .map(|i| {
-                // Try to get value as different types
-                if let Ok(v) = $row.try_get::<String, _>(i) {
-                    serde_json::Value::String(v)
-                } else if let Ok(v) = $row.try_get::<i64, _>(i) {
-                    serde_json::Value::Number(v.into())
-                } else if let Ok(v) = $row.try_get::<f64, _>(i) {
-                    serde_json::Value::Number(
-                        serde_json::Number::from_f64(v).unwrap_or(serde_json::Number::from(0)),
-                    )
-                } else if let Ok(v) = $row.try_get::<bool, _>(i) {
+                use sqlx::{Column, Row, ValueRef};
+                let row = &$row;
+                if row
+                    .try_get_raw(i)
+                    .map(|value| value.is_null())
+                    .unwrap_or(true)
+                {
+                    serde_json::Value::Null
+                } else if let Ok(v) = row.try_get::<bool, _>(i) {
                     serde_json::Value::Bool(v)
-                } else if let Ok(v) = $row.try_get::<chrono::NaiveDateTime, _>(i) {
+                } else if let Ok(v) = row.try_get::<i64, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<i32, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<i16, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<f64, _>(i) {
+                    json_number_from_f64(v)
+                } else if let Ok(v) = row.try_get::<f32, _>(i) {
+                    json_number_from_f64(v as f64)
+                } else if let Ok(v) = row.try_get::<String, _>(i) {
+                    serde_json::Value::String(v)
+                } else if let Ok(v) = row.try_get::<Vec<u8>, _>(i) {
+                    serde_json::Value::String(bytes_to_display(&v))
+                } else if let Ok(v) = row.try_get::<chrono::NaiveDateTime, _>(i) {
                     serde_json::Value::String(v.to_string())
-                } else if let Ok(v) = $row.try_get::<chrono::DateTime<chrono::Utc>, _>(i) {
+                } else if let Ok(v) = row.try_get::<chrono::DateTime<chrono::Utc>, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::NaiveDate, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::NaiveTime, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<sqlx::types::Json<serde_json::Value>, _>(i) {
+                    v.0
+                } else if let Ok(v) = row.try_get::<uuid::Uuid, _>(i) {
                     serde_json::Value::String(v.to_string())
                 } else {
-                    // Fallback: try to get as string
-                    $row.try_get::<String, _>(i)
-                        .map(serde_json::Value::String)
-                        .unwrap_or(serde_json::Value::Null)
+                    eprintln!(
+                        "execute_sql: failed to decode column {} ({})",
+                        i,
+                        row.column(i).type_info()
+                    );
+                    serde_json::Value::Null
                 }
             })
             .collect()
     }};
+    ($row:expr, $column_count:expr, mysql) => {{
+        (0..$column_count)
+            .map(|i| {
+                use sqlx::{Column, Row, ValueRef};
+                let row = &$row;
+                if row
+                    .try_get_raw(i)
+                    .map(|value| value.is_null())
+                    .unwrap_or(true)
+                {
+                    serde_json::Value::Null
+                } else if let Ok(v) = row.try_get::<bool, _>(i) {
+                    serde_json::Value::Bool(v)
+                } else if let Ok(v) = row.try_get::<i64, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<u64, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<i32, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<u32, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<i16, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<u8, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<f64, _>(i) {
+                    json_number_from_f64(v)
+                } else if let Ok(v) = row.try_get::<f32, _>(i) {
+                    json_number_from_f64(v as f64)
+                } else if let Ok(v) = row.try_get::<String, _>(i) {
+                    serde_json::Value::String(v)
+                } else if let Ok(v) = row.try_get::<Vec<u8>, _>(i) {
+                    serde_json::Value::String(bytes_to_display(&v))
+                } else if let Ok(v) = row.try_get::<chrono::NaiveDateTime, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::DateTime<chrono::Utc>, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::NaiveDate, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::NaiveTime, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<sqlx::types::Json<serde_json::Value>, _>(i) {
+                    v.0
+                } else if let Ok(v) = row.try_get::<uuid::Uuid, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else {
+                    eprintln!(
+                        "execute_sql: failed to decode column {} ({})",
+                        i,
+                        row.column(i).type_info()
+                    );
+                    serde_json::Value::Null
+                }
+            })
+            .collect()
+    }};
+    ($row:expr, $column_count:expr, postgres) => {{
+        (0..$column_count)
+            .map(|i| {
+                use sqlx::{Column, Row, ValueRef};
+                let row = &$row;
+                if row
+                    .try_get_raw(i)
+                    .map(|value| value.is_null())
+                    .unwrap_or(true)
+                {
+                    serde_json::Value::Null
+                } else if let Ok(v) = row.try_get::<bool, _>(i) {
+                    serde_json::Value::Bool(v)
+                } else if let Ok(v) = row.try_get::<i64, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<i32, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<i16, _>(i) {
+                    serde_json::Value::Number(v.into())
+                } else if let Ok(v) = row.try_get::<f64, _>(i) {
+                    json_number_from_f64(v)
+                } else if let Ok(v) = row.try_get::<f32, _>(i) {
+                    json_number_from_f64(v as f64)
+                } else if let Ok(v) = row.try_get::<String, _>(i) {
+                    serde_json::Value::String(v)
+                } else if let Ok(v) = row.try_get::<Vec<u8>, _>(i) {
+                    serde_json::Value::String(bytes_to_display(&v))
+                } else if let Ok(v) = row.try_get::<chrono::NaiveDateTime, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::DateTime<chrono::Utc>, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::NaiveDate, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<chrono::NaiveTime, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<sqlx::types::Json<serde_json::Value>, _>(i) {
+                    v.0
+                } else if let Ok(v) = row.try_get::<uuid::Uuid, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else if let Ok(v) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+                    serde_json::Value::String(v.to_string())
+                } else {
+                    eprintln!(
+                        "execute_sql: failed to decode column {} ({})",
+                        i,
+                        row.column(i).type_info()
+                    );
+                    serde_json::Value::Null
+                }
+            })
+            .collect()
+    }};
+}
+
+fn columns_from_row(row: &impl Row) -> Vec<String> {
+    row.columns()
+        .iter()
+        .map(|col| col.name().to_string())
+        .collect()
+}
+
+async fn describe_sqlite_columns(conn: &mut sqlx::SqliteConnection, sql: &str) -> Vec<String> {
+    conn.describe(sql)
+        .await
+        .map(|desc| {
+            desc.columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn describe_mysql_columns(conn: &mut sqlx::MySqlConnection, sql: &str) -> Vec<String> {
+    conn.describe(sql)
+        .await
+        .map(|desc| {
+            desc.columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn describe_postgres_columns(conn: &mut sqlx::PgConnection, sql: &str) -> Vec<String> {
+    conn.describe(sql)
+        .await
+        .map(|desc| {
+            desc.columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn resolve_query_columns_sqlite(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    sql: &str,
+    rows: &[sqlx::sqlite::SqliteRow],
+) -> Vec<String> {
+    if let Some(first_row) = rows.first() {
+        return columns_from_row(first_row);
+    }
+
+    let Ok(mut conn) = pool.acquire().await else {
+        return vec![];
+    };
+    describe_sqlite_columns(&mut *conn, sql).await
+}
+
+async fn resolve_query_columns_mysql(
+    pool: &sqlx::Pool<sqlx::MySql>,
+    sql: &str,
+    rows: &[sqlx::mysql::MySqlRow],
+) -> Vec<String> {
+    if let Some(first_row) = rows.first() {
+        return columns_from_row(first_row);
+    }
+
+    let Ok(mut conn) = pool.acquire().await else {
+        return vec![];
+    };
+    describe_mysql_columns(&mut *conn, sql).await
+}
+
+async fn resolve_query_columns_postgres(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    sql: &str,
+    rows: &[sqlx::postgres::PgRow],
+) -> Vec<String> {
+    if let Some(first_row) = rows.first() {
+        return columns_from_row(first_row);
+    }
+
+    let Ok(mut conn) = pool.acquire().await else {
+        return vec![];
+    };
+    describe_postgres_columns(&mut *conn, sql).await
 }
 
 async fn execute_sql_sqlite(
@@ -204,39 +467,7 @@ async fn execute_sql_sqlite(
 
     match query_result {
         Ok(rows) => {
-            // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
-            let columns: Vec<String> = if rows.is_empty() {
-                // If no rows, try to get column info by executing a LIMIT 0 query
-                let limit_query = if sql.trim().to_uppercase().starts_with("SELECT") {
-                    format!("{} LIMIT 0", sql.trim_end_matches(';').trim())
-                } else {
-                    sql.to_string()
-                };
-
-                match sqlx::query(&limit_query).fetch_all(pool).await {
-                    Ok(limit_rows) => {
-                        if !limit_rows.is_empty() {
-                            limit_rows[0]
-                                .columns()
-                                .iter()
-                                .map(|col| col.name().to_string())
-                                .collect()
-                        } else {
-                            // Try to get from the original query's row structure
-                            // This might work if the query structure is preserved
-                            vec![]
-                        }
-                    }
-                    Err(_) => vec![],
-                }
-            } else {
-                // Get column names from the first row
-                rows[0]
-                    .columns()
-                    .iter()
-                    .map(|col| col.name().to_string())
-                    .collect()
-            };
+            let columns = resolve_query_columns_sqlite(pool, sql, &rows).await;
 
             // Convert rows to JSON values
             let json_rows: Vec<Vec<serde_json::Value>> = rows
@@ -273,42 +504,12 @@ async fn execute_sql_mysql(
 
     match query_result {
         Ok(rows) => {
-            // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
-            let columns: Vec<String> = if rows.is_empty() {
-                // If no rows, try to get column info by executing a LIMIT 0 query
-                let limit_query = if sql.trim().to_uppercase().starts_with("SELECT") {
-                    format!("{} LIMIT 0", sql.trim_end_matches(';').trim())
-                } else {
-                    sql.to_string()
-                };
-
-                match sqlx::query(&limit_query).fetch_all(pool).await {
-                    Ok(limit_rows) => {
-                        if !limit_rows.is_empty() {
-                            limit_rows[0]
-                                .columns()
-                                .iter()
-                                .map(|col| col.name().to_string())
-                                .collect()
-                        } else {
-                            vec![]
-                        }
-                    }
-                    Err(_) => vec![],
-                }
-            } else {
-                // Get column names from the first row
-                rows[0]
-                    .columns()
-                    .iter()
-                    .map(|col| col.name().to_string())
-                    .collect()
-            };
+            let columns = resolve_query_columns_mysql(pool, sql, &rows).await;
 
             // Convert rows to JSON values
             let json_rows: Vec<Vec<serde_json::Value>> = rows
                 .iter()
-                .map(|row| row_to_json_values!(row, columns.len()))
+                .map(|row| row_to_json_values!(row, columns.len(), mysql))
                 .collect();
 
             Ok(QueryResult {
@@ -340,45 +541,12 @@ async fn execute_sql_postgres(
 
     match query_result {
         Ok(rows) => {
-            // Get column names - try from first row if available, otherwise try to get from a LIMIT 0 query
-            let columns: Vec<String> = if rows.is_empty() {
-                // If no rows, try to get column info by executing a LIMIT 0 query
-                // Check if SQL already has LIMIT clause
-                let sql_upper = sql.trim().to_uppercase();
-                let limit_query = if sql_upper.starts_with("SELECT") && !sql_upper.contains("LIMIT")
-                {
-                    format!("{} LIMIT 0", sql.trim_end_matches(';').trim())
-                } else {
-                    sql.to_string()
-                };
-
-                match sqlx::query(&limit_query).fetch_all(pool).await {
-                    Ok(limit_rows) => {
-                        if !limit_rows.is_empty() {
-                            limit_rows[0]
-                                .columns()
-                                .iter()
-                                .map(|col| col.name().to_string())
-                                .collect()
-                        } else {
-                            vec![]
-                        }
-                    }
-                    Err(_) => vec![],
-                }
-            } else {
-                // Get column names from the first row
-                rows[0]
-                    .columns()
-                    .iter()
-                    .map(|col| col.name().to_string())
-                    .collect()
-            };
+            let columns = resolve_query_columns_postgres(pool, sql, &rows).await;
 
             // Convert rows to JSON values
             let json_rows: Vec<Vec<serde_json::Value>> = rows
                 .iter()
-                .map(|row| row_to_json_values!(row, columns.len()))
+                .map(|row| row_to_json_values!(row, columns.len(), postgres))
                 .collect();
 
             Ok(QueryResult {

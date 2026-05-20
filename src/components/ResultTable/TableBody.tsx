@@ -20,6 +20,7 @@ interface TableBodyProps {
   selectedRows: Set<number>;
   currentPage: number;
   pageSize: number;
+  initialRowCount: number;
   isCellSelected: (displayRowIndex: number, cellIndex: number) => boolean;
   onCellMouseDown: (displayRowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
   onCellClick: (displayRowIndex: number, cellIndex: number, e: React.MouseEvent) => void;
@@ -44,6 +45,7 @@ export default function TableBody({
   selectedRows,
   currentPage,
   pageSize,
+  initialRowCount,
   isCellSelected,
   onCellMouseDown,
   onCellClick,
@@ -75,6 +77,7 @@ export default function TableBody({
             selection={selection}
             isCellSelected={isCellSelected}
             isRowSelected={selectedRows.has(displayRowIndex)}
+            isNewRow={displayRowIndex >= initialRowCount}
             onCellMouseDown={onCellMouseDown}
             onCellClick={onCellClick}
             onCellDoubleClick={onCellDoubleClick}

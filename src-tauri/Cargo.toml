@@ -18,10 +18,10 @@ serde_json = "1.0"
 thiserror = "1.0"
 tauri-plugin-dialog = "2.0"
 uuid = { version = "1.0", features = ["v4"] }
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "mysql", "postgres", "chrono"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "mysql", "postgres", "chrono", "uuid", "bigdecimal"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
-tiberius = { version = "0.12", features = ["tokio", "native-tls"] }
+tiberius = { version = "0.12", features = ["tokio", "native-tls", "chrono"] }
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-opener = "2.5.3"

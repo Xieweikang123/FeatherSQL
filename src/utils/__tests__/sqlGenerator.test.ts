@@ -4,6 +4,7 @@ import {
   buildFilteredSql,
   generateUpdateSql,
   generateInsertSql,
+  generateInsertSqlForRowIndices,
   generateUpdateSqlForRows,
   buildTableSelectSql,
   buildCountSql,
@@ -525,6 +526,40 @@ describe("sqlGenerator", () => {
 
       const postgresResult = generateInsertSql(selectedRows, sql, editedData, ["id", "name", "email"], createMockConnection("postgres"), null);
       expect(postgresResult).toContain('"id"');
+    });
+  });
+
+  describe("generateInsertSqlForRowIndices", () => {
+    const createMockConnection = (type: string): Connection => ({
+      id: "conn1",
+      name: "Test Connection",
+      type,
+      config: {},
+    });
+
+    it("should generate INSERT per new row index", () => {
+      const sql = "SELECT * FROM users";
+      const editedData: QueryResult = {
+        columns: ["id", "name"],
+        rows: [
+          [1, "Alice"],
+          [null, "Bob"],
+        ],
+      };
+      const connection = createMockConnection("mysql");
+
+      const sqls = generateInsertSqlForRowIndices(
+        [1],
+        sql,
+        editedData,
+        connection,
+        null
+      );
+
+      expect(sqls).toHaveLength(1);
+      expect(sqls[0]).toContain("INSERT INTO");
+      expect(sqls[0]).toContain("Bob");
+      expect(sqls[0]).toContain("NULL");
     });
   });
 

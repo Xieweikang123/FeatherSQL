@@ -23,6 +23,7 @@ export interface RunTabQueryOptions {
 export interface RunPaginatedTabQueryOptions {
   tabId?: string;
   baseSql: string;
+  plainBaseSql?: string;
   connectionId?: string | null;
   database?: string | null;
   mode?: TabQueryMode;
@@ -178,6 +179,7 @@ export async function runPaginatedTabQuery(
 ): Promise<QueryResult | null> {
   const {
     baseSql: rawBaseSql,
+    plainBaseSql,
     mode = "full",
     saveWorkspace = mode === "full",
     page = 1,
@@ -239,9 +241,8 @@ export async function runPaginatedTabQuery(
   }
 
   const fullMetadata = {
-    columnFilters: {} as Record<string, string>,
     actualExecutedSql: paginatedSql,
-    originalSqlForFilter: baseSql,
+    originalSqlForFilter: plainBaseSql ?? tab.originalSqlForFilter ?? baseSql,
     isFilterResult: false as boolean,
   };
 
@@ -258,7 +259,7 @@ export async function runPaginatedTabQuery(
         queryResult: dataResult,
         error: null,
         isQuerying: false,
-        sql: baseSql,
+        sql: plainBaseSql ?? baseSql,
         totalRowCount,
         ...fullMetadata,
       });
@@ -267,10 +268,9 @@ export async function runPaginatedTabQuery(
         queryResult: dataResult,
         error: null,
         isQuerying: false,
-        sql: baseSql,
-        sqlToLoad: baseSql,
+        sql: plainBaseSql ?? tab.sql ?? baseSql,
         actualExecutedSql: paginatedSql,
-        originalSqlForFilter: tab.originalSqlForFilter ?? baseSql,
+        originalSqlForFilter: plainBaseSql ?? tab.originalSqlForFilter ?? baseSql,
         isFilterResult: true,
         totalRowCount,
       });

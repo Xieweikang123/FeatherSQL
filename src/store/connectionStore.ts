@@ -281,11 +281,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
       updates.queryResult = null;
       updates.error = null;
       updates.isQuerying = true;
-      updates.columnFilters = {};
-      updates.sortConfig = [];
       updates.actualExecutedSql = null;
-      updates.originalSqlForFilter = null;
-      updates.isFilterResult = false;
       updates.totalRowCount = null;
       updates.editMode = false;
     }
