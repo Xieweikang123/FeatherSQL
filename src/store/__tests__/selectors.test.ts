@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useConnectionStore, type TabState } from "../connectionStore";
+import {
+  TABLE_BROWSER_TAB_ID,
+  useConnectionStore,
+  type TabState,
+} from "../connectionStore";
 import {
   selectShouldShowSqlEditor,
   selectShouldShowTableBrowser,
@@ -37,11 +41,15 @@ describe("selectors", () => {
   };
 
   beforeEach(() => {
-    const tab = createTab();
+    const browserTab = createTab({
+      id: TABLE_BROWSER_TAB_ID,
+      name: "表",
+      isTableBrowserTab: true,
+    });
     useConnectionStore.setState({
       connections: [mysqlConnection],
-      tabs: [tab],
-      currentTabId: tab.id,
+      tabs: [browserTab],
+      currentTabId: TABLE_BROWSER_TAB_ID,
     });
   });
 
@@ -80,15 +88,15 @@ describe("selectors", () => {
       expect(selectShouldShowTableBrowser(state)).toBe(false);
     });
 
-    it("returns to SQL editor after clearing table selection", () => {
+    it("returns to table browser after clearing table selection on browser tab", () => {
       useConnectionStore.getState().setCurrentConnection("conn-1");
       useConnectionStore.getState().setCurrentDatabase("mydb");
       useConnectionStore.getState().setSelectedTable("users");
       useConnectionStore.getState().setSelectedTable(null);
 
       const state = useConnectionStore.getState();
-      expect(selectShouldShowSqlEditor(state)).toBe(true);
-      expect(selectShouldShowTableBrowser(state)).toBe(false);
+      expect(selectShouldShowSqlEditor(state)).toBe(false);
+      expect(selectShouldShowTableBrowser(state)).toBe(true);
     });
   });
 });

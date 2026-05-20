@@ -132,36 +132,111 @@ export function extractTableName(sql: string | null | undefined): string | null 
   return info?.tableName || null;
 }
 
+/** 列名 -> SHOW COLUMNS / information_schema 中的 data_type */
+export type ColumnTypeMap = Record<string, string>;
+
+function isNumericSqlType(dataType: string): boolean {
+  const t = dataType.toLowerCase();
+  return /^(tinyint|smallint|mediumint|int|integer|bigint|decimal|numeric|float|double|real|bit)/.test(
+    t
+  );
+}
+
+function isBooleanSqlType(dataType: string): boolean {
+  const t = dataType.toLowerCase();
+  return (
+    t.includes("bool") ||
+    /^bit\(1\)/.test(t) ||
+    /^tinyint\(1\)/.test(t)
+  );
+}
+
+/**
+ * 按列类型将编辑/粘贴后的值（常为字符串）转换为适合写入 SQL 的标量
+ */
+export function coerceValueForColumn(
+  value: unknown,
+  columnDataType?: string
+): unknown {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!columnDataType) {
+    return value;
+  }
+
+  const numeric = isNumericSqlType(columnDataType);
+  const boolean = isBooleanSqlType(columnDataType);
+
+  if (typeof value === "boolean") {
+    if (numeric && !boolean) {
+      return value ? 1 : 0;
+    }
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (s === "") {
+      return null;
+    }
+    if (boolean || numeric) {
+      const lower = s.toLowerCase();
+      if (lower === "true") {
+        return boolean ? true : 1;
+      }
+      if (lower === "false") {
+        return boolean ? false : 0;
+      }
+    }
+    if (numeric && /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(s)) {
+      return s.includes(".") || /[eE]/.test(s) ? parseFloat(s) : parseInt(s, 10);
+    }
+  }
+
+  return value;
+}
+
 /**
  * 转义 SQL 值（用于防止 SQL 注入）
  * @param value 要转义的值
  * @param dbType 数据库类型
+ * @param columnDataType 可选，列 data_type，用于将 "true" 等转为数值/布尔字面量
  * @returns 转义后的 SQL 值字符串
  */
-export function escapeSqlValue(value: any, dbType: string): string {
-  if (value === null || value === undefined) {
+export function escapeSqlValue(
+  value: any,
+  dbType: string,
+  columnDataType?: string
+): string {
+  const coerced = coerceValueForColumn(value, columnDataType);
+
+  if (coerced === null || coerced === undefined) {
     return 'NULL';
   }
   
-  if (typeof value === 'boolean') {
+  if (typeof coerced === 'boolean') {
     // 不同数据库的布尔值表示不同
     if (dbType === 'postgres') {
-      return value ? 'TRUE' : 'FALSE';
+      return coerced ? 'TRUE' : 'FALSE';
     }
-    return value ? '1' : '0';
+    return coerced ? '1' : '0';
   }
   
-  if (typeof value === 'number') {
-    return String(value);
+  if (typeof coerced === 'number') {
+    if (!Number.isFinite(coerced)) {
+      return 'NULL';
+    }
+    return String(coerced);
   }
   
-  if (typeof value === 'object') {
+  if (typeof coerced === 'object') {
     // JSON 对象转换为字符串
-    return escapeSqlValue(JSON.stringify(value), dbType);
+    return escapeSqlValue(JSON.stringify(coerced), dbType);
   }
   
   // 字符串值：转义单引号
-  const escaped = String(value).replace(/'/g, "''");
+  const escaped = String(coerced).replace(/'/g, "''");
   
   // 不同数据库的字符串引号不同
   if (dbType === 'mysql' || dbType === 'mssql') {

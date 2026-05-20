@@ -5,7 +5,7 @@ import {
   selectCurrentDatabase,
 } from "../store/selectors";
 import { listTables, listDatabases } from "../lib/commands";
-import { openTableBrowse } from "../services/tableBrowseService";
+import { openTableFromSidebar } from "../services/tableBrowseService";
 import TableStructure from "./TableStructure";
 import ImportDialog from "./ImportDialog";
 import { IconRefresh, IconSpinner } from "./ConnectionManager/SidebarIcons";
@@ -178,12 +178,17 @@ export default function TableView() {
     });
   };
 
-  const handleTableClick = async (tableName: string, database: string, showStructure: boolean = false) => {
+  const handleTableClick = async (
+    tableName: string,
+    database: string,
+    showStructure: boolean = false,
+    event?: React.MouseEvent
+  ) => {
     if (!currentConnectionId || !currentConnection) {
       return;
     }
 
-    // If right-click or Ctrl+click, show structure instead
+    // If right-click, show structure instead
     if (showStructure) {
       // Set current database if different (for non-SQLite)
       if (connectionType !== "sqlite" && database !== currentDatabase) {
@@ -193,23 +198,12 @@ export default function TableView() {
       return;
     }
 
-    // Set current database if different
-    const targetDatabase = connectionType === "sqlite" ? "" : database;
-    const latestTab = getCurrentTab();
-    if (latestTab?.database !== targetDatabase) {
-      setCurrentDatabase(targetDatabase);
-    }
-
-    // Set selected table - switch to table data view
-    const currentTab = getCurrentTab();
-    if (!currentTab) return;
-
-    await openTableBrowse({
-      tabId: currentTab.id,
+    await openTableFromSidebar({
       connectionId: currentConnectionId,
       connection: currentConnection,
       database,
       tableName,
+      forceNewTab: !!(event?.ctrlKey || event?.metaKey),
     });
   };
 
@@ -372,14 +366,14 @@ export default function TableView() {
                 {tables.map((table) => (
                   <div
                     key={table}
-                    onClick={() => handleTableClick(table, currentDatabase)}
+                    onClick={(e) => handleTableClick(table, currentDatabase, false, e)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       handleTableClick(table, currentDatabase, true);
                     }}
                     className="group relative rounded-lg p-3 cursor-pointer transition-all duration-200 neu-flat hover:neu-hover active:neu-active min-w-0"
                     style={{ backgroundColor: 'rgba(30, 30, 30, 0.6)' }}
-                    title={`左键点击查询表，右键点击查看结构: ${table}`}
+                    title={`左键打开表，Ctrl+左键新标签页，右键查看结构: ${table}`}
                   >
                     <div className="flex items-start gap-2.5 min-w-0 pr-12">
                       <span className="text-xl transition-transform duration-200 group-hover:scale-110 flex-shrink-0 mt-0.5 opacity-70">📄</span>
@@ -420,13 +414,13 @@ export default function TableView() {
                 {tables.map((table) => (
                   <div
                     key={table}
-                    onClick={() => {
+                    onClick={(e) => {
                       // 如果有选中的文本，不触发点击事件（允许文本选择）
                       const selection = window.getSelection();
                       if (selection && selection.toString().trim().length > 0) {
                         return;
                       }
-                      handleTableClick(table, currentDatabase);
+                      handleTableClick(table, currentDatabase, false, e);
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -434,7 +428,7 @@ export default function TableView() {
                     }}
                     className="group text-sm py-2.5 px-3.5 rounded-lg cursor-pointer transition-all duration-200 flex items-start gap-2.5 neu-flat hover:neu-hover active:neu-active min-w-0"
                     style={{ color: 'var(--neu-text)' }}
-                    title={`左键点击查询表，右键点击查看结构: ${table}`}
+                    title={`左键打开表，Ctrl+左键新标签页，右键查看结构: ${table}`}
                   >
                     <span className="text-sm flex-shrink-0 mt-0.5 opacity-70">📄</span>
                     <span 
@@ -495,14 +489,14 @@ export default function TableView() {
                 {tables.map((table) => (
                   <div
                     key={table}
-                    onClick={() => handleTableClick(table, "SQLite")}
+                    onClick={(e) => handleTableClick(table, "SQLite", false, e)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       handleTableClick(table, "SQLite", true);
                     }}
                     className="group relative rounded-lg p-3 cursor-pointer transition-all duration-200 neu-flat hover:neu-hover active:neu-active min-w-0"
                     style={{ backgroundColor: 'rgba(30, 30, 30, 0.6)' }}
-                    title={`左键点击查询表，右键点击查看结构: ${table}`}
+                    title={`左键打开表，Ctrl+左键新标签页，右键查看结构: ${table}`}
                   >
                     <div className="flex items-start gap-2.5 min-w-0 pr-12">
                       <span className="text-xl transition-transform duration-200 group-hover:scale-110 flex-shrink-0 mt-0.5 opacity-70">📄</span>
@@ -557,7 +551,7 @@ export default function TableView() {
                     }}
                     className="group text-sm py-2.5 px-3.5 rounded-lg cursor-pointer transition-all duration-200 flex items-start gap-2.5 neu-flat hover:neu-hover active:neu-active min-w-0"
                     style={{ color: 'var(--neu-text)' }}
-                    title={`左键点击查询表，右键点击查看结构: ${table}`}
+                    title={`左键打开表，Ctrl+左键新标签页，右键查看结构: ${table}`}
                   >
                     <span className="text-sm flex-shrink-0 mt-0.5 opacity-70">📄</span>
                     <span 
@@ -691,13 +685,13 @@ export default function TableView() {
                             filteredTables.map((table) => (
                               <div
                                 key={`${database}-${table}`}
-                                onClick={() => {
+                                onClick={(e) => {
                                   // 如果有选中的文本，不触发点击事件（允许文本选择）
                                   const selection = window.getSelection();
                                   if (selection && selection.toString().trim().length > 0) {
                                     return;
                                   }
-                                  handleTableClick(table, database);
+                                  handleTableClick(table, database, false, e);
                                 }}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
@@ -705,7 +699,7 @@ export default function TableView() {
                                 }}
                                 className="group text-sm py-2 px-3.5 rounded-lg cursor-pointer transition-all duration-200 flex items-start gap-2.5 neu-flat hover:neu-hover active:neu-active min-w-0"
                                 style={{ color: 'var(--neu-text)' }}
-                                title={`左键点击查询表，右键点击查看结构: ${table}`}
+                                title={`左键打开表，Ctrl+左键新标签页，右键查看结构: ${table}`}
                               >
                                 <span className="text-sm flex-shrink-0 mt-0.5 opacity-70">📄</span>
                                 <span 

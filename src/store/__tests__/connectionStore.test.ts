@@ -1,31 +1,37 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useConnectionStore } from "../connectionStore";
+import {
+  TABLE_BROWSER_TAB_ID,
+  useConnectionStore,
+} from "../connectionStore";
 import type { Connection, QueryResult } from "../../lib/commands";
 
 describe("connectionStore", () => {
   beforeEach(() => {
     // Reset store state before each test
-    const newTab = {
-      id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: "新查询",
-      connectionId: null,
-      database: null,
-      sql: "",
-      queryResult: null,
-      error: null,
-      isQuerying: false,
-      selectedTable: null,
-      columnFilters: {},
-      sortConfig: [] as Array<{ column: string; direction: 'asc' | 'desc' }>,
-      sqlToLoad: null,
-      actualExecutedSql: null,
-      originalSqlForFilter: null,
-      editMode: false,
-    };
     useConnectionStore.setState({
       connections: [],
-      tabs: [newTab],
-      currentTabId: newTab.id,
+      tabs: [
+        {
+          id: TABLE_BROWSER_TAB_ID,
+          name: "表",
+          connectionId: null,
+          database: null,
+          sql: "",
+          queryResult: null,
+          error: null,
+          isQuerying: false,
+          selectedTable: null,
+          columnFilters: {},
+          sortConfig: [] as Array<{ column: string; direction: "asc" | "desc" }>,
+          sqlToLoad: null,
+          actualExecutedSql: null,
+          originalSqlForFilter: null,
+          editMode: false,
+          showTableBrowser: false,
+          isTableBrowserTab: true,
+        },
+      ],
+      currentTabId: TABLE_BROWSER_TAB_ID,
     });
     // Clear localStorage
     localStorage.clear();
@@ -62,9 +68,11 @@ describe("connectionStore", () => {
     });
 
     it("should keep connection context per tab when switching tabs", () => {
-      const tabAId = useConnectionStore.getState().currentTabId!;
       useConnectionStore.getState().setCurrentConnection("conn-a");
       useConnectionStore.getState().setCurrentDatabase("db-a");
+
+      const tabAId = useConnectionStore.getState().createTab("Tab A");
+      useConnectionStore.getState().setCurrentTab(tabAId);
 
       const tabBId = useConnectionStore.getState().createTab("Tab B");
       useConnectionStore.getState().setCurrentConnection("conn-b");
@@ -78,13 +86,76 @@ describe("connectionStore", () => {
       expect(tabB.connectionId).toBe("conn-b");
       expect(tabB.database).toBe("db-b");
 
-      useConnectionStore.getState().setCurrentTab(tabA.id);
+      useConnectionStore.getState().setCurrentTab(tabAId);
       expect(useConnectionStore.getState().getCurrentTab()?.connectionId).toBe(
         "conn-a"
       );
       expect(useConnectionStore.getState().getCurrentTab()?.database).toBe(
         "db-a"
       );
+    });
+
+    it("should not close the fixed table browser tab", () => {
+      const before = useConnectionStore.getState().tabs.length;
+      useConnectionStore.getState().closeTab(TABLE_BROWSER_TAB_ID);
+      expect(useConnectionStore.getState().tabs.length).toBe(before);
+      expect(
+        useConnectionStore.getState().tabs.some((t) => t.id === TABLE_BROWSER_TAB_ID)
+      ).toBe(true);
+    });
+
+    it("should sync browser tab when connection changes on a data tab", () => {
+      const connections: Connection[] = [
+        {
+          id: "conn-1",
+          name: "Test DB",
+          type: "mysql",
+          config: { host: "localhost" },
+        },
+      ];
+      useConnectionStore.getState().setConnections(connections);
+      useConnectionStore.getState().setCurrentConnection("conn-1");
+      useConnectionStore.getState().setCurrentDatabase("db_a");
+
+      const dataTabId = useConnectionStore.getState().createTab();
+      useConnectionStore.getState().updateTab(dataTabId, {
+        selectedTable: "users",
+        showTableBrowser: false,
+      });
+      useConnectionStore.getState().setCurrentTab(dataTabId);
+
+      useConnectionStore.getState().setCurrentDatabase("db_b");
+
+      const browser = useConnectionStore
+        .getState()
+        .tabs.find((t) => t.id === TABLE_BROWSER_TAB_ID)!;
+      expect(browser.database).toBe("db_b");
+      expect(browser.showTableBrowser).toBe(true);
+    });
+
+    it("should show table browser when switching to fixed tab with database selected", () => {
+      const connections: Connection[] = [
+        {
+          id: "conn-1",
+          name: "Test DB",
+          type: "mysql",
+          config: { host: "localhost" },
+        },
+      ];
+      useConnectionStore.getState().setConnections(connections);
+      useConnectionStore.getState().setCurrentConnection("conn-1");
+      useConnectionStore.getState().setCurrentDatabase("mydb");
+
+      const tableTabId = useConnectionStore.getState().createTab();
+      useConnectionStore.getState().updateTab(tableTabId, {
+        selectedTable: "users",
+        showTableBrowser: false,
+      });
+
+      useConnectionStore.getState().setCurrentTab(TABLE_BROWSER_TAB_ID);
+      const browser = useConnectionStore.getState().getCurrentTab();
+      expect(browser?.selectedTable).toBeNull();
+      expect(browser?.showTableBrowser).toBe(true);
     });
 
     it("should open new query tab in SQL editor mode, not table browser", () => {

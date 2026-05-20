@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { type QueryResult, describeTable } from "../lib/commands";
-import { useConnectionStore } from "../store/connectionStore";
+import {
+  TABLE_BROWSER_TAB_ID,
+  useConnectionStore,
+} from "../store/connectionStore";
 import {
   selectCurrentConnectionId,
   selectCurrentDatabase,
@@ -47,7 +50,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const currentTab = useConnectionStore(selectCurrentTab);
   const updateTab = useConnectionStore((s) => s.updateTab);
   const createTab = useConnectionStore((s) => s.createTab);
-  const setSelectedTable = useConnectionStore((s) => s.setSelectedTable);
+  const setCurrentTab = useConnectionStore((s) => s.setCurrentTab);
   const editMode = useConnectionStore(selectEditMode);
   const setEditMode = useConnectionStore((s) => s.setEditMode);
   
@@ -62,6 +65,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
   const actualExecutedSqlRef = useRef<string | null>(actualExecutedSqlFromStore || sql || null);
   // 用 ref 同步标记是否正在拖拽，避免 isDragging 异步更新导致后续 mousedown 被误拦截
   const isDraggingRef = useRef(false);
+  const tablePasteTargetRef = useRef<HTMLDivElement>(null);
   
   // 保存原始列信息（当查询返回空结果时，保留列信息用于显示表头）
   const originalColumnsRef = useRef<string[]>([]);
@@ -514,8 +518,26 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     }
     const startIndex = (currentPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
-    return filteredRows.slice(startIndex, endIndex);
-  }, [filteredRows, currentPage, pageSize, isServerPaginated, editMode]);
+    const pageRows = filteredRows.slice(startIndex, endIndex);
+
+    // 编辑模式：新行在表尾且从当前页下一行开始，追加到当前页底部（第 51 行等，便于复制上一行）
+    if (
+      editMode &&
+      endIndex < filteredRows.length &&
+      endIndex >= result.rows.length
+    ) {
+      return [...pageRows, ...filteredRows.slice(endIndex)];
+    }
+
+    return pageRows;
+  }, [
+    filteredRows,
+    currentPage,
+    pageSize,
+    isServerPaginated,
+    editMode,
+    result.rows.length,
+  ]);
 
   const handlePageChange = useCallback(
     (page: number) => {
@@ -765,9 +787,20 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     editing.handleCopy(selection);
   };
 
-  const handlePaste = () => {
-    editing.handlePaste(selection);
-  };
+  const handleTablePaste = useCallback((e: React.ClipboardEvent) => {
+    if (!editMode) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+    const sel = selectionRef.current;
+    if (!sel || sel.cells.size === 0) return;
+
+    const text = e.clipboardData.getData("text/plain");
+    if (!text) return;
+
+    e.preventDefault();
+    void editing.handlePaste(sel, text);
+  }, [editMode, editing]);
 
   // 处理键盘快捷键
   const handleKeyDown = (e: React.KeyboardEvent, filteredRowIndex: number, cellIndex: number) => {
@@ -791,9 +824,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
     } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selection) {
       e.preventDefault();
       handleCopy();
-    } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && selection) {
-      e.preventDefault();
-      handlePaste();
     } else if (e.key === 'Delete' && selection && !editing.editingCell) {
       e.preventDefault();
       handleBatchEdit('');
@@ -824,9 +854,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
         editing.handleRedo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && hasSelection) {
-        e.preventDefault();
-        editing.handlePaste(sel);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && hasSelection) {
         e.preventDefault();
         editing.handleCopy(sel);
@@ -847,6 +874,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   }, [editMode, editing]);
+
+  // 有选区时聚焦表格容器，使 Ctrl+V 触发原生 paste 事件（避免 Clipboard API 读权限被拒）
+  useEffect(() => {
+    if (!editMode || !selection || selection.cells.size === 0) return;
+    tablePasteTargetRef.current?.focus({ preventScroll: true });
+  }, [editMode, selection]);
 
   const handleExitEditMode = () => {
     editing.handleExitEditMode(setEditMode);
@@ -1216,7 +1249,7 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
               {selectedTable && (
                 <>
                   <button
-                    onClick={() => setSelectedTable(null)}
+                    onClick={() => setCurrentTab(TABLE_BROWSER_TAB_ID)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-all duration-200 neu-flat hover:neu-hover active:neu-active flex-shrink-0"
                     style={{ color: 'var(--neu-text)' }}
                     title="返回表视图"
@@ -1279,7 +1312,12 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                         onClick={() => {
                           const newRowIndex = editing.handleAddRow();
                           if (newRowIndex !== null) {
-                            setCurrentPage(Math.floor(newRowIndex / pageSize) + 1);
+                            requestAnimationFrame(() => {
+                              const el = tablePasteTargetRef.current;
+                              if (el) {
+                                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                              }
+                            });
                           }
                         }}
                         className="px-2 py-1 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
@@ -1318,11 +1356,6 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
                         保存成功
                       </span>
                     )}
-                    {editing.saveError && (
-                      <span className="text-xs max-w-xs truncate" style={{ color: "var(--neu-error)" }} title={editing.saveError}>
-                        保存失败: {editing.saveError}
-                      </span>
-                    )}
                     <button
                       onClick={handleExitEditMode}
                       className="px-3 py-1.5 text-xs rounded transition-all neu-flat hover:neu-hover active:neu-active"
@@ -1359,7 +1392,13 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
           );
         })()}
 
-      <div className="flex-1 overflow-auto relative" style={{ marginTop: 0, paddingTop: 0 }}>
+      <div
+        ref={tablePasteTargetRef}
+        className="flex-1 overflow-auto relative outline-none"
+        style={{ marginTop: 0, paddingTop: 0 }}
+        tabIndex={editMode ? 0 : undefined}
+        onPaste={handleTablePaste}
+      >
         {/* 大批量搜索/过滤时的加载遮罩 */}
         {isFiltering && (
           <div
@@ -1448,6 +1487,27 @@ export default function ResultTable({ result, sql }: ResultTableProps) {
         onPageChange={handlePageChange}
         onPageSizeChange={handlePageSizeChange}
       />
+
+      {editMode && editing.saveError && (
+        <div
+          className="flex-shrink-0 px-4 py-3 neu-flat"
+          style={{
+            borderTop: "1px solid var(--neu-error)",
+            backgroundColor: "rgba(var(--neu-error-rgb, 220, 53, 69), 0.06)",
+          }}
+          role="alert"
+        >
+          <div className="text-xs font-semibold mb-2" style={{ color: "var(--neu-error)" }}>
+            保存失败
+          </div>
+          <pre
+            className="text-xs whitespace-pre-wrap break-all font-mono leading-relaxed m-0 max-h-40 overflow-auto rounded-lg px-3 py-2 neu-pressed"
+            style={{ color: "var(--neu-text)" }}
+          >
+            {editing.saveError}
+          </pre>
+        </div>
+      )}
       
       {/* 右键菜单 */}
       {contextMenu && (

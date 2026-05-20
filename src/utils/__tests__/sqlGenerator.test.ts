@@ -14,8 +14,11 @@ import {
 import type { QueryResult, Connection } from "../../lib/commands";
 import type { CellModification } from "../../hooks/useEditHistory";
 
-// Mock utils
-vi.mock("../../lib/utils", () => ({
+// Mock utils (保留真实 escapeSqlValue 以测试列类型转换)
+vi.mock("../../lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/utils")>();
+  return {
+  ...actual,
   extractTableInfo: vi.fn((sql: string | null | undefined) => {
     if (!sql) return null;
     // 简化的 mock 实现，匹配 FROM table 或 FROM db.table
@@ -35,15 +38,7 @@ vi.mock("../../lib/utils", () => ({
     if (dbType === "mssql") return `[${id}]`;
     return id;
   }),
-  escapeSqlValue: vi.fn((val: any, dbType: string) => {
-    if (val === null || val === undefined) return "NULL";
-    if (typeof val === "boolean") {
-      return dbType === "postgres" ? (val ? "TRUE" : "FALSE") : (val ? "1" : "0");
-    }
-    if (typeof val === "number") return String(val);
-    const escaped = String(val).replace(/'/g, "''");
-    return `'${escaped}'`;
-  }),
+  escapeSqlValue: actual.escapeSqlValue,
   buildTableName: vi.fn((table: string, dbType: string, database?: string | null) => {
     const escapeIdentifier = (id: string, type: string) => {
       if (type === "mysql") return `\`${id}\``;
@@ -58,7 +53,8 @@ vi.mock("../../lib/utils", () => ({
     }
     return escapedTable;
   }),
-}));
+  };
+});
 
 describe("sqlGenerator", () => {
   describe("buildFilteredAndSortedSql", () => {
@@ -560,6 +556,31 @@ describe("sqlGenerator", () => {
       expect(sqls[0]).toContain("INSERT INTO");
       expect(sqls[0]).toContain("Bob");
       expect(sqls[0]).toContain("NULL");
+    });
+
+    it("should coerce string boolean-like values for integer columns", () => {
+      const sql = "SELECT * FROM orders";
+      const editedData: QueryResult = {
+        columns: ["dn_no", "name"],
+        rows: [
+          [1, "Alice"],
+          ["true", "Bob"],
+        ],
+      };
+      const connection = createMockConnection("mysql");
+
+      const sqls = generateInsertSqlForRowIndices(
+        [1],
+        sql,
+        editedData,
+        connection,
+        null,
+        undefined,
+        { dn_no: "int(11)", name: "varchar(50)" }
+      );
+
+      expect(sqls[0]).toMatch(/dn_no.*\b1\b/);
+      expect(sqls[0]).not.toContain("'true'");
     });
   });
 

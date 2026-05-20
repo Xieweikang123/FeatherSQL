@@ -13,6 +13,59 @@ interface EditingCell {
   col: number;
 }
 
+export interface SaveFailureDetail {
+  index: number;
+  statement: string;
+  message: string;
+}
+
+const SAVE_ERROR_SQL_PREVIEW_LEN = 280;
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function truncateSqlPreview(statement: string, maxLen = SAVE_ERROR_SQL_PREVIEW_LEN): string {
+  const oneLine = statement.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= maxLen) {
+    return oneLine;
+  }
+  return `${oneLine.slice(0, maxLen)}…`;
+}
+
+export function buildSaveErrorMessage(
+  failures: SaveFailureDetail[],
+  totalCount: number
+): string {
+  if (failures.length === 0) {
+    return "保存失败";
+  }
+
+  const lines: string[] = [
+    `部分保存失败：${failures.length}/${totalCount} 条语句执行失败`,
+    "",
+  ];
+
+  failures.forEach((failure) => {
+    lines.push(`【第 ${failure.index} 条】`);
+    lines.push(`SQL: ${truncateSqlPreview(failure.statement)}`);
+    lines.push(`错误: ${failure.message}`);
+    lines.push("");
+  });
+
+  return lines.join("\n").trimEnd();
+}
+
 interface UseTableEditingOptions {
   result: QueryResult;
   editMode: boolean;
@@ -124,6 +177,10 @@ export function useTableEditing({
     setEditingValue("");
   }, [result, editHistory, clearSelection]);
 
+  const isNewRow = useCallback((rowIndex: number): boolean => {
+    return rowIndex >= initialRowCountRef.current;
+  }, []);
+
   const getNewRowIndices = useCallback((): number[] => {
     const initialCount = initialRowCountRef.current;
     const indices: number[] = [];
@@ -172,13 +229,14 @@ export function useTableEditing({
   // 编辑相关处理函数
   const handleCellDoubleClick = useCallback((originalRowIndex: number, cellIndex: number) => {
     if (!editMode) return;
-    
-    if (originalRowIndex >= editedData.rows.length) return;
-    
-    const cellValue = editedData.rows[originalRowIndex][cellIndex];
+
+    const latestEditedData = editedDataRef.current;
+    if (originalRowIndex >= latestEditedData.rows.length) return;
+
+    const cellValue = latestEditedData.rows[originalRowIndex][cellIndex];
     setEditingCell({ row: originalRowIndex, col: cellIndex });
     setEditingValue(cellValue === null || cellValue === undefined ? "" : String(cellValue));
-  }, [editMode, editedData.rows.length]);
+  }, [editMode]);
   
   const handleCellInputChange = useCallback((value: string) => {
     setEditingValue(value);
@@ -196,14 +254,13 @@ export function useTableEditing({
       return;
     }
 
-    const isNewRow = rowIndex >= initialRowCountRef.current;
-    if (!isNewRow && rowIndex >= result.rows.length) {
+    if (!isNewRow(rowIndex) && rowIndex >= result.rows.length) {
       setEditingCell(null);
       setEditingValue("");
       return;
     }
 
-    const oldValue = isNewRow
+    const oldValue = isNewRow(rowIndex)
       ? editedData.rows[rowIndex]?.[cellIndex]
       : result.rows[rowIndex][cellIndex];
     
@@ -227,7 +284,7 @@ export function useTableEditing({
     setEditedData(newEditedData);
     editedDataRef.current = newEditedData;
     
-    if (!isNewRow) {
+    if (!isNewRow(rowIndex)) {
       // 记录修改（新增行在保存时统一 INSERT，不写入 modifications）
       const modKey = `${rowIndex}-${cellIndex}`;
       const newMods = new Map(modifications);
@@ -272,7 +329,9 @@ export function useTableEditing({
     const sortedCellsForCollection = Array.from(selection.cells).sort();
     for (const cellKey of sortedCellsForCollection) {
       const [row, col] = cellKey.split('-').map(Number);
-      const baselineValue = result.rows[row]?.[col];
+      const baselineValue = isNewRow(row)
+        ? latestEditedData.rows[row]?.[col]
+        : result.rows[row]?.[col];
       // 检查是否在修改记录中（优先检查 newMods，因为可能在同一函数调用中已经更新）
       const modKey = `${row}-${col}`;
       const isModifiedInNewMods = newMods.has(modKey);
@@ -342,7 +401,9 @@ export function useTableEditing({
     const sortedCells = Array.from(selection.cells).sort();
     for (const cellKey of sortedCells) {
       const [row, col] = cellKey.split('-').map(Number);
-      const baselineValue = result.rows[row]?.[col];
+      const baselineValue = isNewRow(row)
+        ? latestEditedData.rows[row]?.[col]
+        : result.rows[row]?.[col];
       
       // 获取当前值（在更新之前）
       // 优先检查是否已经在本次循环中更新过
@@ -385,17 +446,16 @@ export function useTableEditing({
       newEditedData.rows[row] = [...newEditedData.rows[row]];
       newEditedData.rows[row][col] = newValue;
       
-      // 记录修改（使用原始值作为 oldValue，用于撤销）
-      // modKey 已经在上面定义过了
-      const column = result.columns[col];
-      // 如果这个单元格还没有被修改过，使用原始值；否则使用之前的修改记录中的 oldValue
-      const modOldValue = newMods.has(modKey) ? newMods.get(modKey)!.oldValue : baselineValue;
-      newMods.set(modKey, {
-        rowIndex: row,
-        column,
-        oldValue: modOldValue,
-        newValue
-      });
+      if (!isNewRow(row)) {
+        const column = result.columns[col];
+        const modOldValue = newMods.has(modKey) ? newMods.get(modKey)!.oldValue : baselineValue;
+        newMods.set(modKey, {
+          rowIndex: row,
+          column,
+          oldValue: modOldValue,
+          newValue
+        });
+      }
       
       modifiedCount++;
     }
@@ -403,11 +463,10 @@ export function useTableEditing({
     if (modifiedCount > 0) {
       setEditedData(newEditedData);
       setModifications(newMods);
-      // 立即更新 ref，确保下次调用时能获取最新值
       editedDataRef.current = newEditedData;
       modificationsRef.current = newMods;
     }
-  }, [result, saveToHistory]);
+  }, [result, saveToHistory, isNewRow]);
   
   // 复制选中区域
   const handleCopy = useCallback(async (selection: CellSelection | null) => {
@@ -449,22 +508,17 @@ export function useTableEditing({
     await navigator.clipboard.writeText(text);
   }, [editedData.rows]);
   
-  // 粘贴数据
-  const handlePaste = useCallback(async (selection: CellSelection | null) => {
-    if (!selection) {
+  // 粘贴数据（优先传入 clipboardText，来自原生 paste 事件的 clipboardData，无需 Clipboard 读权限）
+  const applyPasteFromText = useCallback((
+    selection: CellSelection,
+    text: string,
+  ) => {
+    if (!text || text.trim() === '') {
       return;
     }
-    
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text || text.trim() === '') {
-        return;
-      }
-      
-      // 处理粘贴内容：按行分割，每行按制表符或逗号分割
-      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+
+    const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
       const parsedLines = lines.map(line => {
-        // 如果包含制表符，按制表符分割；否则按逗号分割；如果都没有，整行作为一个值
         if (line.includes('\t')) {
           return line.split('\t');
         } else if (line.includes(',')) {
@@ -474,20 +528,22 @@ export function useTableEditing({
         }
       });
       
-      // 保存当前状态到历史栈（在修改之前）
       saveToHistory();
       
+      const columns =
+        editedData.columns.length > 0 ? editedData.columns : result.columns;
+      const columnCount = columns.length;
       const newEditedData = { ...editedData };
       newEditedData.rows = [...newEditedData.rows];
       const newMods = new Map(modifications);
       
-      let pastedCount = 0;
+      let hasUpdates = false;
       
-      // 判断是否为单个值粘贴（只有一行一列）
       const isSingleValue = parsedLines.length === 1 && parsedLines[0].length === 1;
-      const singleValue = isSingleValue ? (parsedLines[0][0].trim() === "" ? null : parsedLines[0][0].trim()) : null;
+      const singleValue = isSingleValue
+        ? (parsedLines[0][0].trim() === "" ? null : parsedLines[0][0].trim())
+        : null;
       
-      // 将选中的单元格转换为有序数组（按行和列排序）
       const selectedCells = Array.from(selection.cells)
         .map(key => {
           const [row, col] = key.split('-').map(Number);
@@ -498,78 +554,109 @@ export function useTableEditing({
           return a.col - b.col;
         });
       
-      // 计算选择区域的范围（用于粘贴时的位置计算）
       const minRow = Math.min(...selectedCells.map(c => c.row));
       const minCol = Math.min(...selectedCells.map(c => c.col));
-      
-      // 遍历所有选中的单元格
-      for (let i = 0; i < selectedCells.length; i++) {
-        const { row, col } = selectedCells[i];
-        
-        // 如果超出数据范围，跳过
-        if (row >= newEditedData.rows.length || col >= result.columns.length) {
-          continue;
-        }
-        
-        // 确保行数据存在
+
+      const ensureRow = (row: number) => {
         if (!newEditedData.rows[row]) {
-          newEditedData.rows[row] = [...editedData.rows[row]];
+          newEditedData.rows[row] = Array(columnCount).fill(null);
+        } else if (newEditedData.rows[row].length < columnCount) {
+          newEditedData.rows[row] = [
+            ...newEditedData.rows[row],
+            ...Array(columnCount - newEditedData.rows[row].length).fill(null),
+          ];
         }
         newEditedData.rows[row] = [...newEditedData.rows[row]];
-        
-        // 获取粘贴值
-        let pasteValue = null;
-        
-        if (isSingleValue) {
-          // 单个值：应用到所有选中的单元格
-          pasteValue = singleValue;
-        } else {
-          // 多个值：按位置对应粘贴
-          const rowOffset = row - minRow;
-          const colOffset = col - minCol;
-          
-          if (rowOffset < parsedLines.length) {
-            const pasteLine = parsedLines[rowOffset];
-            if (colOffset < pasteLine.length) {
-              const value = pasteLine[colOffset];
-              pasteValue = value.trim() === "" ? null : value.trim();
-            }
-          }
+      };
+
+      const applyPasteToCell = (row: number, col: number, pasteValue: string | null) => {
+        if (row < 0 || row >= newEditedData.rows.length || col < 0 || col >= columnCount) {
+          return;
         }
-        
-        // 如果 pasteValue 仍然是 null（且不是单个值的情况），跳过
         if (pasteValue === null && !isSingleValue) {
-          continue;
+          return;
         }
-        
-        const oldValue = result.rows[row]?.[col];
+
+        ensureRow(row);
+
+        const rowIsNew = isNewRow(row);
+        const oldValue = rowIsNew
+          ? newEditedData.rows[row][col]
+          : result.rows[row]?.[col];
         const newValue = pasteValue;
-        
-        // 更新单元格值
+
         newEditedData.rows[row][col] = newValue;
-        
-        // 记录修改（即使值相同也记录，因为可能是从其他地方粘贴的）
-        if (oldValue !== newValue && String(oldValue) !== String(newValue)) {
+        hasUpdates = true;
+
+        if (!rowIsNew) {
+          const unchanged =
+            oldValue === newValue ||
+            String(oldValue ?? "") === String(newValue ?? "");
+          if (unchanged) {
+            return;
+          }
+
           const modKey = `${row}-${col}`;
-          const column = result.columns[col];
+          const modOldValue = newMods.has(modKey)
+            ? newMods.get(modKey)!.oldValue
+            : oldValue;
           newMods.set(modKey, {
             rowIndex: row,
-            column,
-            oldValue,
-            newValue
+            column: columns[col],
+            oldValue: modOldValue,
+            newValue,
           });
-          pastedCount++;
+        }
+      };
+
+      if (isSingleValue) {
+        for (const { row, col } of selectedCells) {
+          applyPasteToCell(row, col, singleValue);
+        }
+      } else {
+        // 从选区左上角按剪贴板维度展开粘贴（支持只选中一个单元格粘贴整行）
+        for (let r = 0; r < parsedLines.length; r++) {
+          for (let c = 0; c < parsedLines[r].length; c++) {
+            const raw = parsedLines[r][c];
+            const pasteValue = raw.trim() === "" ? null : raw.trim();
+            applyPasteToCell(minRow + r, minCol + c, pasteValue);
+          }
         }
       }
       
-      if (pastedCount > 0) {
-        setEditedData(newEditedData);
-        setModifications(newMods);
+    if (hasUpdates) {
+      setEditedData(newEditedData);
+      setModifications(newMods);
+      editedDataRef.current = newEditedData;
+      modificationsRef.current = newMods;
+    }
+  }, [result, editedData, modifications, saveToHistory, isNewRow]);
+
+  const handlePaste = useCallback(async (
+    selection: CellSelection | null,
+    clipboardText?: string,
+  ) => {
+    if (!selection) {
+      return;
+    }
+
+    let text = clipboardText;
+    if (text === undefined) {
+      try {
+        text = await navigator.clipboard.readText();
+      } catch (error) {
+        // Tauri/WebView 常拒绝 readText；应由 paste 事件传入 clipboardData
+        console.warn('无法通过 Clipboard API 读取剪贴板，请使用 Ctrl+V 粘贴:', error);
+        return;
       }
+    }
+
+    try {
+      applyPasteFromText(selection, text);
     } catch (error) {
       console.error('粘贴错误:', error);
     }
-  }, [result, editedData, modifications, saveToHistory]);
+  }, [applyPasteFromText]);
   
   // 保存修改到数据库
   const handleSaveChanges = useCallback(async () => {
@@ -598,12 +685,14 @@ export function useTableEditing({
       const databaseToUse = tableInfo.database || currentDatabase;
       const dbParam = currentConnection.type === "sqlite" ? "" : (databaseToUse || undefined);
       
-      // 获取主键列，优先用于 WHERE 子句
+      // 获取表结构：主键 + 列类型（用于 INSERT/UPDATE 数值/布尔转换）
       let primaryKeyColumns: string[] | undefined;
+      let columnTypes: Record<string, string> | undefined;
       try {
         const columns = await describeTable(currentConnectionId, tableInfo.tableName, dbParam || undefined);
         primaryKeyColumns = columns.filter(c => c.primary_key).map(c => c.name);
         if (primaryKeyColumns.length === 0) primaryKeyColumns = undefined;
+        columnTypes = Object.fromEntries(columns.map((c) => [c.name, c.data_type]));
       } catch {
         // 获取失败时回退到全列 WHERE
       }
@@ -621,7 +710,8 @@ export function useTableEditing({
         result,
         currentConnection as any,
         currentDatabase,
-        primaryKeyColumns
+        primaryKeyColumns,
+        columnTypes
       );
 
       const insertSqls = generateInsertSqlForRowIndices(
@@ -630,7 +720,8 @@ export function useTableEditing({
         editedData,
         currentConnection as any,
         currentDatabase,
-        editedData.columns.length > 0 ? editedData.columns : result.columns
+        editedData.columns.length > 0 ? editedData.columns : result.columns,
+        columnTypes
       );
       
       const allSqls = [...insertSqls, ...updateSqls];
@@ -638,21 +729,29 @@ export function useTableEditing({
         return;
       }
       
-      let failCount = 0;
-      
-      for (const statement of allSqls) {
+      const failures: SaveFailureDetail[] = [];
+
+      for (let i = 0; i < allSqls.length; i++) {
+        const statement = allSqls[i];
         try {
           await executeSql(currentConnectionId, statement, dbParam);
         } catch (error) {
-          failCount++;
+          const message = formatErrorMessage(error);
+          failures.push({
+            index: i + 1,
+            statement,
+            message,
+          });
           console.error("Save SQL:", statement);
           console.error("Database param:", dbParam);
           console.error("Error:", error);
         }
       }
-      
-      if (failCount > 0) {
-        throw new Error(`部分保存失败: ${failCount} 条记录保存失败`);
+
+      if (failures.length > 0) {
+        const detailMessage = buildSaveErrorMessage(failures, allSqls.length);
+        setSaveError(detailMessage);
+        throw new Error(detailMessage);
       }
       
       // 重新执行原始 SQL 查询以刷新数据
@@ -675,7 +774,8 @@ export function useTableEditing({
         setSaveSuccess(true);
       }
     } catch (error) {
-      setSaveError(String(error));
+      const message = formatErrorMessage(error);
+      setSaveError((prev) => prev || message);
       console.error("保存失败:", error);
     } finally {
       setIsSaving(false);

@@ -1,4 +1,7 @@
-import { useConnectionStore, type TabState } from "../store/connectionStore";
+import {
+  isTableBrowserTab,
+  useConnectionStore,
+} from "../store/connectionStore";
 
 export default function TabBar() {
   const { tabs, currentTabId, setCurrentTab, closeTab, createTab } = useConnectionStore();
@@ -22,6 +25,7 @@ export default function TabBar() {
         const isActive = tab.id === currentTabId;
         const hasError = tab.error !== null;
         const isQuerying = tab.isQuerying;
+        const isBrowserTab = isTableBrowserTab(tab.id);
         
         return (
           <div
@@ -46,6 +50,8 @@ export default function TabBar() {
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: 'var(--neu-error)' }} title="有错误"></span>
               ) : tab.queryResult ? (
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: 'var(--neu-success)' }} title="查询成功"></span>
+              ) : isBrowserTab ? (
+                <span className="text-xs flex-shrink-0 opacity-70" title="浏览所有表">📋</span>
               ) : null}
               
               {/* 标签页名称 */}
@@ -54,15 +60,17 @@ export default function TabBar() {
               </span>
             </div>
 
-            {/* 关闭按钮 */}
-            <button
-              onClick={(e) => handleCloseTab(e, tab.id)}
-              className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active flex-shrink-0"
-              style={{ color: 'var(--neu-text-light)' }}
-              title="关闭标签页"
-            >
-              <span className="text-xs">×</span>
-            </button>
+            {/* 关闭按钮（表浏览固定标签不可关闭） */}
+            {!isBrowserTab && (
+              <button
+                onClick={(e) => handleCloseTab(e, tab.id)}
+                className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded transition-all duration-200 neu-flat hover:neu-hover active:neu-active flex-shrink-0"
+                style={{ color: 'var(--neu-text-light)' }}
+                title="关闭标签页"
+              >
+                <span className="text-xs">×</span>
+              </button>
+            )}
           </div>
         );
       })}

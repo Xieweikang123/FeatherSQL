@@ -1,4 +1,10 @@
-import { extractTableInfo, escapeIdentifier, escapeSqlValue, buildTableName } from "../lib/utils";
+import {
+  extractTableInfo,
+  escapeIdentifier,
+  escapeSqlValue,
+  buildTableName,
+  type ColumnTypeMap,
+} from "../lib/utils";
 import type { QueryResult, Connection } from "../lib/commands";
 import type { CellModification } from "../hooks/useEditHistory";
 
@@ -287,7 +293,8 @@ function buildWhereClause(
   result: QueryResult,
   rowIndex: number,
   dbType: string,
-  primaryKeyColumns?: string[]
+  primaryKeyColumns?: string[],
+  columnTypes?: ColumnTypeMap
 ): string {
   const originalRow = result.rows[rowIndex];
   let columnsToUse: string[] = primaryKeyColumns && primaryKeyColumns.length > 0
@@ -308,7 +315,11 @@ function buildWhereClause(
     if (originalValue === null || originalValue === undefined) {
       whereConditions.push(`${escapedCol} IS NULL`);
     } else {
-      const escapedVal = escapeSqlValue(originalValue, dbType);
+      const escapedVal = escapeSqlValue(
+        originalValue,
+        dbType,
+        columnTypes?.[col]
+      );
       whereConditions.push(`${escapedCol} = ${escapedVal}`);
     }
   });
@@ -326,7 +337,8 @@ export function generateUpdateSql(
   result: QueryResult,
   currentConnection: Connection,
   currentDatabase: string | null,
-  primaryKeyColumns?: string[]
+  primaryKeyColumns?: string[],
+  columnTypes?: ColumnTypeMap
 ): string[] {
   if (modifications.size === 0 || !sql || !currentConnection) return [];
   
@@ -354,12 +366,18 @@ export function generateUpdateSql(
     const setClause = Array.from(columns.entries())
       .map(([col, val]) => {
         const escapedCol = escapeIdentifier(col, dbType);
-        const escapedVal = escapeSqlValue(val, dbType);
+        const escapedVal = escapeSqlValue(val, dbType, columnTypes?.[col]);
         return `${escapedCol} = ${escapedVal}`;
       })
       .join(', ');
     
-    const whereClause = buildWhereClause(result, rowIndex, dbType, primaryKeyColumns);
+    const whereClause = buildWhereClause(
+      result,
+      rowIndex,
+      dbType,
+      primaryKeyColumns,
+      columnTypes
+    );
     
     sqls.push(`UPDATE ${escapedTableName} SET ${setClause} WHERE ${whereClause};`);
   });
@@ -376,7 +394,8 @@ export function generateInsertSql(
   editedData: QueryResult,
   displayColumns: string[],
   currentConnection: Connection,
-  currentDatabase: string | null
+  currentDatabase: string | null,
+  columnTypes?: ColumnTypeMap
 ): string | null {
   if (!sql || !currentConnection || selectedRows.size === 0) return null;
   
@@ -404,7 +423,9 @@ export function generateInsertSql(
     if (rowIndex >= editedData.rows.length) continue;
     
     const row = editedData.rows[rowIndex];
-    const values = row.map(val => escapeSqlValue(val, dbType));
+    const values = displayColumns.map((col, colIndex) =>
+      escapeSqlValue(row[colIndex], dbType, columnTypes?.[col])
+    );
     valuesClauses.push(`(${values.join(', ')})`);
   }
   
@@ -423,7 +444,8 @@ export function generateInsertSqlForRowIndices(
   editedData: QueryResult,
   currentConnection: Connection,
   currentDatabase: string | null,
-  displayColumns?: string[]
+  displayColumns?: string[],
+  columnTypes?: ColumnTypeMap
 ): string[] {
   if (!sql || !currentConnection || rowIndices.length === 0) {
     return [];
@@ -452,8 +474,8 @@ export function generateInsertSqlForRowIndices(
     }
 
     const row = editedData.rows[rowIndex];
-    const values = columns.map((_, colIndex) =>
-      escapeSqlValue(row[colIndex], dbType)
+    const values = columns.map((col, colIndex) =>
+      escapeSqlValue(row[colIndex], dbType, columnTypes?.[col])
     );
     sqls.push(
       `INSERT INTO ${escapedTableName} (${columnsClause}) VALUES (${values.join(", ")});`

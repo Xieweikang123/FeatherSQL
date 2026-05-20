@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useTableEditing } from "../useTableEditing";
+import { useTableEditing, buildSaveErrorMessage } from "../useTableEditing";
 import type { QueryResult } from "../../lib/commands";
 import type { CellSelection } from "../useCellSelection";
 
@@ -24,6 +24,7 @@ vi.mock("../../lib/commands", () => ({
 
 vi.mock("../../utils/sqlGenerator", () => ({
   generateUpdateSql: vi.fn(),
+  generateInsertSqlForRowIndices: vi.fn(),
 }));
 
 vi.mock("../../lib/utils", () => ({
@@ -37,7 +38,7 @@ vi.mock("../../services/tabQueryService", () => ({
 import { useEditHistory } from "../useEditHistory";
 import { executeSql } from "../../lib/commands";
 import { runTabQuery } from "../../services/tabQueryService";
-import { generateUpdateSql } from "../../utils/sqlGenerator";
+import { generateUpdateSql, generateInsertSqlForRowIndices } from "../../utils/sqlGenerator";
 import { extractTableInfo } from "../../lib/utils";
 
 describe("useTableEditing", () => {
@@ -80,6 +81,7 @@ describe("useTableEditing", () => {
     vi.mocked(executeSql).mockResolvedValue(createMockQueryResult());
     vi.mocked(runTabQuery).mockResolvedValue(createMockQueryResult());
     vi.mocked(generateUpdateSql).mockReturnValue(["UPDATE users SET name = 'test' WHERE id = 1;"]);
+    vi.mocked(generateInsertSqlForRowIndices).mockReturnValue([]);
     vi.mocked(extractTableInfo).mockReturnValue({ tableName: "users" });
 
     // Mock clipboard API
@@ -167,6 +169,34 @@ describe("useTableEditing", () => {
       });
 
       expect(hookResult.current.editingValue).toBe("");
+    });
+
+    it("should show pasted value when double-clicking a new row cell", async () => {
+      const result = createMockQueryResult([[1, "Alice"]]);
+      const options = createMockOptions({ result });
+      const { result: hookResult } = renderHook(() => useTableEditing(options));
+
+      act(() => {
+        hookResult.current.handleAddRow();
+      });
+
+      const selection: CellSelection = {
+        cells: new Set(["1-0", "1-1"]),
+        startRow: 1,
+        endRow: 1,
+        startCol: 0,
+        endCol: 1,
+      };
+
+      await act(async () => {
+        await hookResult.current.handlePaste(selection, "2\tBob");
+      });
+
+      act(() => {
+        hookResult.current.handleCellDoubleClick(1, 1);
+      });
+
+      expect(hookResult.current.editingValue).toBe("Bob");
     });
 
     it("should update editing value on input change", () => {
@@ -455,8 +485,6 @@ describe("useTableEditing", () => {
     });
 
     it("should paste single value to all selected cells", async () => {
-      vi.mocked(navigator.clipboard.readText).mockResolvedValue("pasted");
-
       const result = createMockQueryResult([
         [1, "Alice"],
         [2, "Bob"],
@@ -473,7 +501,7 @@ describe("useTableEditing", () => {
       };
 
       await act(async () => {
-        await hookResult.current.handlePaste(selection);
+        await hookResult.current.handlePaste(selection, "pasted");
       });
 
       expect(hookResult.current.editedData.rows[0][1]).toBe("pasted");
@@ -481,8 +509,6 @@ describe("useTableEditing", () => {
     });
 
     it("should paste tab-separated values", async () => {
-      vi.mocked(navigator.clipboard.readText).mockResolvedValue("1\tAlice\n2\tBob");
-
       const result = createMockQueryResult([
         [1, "test"],
         [2, "test"],
@@ -499,13 +525,41 @@ describe("useTableEditing", () => {
       };
 
       await act(async () => {
-        await hookResult.current.handlePaste(selection);
+        await hookResult.current.handlePaste(selection, "1\tAlice\n2\tBob");
       });
 
       expect(hookResult.current.editedData.rows[0][0]).toBe("1");
       expect(hookResult.current.editedData.rows[0][1]).toBe("Alice");
       expect(hookResult.current.editedData.rows[1][0]).toBe("2");
       expect(hookResult.current.editedData.rows[1][1]).toBe("Bob");
+    });
+
+    it("should paste copied row into a newly added row", async () => {
+      const result = createMockQueryResult([[1, "Alice"]]);
+      const options = createMockOptions({ result });
+      const { result: hookResult } = renderHook(() => useTableEditing(options));
+
+      let newRowIndex: number | null = null;
+      act(() => {
+        newRowIndex = hookResult.current.handleAddRow();
+      });
+      expect(newRowIndex).toBe(1);
+
+      const selection: CellSelection = {
+        cells: new Set(["1-0"]),
+        startRow: 1,
+        endRow: 1,
+        startCol: 0,
+        endCol: 0,
+      };
+
+      await act(async () => {
+        await hookResult.current.handlePaste(selection, "1\tAlice");
+      });
+
+      expect(hookResult.current.editedData.rows[1][0]).toBe("1");
+      expect(hookResult.current.editedData.rows[1][1]).toBe("Alice");
+      expect(hookResult.current.modifications.size).toBe(0);
     });
 
     it("should not paste without selection", async () => {
@@ -518,11 +572,13 @@ describe("useTableEditing", () => {
 
     });
 
-    it("should handle paste errors", async () => {
-      vi.mocked(navigator.clipboard.readText).mockRejectedValue(new Error("Clipboard error"));
+    it("should handle clipboard read permission denied when text not provided", async () => {
+      vi.mocked(navigator.clipboard.readText).mockRejectedValue(
+        new DOMException("Read permission denied", "NotAllowedError"),
+      );
 
       const options = createMockOptions();
-      const { result } = renderHook(() => useTableEditing(options));
+      const { result: hookResult } = renderHook(() => useTableEditing(options));
 
       const selection: CellSelection = {
         cells: new Set(["0-1"]),
@@ -533,9 +589,10 @@ describe("useTableEditing", () => {
       };
 
       await act(async () => {
-        await result.current.handlePaste(selection);
+        await hookResult.current.handlePaste(selection);
       });
 
+      expect(hookResult.current.editedData.rows[0][1]).toBe("test");
     });
   });
 
@@ -647,6 +704,23 @@ describe("useTableEditing", () => {
   });
 
   describe("save changes", () => {
+    it("buildSaveErrorMessage should include SQL and database error details", () => {
+      const message = buildSaveErrorMessage(
+        [
+          {
+            index: 1,
+            statement: "INSERT INTO users (dn_no) VALUES ('true');",
+            message: "Incorrect integer value: 'true' for column 'dn_no'",
+          },
+        ],
+        1
+      );
+
+      expect(message).toContain("部分保存失败：1/1");
+      expect(message).toContain("INSERT INTO users");
+      expect(message).toContain("Incorrect integer value");
+    });
+
     it("should save changes to database", async () => {
       const result = createMockQueryResult([[1, "test"]]);
       const options = createMockOptions({ result });
@@ -730,7 +804,9 @@ describe("useTableEditing", () => {
     });
 
     it("should handle save errors", async () => {
-      vi.mocked(executeSql).mockRejectedValue(new Error("Database error"));
+      vi.mocked(executeSql).mockRejectedValue(
+        new Error("error returned from database: 1366 Incorrect integer value"),
+      );
 
       const result = createMockQueryResult([[1, "test"]]);
       const options = createMockOptions({ result });
@@ -753,6 +829,8 @@ describe("useTableEditing", () => {
         await hookResult.current.handleSaveChanges();
       });
 
+      expect(hookResult.current.saveError).toContain("Incorrect integer value");
+      expect(hookResult.current.saveError).toContain("SQL:");
     });
 
     it("should handle partial save failures", async () => {
@@ -762,7 +840,9 @@ describe("useTableEditing", () => {
       ]);
       vi.mocked(executeSql)
         .mockResolvedValueOnce(createMockQueryResult())
-        .mockRejectedValueOnce(new Error("Error"));
+        .mockRejectedValueOnce(
+          new Error("error returned from database: 1062 Duplicate entry"),
+        );
 
       const result = createMockQueryResult([
         [1, "test1"],
@@ -788,6 +868,10 @@ describe("useTableEditing", () => {
         await hookResult.current.handleSaveChanges();
       });
 
+      expect(hookResult.current.saveError).toContain("部分保存失败：1/2");
+      expect(hookResult.current.saveError).toContain("Duplicate entry");
+      expect(hookResult.current.saveError).toContain("【第 2 条】");
+      expect(hookResult.current.modifications.size).toBeGreaterThan(0);
     });
   });
 

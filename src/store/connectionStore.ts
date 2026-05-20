@@ -48,6 +48,41 @@ export interface TabState {
   totalRowCount?: number | null; // 表浏览/分页查询的总行数（COUNT）
   editMode?: boolean; // 结果表编辑模式（按标签页）
   showTableBrowser?: boolean; // 主区域显示表列表（选库浏览）；新查询标签页为 false
+  isTableBrowserTab?: boolean; // 固定的「所有表」浏览标签，不可关闭
+}
+
+/** 固定在第一位的表浏览标签 ID */
+export const TABLE_BROWSER_TAB_ID = "tab-table-browser";
+
+export function isTableBrowserTab(tabId: string | null | undefined): boolean {
+  return tabId === TABLE_BROWSER_TAB_ID;
+}
+
+function computeShowTableBrowser(
+  connectionId: string | null,
+  database: string | null,
+  connections: Connection[]
+): boolean {
+  if (!connectionId) {
+    return false;
+  }
+  const connection = connections.find((c) => c.id === connectionId);
+  if (!connection) {
+    return false;
+  }
+  if (connection.type === "sqlite") {
+    return database !== null;
+  }
+  return database !== null && database !== "";
+}
+
+function normalizeTabsOrder(tabs: TabState[], connections: Connection[]): TabState[] {
+  let browser = tabs.find((t) => isTableBrowserTab(t.id));
+  const rest = tabs.filter((t) => !isTableBrowserTab(t.id));
+  if (!browser) {
+    browser = createTableBrowserTab(null, connections);
+  }
+  return [browser, ...rest];
 }
 
 export interface ConnectionState {
@@ -111,7 +146,36 @@ function buildTabName(
   return parts.join(".");
 }
 
-// 创建默认标签页
+// 固定的表浏览标签（始终第一位，点击可查看所有表）
+const createTableBrowserTab = (
+  inheritFrom?: TabState | null,
+  connections: Connection[] = []
+): TabState => {
+  const connectionId = inheritFrom?.connectionId ?? null;
+  const database = inheritFrom?.database ?? null;
+  return {
+    id: TABLE_BROWSER_TAB_ID,
+    name: "表",
+    connectionId,
+    database,
+    sql: "",
+    queryResult: null,
+    error: null,
+    isQuerying: false,
+    selectedTable: null,
+    columnFilters: {},
+    sortConfig: [],
+    sqlToLoad: null,
+    actualExecutedSql: null,
+    originalSqlForFilter: null,
+    totalRowCount: null,
+    editMode: false,
+    showTableBrowser: computeShowTableBrowser(connectionId, database, connections),
+    isTableBrowserTab: true,
+  };
+};
+
+// 创建默认查询标签页
 const createDefaultTab = (
   name: string = "新查询",
   inheritFrom?: TabState | null
@@ -133,11 +197,11 @@ const createDefaultTab = (
   totalRowCount: null,
   editMode: false,
   showTableBrowser: false,
+  isTableBrowserTab: false,
 });
 
 export const useConnectionStore = create<ConnectionState>((set, get) => {
-  // 初始化时创建一个默认标签页
-  const initialTab = createDefaultTab();
+  const initialTab = createTableBrowserTab();
   
   return {
     connections: [],
@@ -153,59 +217,109 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     if (!currentTab) {
       return;
     }
-    get().updateTab(currentTab.id, {
+    const updates: Partial<TabState> = {
       connectionId: id,
       database: null,
       selectedTable: null,
       showTableBrowser: false,
-    });
+    };
+    get().updateTab(currentTab.id, updates);
+    // 侧边栏切换连接时同步固定「表」标签，避免切回表浏览时仍是旧库
+    if (!isTableBrowserTab(currentTab.id)) {
+      get().updateTab(TABLE_BROWSER_TAB_ID, {
+        ...updates,
+        queryResult: null,
+        error: null,
+        isQuerying: false,
+      });
+    }
   },
   setCurrentDatabase: (database) => {
     const currentTab = get().getCurrentTab();
     if (!currentTab) {
       return;
     }
-    get().updateTab(currentTab.id, {
+    const { connections } = get();
+    const showTableBrowser = computeShowTableBrowser(
+      currentTab.connectionId,
+      database,
+      connections
+    );
+    const updates: Partial<TabState> = {
       database,
       selectedTable: null,
       queryResult: null,
       error: null,
       editMode: false,
-      showTableBrowser: database !== null,
-    });
+      showTableBrowser: isTableBrowserTab(currentTab.id)
+        ? showTableBrowser
+        : false,
+    };
+    get().updateTab(currentTab.id, updates);
+    if (!isTableBrowserTab(currentTab.id)) {
+      get().updateTab(TABLE_BROWSER_TAB_ID, {
+        connectionId: currentTab.connectionId,
+        database,
+        selectedTable: null,
+        showTableBrowser,
+        queryResult: null,
+        error: null,
+        isQuerying: false,
+        editMode: false,
+      });
+    }
   },
   // 标签页操作方法
   createTab: (name) => {
     const currentTab = get().getCurrentTab();
     const newTab = createDefaultTab(name, currentTab);
     set((state) => ({
-      tabs: [...state.tabs, newTab],
+      tabs: normalizeTabsOrder([...state.tabs, newTab], state.connections),
       currentTabId: newTab.id,
     }));
     return newTab.id;
   },
   closeTab: (tabId) => {
+    if (isTableBrowserTab(tabId)) {
+      return;
+    }
     set((state) => {
-      const tabs = state.tabs.filter(tab => tab.id !== tabId);
-      if (tabs.length === 0) {
-        // 如果关闭了所有标签页，创建一个新的
-        const newTab = createDefaultTab();
-        return { tabs: [newTab], currentTabId: newTab.id };
-      }
-      // 如果关闭的是当前标签页，切换到其他标签页
+      const filtered = state.tabs.filter((tab) => tab.id !== tabId);
+      const tabs = normalizeTabsOrder(filtered, state.connections);
       let newCurrentTabId = state.currentTabId;
       if (state.currentTabId === tabId) {
-        const currentIndex = state.tabs.findIndex(tab => tab.id === tabId);
-        if (currentIndex > 0) {
-          newCurrentTabId = tabs[currentIndex - 1].id;
-        } else {
-          newCurrentTabId = tabs[0].id;
-        }
+        const closedIndex = state.tabs.findIndex((tab) => tab.id === tabId);
+        const fallbackIndex = Math.max(0, closedIndex - 1);
+        newCurrentTabId = tabs[fallbackIndex]?.id ?? TABLE_BROWSER_TAB_ID;
       }
       return { tabs, currentTabId: newCurrentTabId };
     });
   },
   setCurrentTab: (tabId) => {
+    if (isTableBrowserTab(tabId)) {
+      const state = get();
+      const tab = state.tabs.find((t) => t.id === tabId);
+      if (tab) {
+        const showTableBrowser = computeShowTableBrowser(
+          tab.connectionId,
+          tab.database,
+          state.connections
+        );
+        state.updateTab(tabId, {
+          selectedTable: null,
+          queryResult: null,
+          error: null,
+          isQuerying: false,
+          editMode: false,
+          actualExecutedSql: null,
+          totalRowCount: null,
+          isFilterResult: false,
+          showTableBrowser,
+          columnFilters: {},
+          sortConfig: [],
+        });
+      }
+    }
     set({ currentTabId: tabId });
   },
   updateTab: (tabId, updates) => {
@@ -213,8 +327,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
       const updatedTabs = state.tabs.map(tab => {
         if (tab.id === tabId) {
           const updatedTab = { ...tab, ...updates };
-          // 如果更新了 selectedTable，自动更新标签页名称
-          if (updates.selectedTable !== undefined && updates.selectedTable) {
+          // 如果更新了 selectedTable，自动更新标签页名称（表浏览固定标签保持「表」）
+          if (
+            updates.selectedTable !== undefined &&
+            updates.selectedTable &&
+            !isTableBrowserTab(tab.id)
+          ) {
             updatedTab.name = buildTabName(
               updates.selectedTable,
               updatedTab.connectionId,
@@ -253,9 +371,16 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
         : table || "新查询";
 
     if (!table) {
+      const showTableBrowser = isTableBrowserTab(currentTab.id)
+        ? computeShowTableBrowser(
+            currentTab.connectionId,
+            currentTab.database,
+            state.connections
+          )
+        : false;
       state.updateTab(currentTab.id, {
         selectedTable: null,
-        name: tabName,
+        name: isTableBrowserTab(currentTab.id) ? "表" : tabName,
         queryResult: null,
         error: null,
         isQuerying: false,
@@ -267,7 +392,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
         sql: "",
         sqlToLoad: null,
         editMode: false,
-        showTableBrowser: false,
+        showTableBrowser,
       });
       return;
     }

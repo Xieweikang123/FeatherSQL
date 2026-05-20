@@ -13,8 +13,10 @@ import {
   listTables,
   type Connection,
 } from "../lib/commands";
-import { runTabQuery } from "../services/tabQueryService";
-import { openTableBrowse } from "../services/tableBrowseService";
+import {
+  openTableFromSidebar,
+  openSqlFromWorkspaceRestore,
+} from "../services/tableBrowseService";
 import { buildTableSelectSql } from "../utils/sqlGenerator";
 import ConnectionForm from "./ConnectionForm";
 import TableContextMenu from "./ConnectionManager/TableContextMenu";
@@ -259,25 +261,12 @@ export default function ConnectionManager() {
     const connection = connections.find((c) => c.id === connectionId);
     if (!connection) return;
 
-    if (currentConnectionId !== connectionId) {
-      setCurrentConnection(connectionId);
-    }
-
-    const targetDatabase = connection.type === "sqlite" ? "" : database;
-    const latestTab = getCurrentTab();
-    if (latestTab?.database !== targetDatabase) {
-      setCurrentDatabase(targetDatabase);
-    }
-
-    const currentTab = getCurrentTab();
-    if (!currentTab) return;
-
-    await openTableBrowse({
-      tabId: currentTab.id,
+    await openTableFromSidebar({
       connectionId,
       connection,
       database,
       tableName: table,
+      forceNewTab: e.ctrlKey || e.metaKey,
     });
   };
 
@@ -299,15 +288,7 @@ export default function ConnectionManager() {
     const connection = connections.find((c) => c.id === currentConnectionId);
     if (!connection) return;
 
-    if (connection.type !== "sqlite" && database !== currentDatabase) {
-      setCurrentDatabase(database);
-    }
-
-    const currentTab = getCurrentTab();
-    if (!currentTab) return;
-
-    await openTableBrowse({
-      tabId: currentTab.id,
+    await openTableFromSidebar({
       connectionId: currentConnectionId,
       connection,
       database,
@@ -528,31 +509,22 @@ export default function ConnectionManager() {
         }
       }
 
-      // Restore table / SQL and run query (otherwise UI stays on "查询中..." forever)
-      const tabAfterRestore = useConnectionStore.getState().getCurrentTab();
-      if (!tabAfterRestore) {
-        return;
-      }
-
       const databaseForQuery =
         connection.type === "sqlite" ? "" : (savedState.database ?? "");
 
       if (savedState.table) {
-        await openTableBrowse({
-          tabId: tabAfterRestore.id,
+        await openTableFromSidebar({
           connectionId: connection.id,
           connection,
           database: savedState.database ?? "",
           tableName: savedState.table,
         });
       } else if (savedState.sql?.trim()) {
-        loadSql(savedState.sql);
-        await runTabQuery({
-          tabId: tabAfterRestore.id,
-          sql: savedState.sql.trim(),
+        await openSqlFromWorkspaceRestore({
           connectionId: connection.id,
+          connection,
           database: databaseForQuery,
-          mode: "full",
+          sql: savedState.sql,
         });
       }
     } catch (error) {

@@ -205,5 +205,15 @@ describe("escapeSqlValue", () => {
   it("should handle empty strings", () => {
     expect(escapeSqlValue("", "mysql")).toBe("''");
   });
+
+  it("should coerce string true/false to numeric for integer columns", () => {
+    expect(escapeSqlValue("true", "mysql", "int(11)")).toBe("1");
+    expect(escapeSqlValue("false", "mysql", "int(11)")).toBe("0");
+    expect(escapeSqlValue("true", "mysql", "bigint")).toBe("1");
+  });
+
+  it("should keep string true quoted for varchar columns", () => {
+    expect(escapeSqlValue("true", "mysql", "varchar(50)")).toBe("'true'");
+  });
 });
 
